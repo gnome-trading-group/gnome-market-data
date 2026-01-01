@@ -151,6 +151,20 @@ export class MarketDataPipelineStack extends cdk.Stack {
         },
       },
       synthCodeBuildDefaults: {
+        buildEnvironment: {
+          buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_5,
+          environmentVariables: {
+            MAVEN_CREDENTIALS: {
+              value: githubSecret.secretValue.unsafeUnwrap(),
+            },
+            GITHUB_ACTOR: {
+              value: githubSecret.secretValueFromJson('GITHUB_ACTOR').unsafeUnwrap(),
+            },
+            GITHUB_TOKEN: {
+              value: githubSecret.secretValueFromJson('GITHUB_TOKEN').unsafeUnwrap(),
+            },
+          }
+        },
         rolePolicy: [
           new iam.PolicyStatement({
             actions: ['sts:AssumeRole'],
