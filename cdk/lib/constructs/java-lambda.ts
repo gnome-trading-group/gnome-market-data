@@ -40,6 +40,8 @@ export class JavaLambda extends Construct {
           ],
           environment: {
             MAVEN_CREDENTIALS: process.env.MAVEN_CREDENTIALS || '',
+            GITHUB_ACTOR: process.env.GITHUB_ACTOR || '',
+            GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
           },
         },
       }),

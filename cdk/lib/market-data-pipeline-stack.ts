@@ -126,6 +126,8 @@ export class MarketDataPipelineStack extends cdk.Stack {
         env: {
           NPM_TOKEN: npmSecret.secretValue.unsafeUnwrap(),
           MAVEN_CREDENTIALS: githubSecret.secretValue.unsafeUnwrap(),
+          GITHUB_ACTOR: githubSecret.secretValueFromJson('GITHUB_ACTOR').unsafeUnwrap(),
+          GITHUB_TOKEN: githubSecret.secretValueFromJson('GITHUB_TOKEN').unsafeUnwrap(),
         },
         primaryOutputDirectory: 'cdk/cdk.out',
       }),
@@ -138,7 +140,13 @@ export class MarketDataPipelineStack extends cdk.Stack {
           environmentVariables: {
             MAVEN_CREDENTIALS: {
               value: githubSecret.secretValue.unsafeUnwrap(),
-            }
+            },
+            GITHUB_ACTOR: {
+              value: githubSecret.secretValueFromJson('GITHUB_ACTOR').unsafeUnwrap(),
+            },
+            GITHUB_TOKEN: {
+              value: githubSecret.secretValueFromJson('GITHUB_TOKEN').unsafeUnwrap(),
+            },
           }
         },
       },
