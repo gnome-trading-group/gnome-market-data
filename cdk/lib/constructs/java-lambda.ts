@@ -26,6 +26,9 @@ export class JavaLambda extends Construct {
             '/bin/sh',
             '-c',
             [
+              'echo "TEST TEST TEST"',
+              'echo $MAVEN_CREDENTIALS',
+              'env',
               // Extract GitHub credentials from the secret
               'echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_ACTOR\'',
               'echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_TOKEN\'',
