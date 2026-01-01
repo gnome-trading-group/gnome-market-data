@@ -118,6 +118,15 @@ export class MarketDataPipelineStack extends cdk.Stack {
       synth: new pipelines.ShellStep("Synth", {
         input: pipelines.CodePipelineSource.gitHub(GITHUB_REPO, GITHUB_BRANCH),
         commands: [
+          // Extract GitHub credentials from the secret
+          'export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_ACTOR\')',
+          'export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_TOKEN\')',
+          // Build the Maven project
+          'mvn clean package -s settings.xml',
+          // Copy the JAR to a known location for CDK to pick up
+          'mkdir -p cdk/lambda-jars',
+          'cp target/gnome-market-data-1.0.0-SNAPSHOT.jar cdk/lambda-jars/merger-lambda.jar',
+          // Install NPM dependencies and synth
           'echo "//npm.pkg.github.com/:_authToken=${NPM_TOKEN}" > ~/.npmrc',
           "cd cdk/",
           "npm ci",
@@ -125,6 +134,7 @@ export class MarketDataPipelineStack extends cdk.Stack {
         ],
         env: {
           NPM_TOKEN: npmSecret.secretValue.unsafeUnwrap(),
+          MAVEN_CREDENTIALS: githubSecret.secretValue.unsafeUnwrap(),
         },
         primaryOutputDirectory: 'cdk/cdk.out',
       }),
@@ -142,6 +152,9 @@ export class MarketDataPipelineStack extends cdk.Stack {
         },
       },
       synthCodeBuildDefaults: {
+        buildEnvironment: {
+          buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+        },
         rolePolicy: [
           new iam.PolicyStatement({
             actions: ['sts:AssumeRole'],
@@ -154,31 +167,6 @@ export class MarketDataPipelineStack extends cdk.Stack {
           })
         ],
       }
-    });
-
-    pipeline.addWave("BuildLayers", {
-      post: [
-        new pipelines.CodeBuildStep("BuildMavenJar", {
-          buildEnvironment: {
-            buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
-            environmentVariables: {
-              MAVEN_CREDENTIALS: {
-                value: githubSecret.secretValue.unsafeUnwrap(),
-              }
-            }
-          },
-          commands: [
-            // Extract GitHub credentials from the secret
-            'export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_ACTOR\')',
-            'export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_TOKEN\')',
-            // Build the Maven project
-            'mvn clean package -s settings.xml',
-            // Copy the JAR to a known location for CDK to pick up
-            'mkdir -p cdk/lambda-jars',
-            'cp target/gnome-market-data-1.0.0-SNAPSHOT.jar cdk/lambda-jars/merger-lambda.jar',
-          ],
-        }),
-      ],
     });
 
     const dev = new AppStage(this, "Dev", CONFIGS[Stage.DEV]!);
