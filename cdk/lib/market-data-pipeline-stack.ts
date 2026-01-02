@@ -120,6 +120,7 @@ export class MarketDataPipelineStack extends cdk.Stack {
       synth: new pipelines.ShellStep("Synth", {
         input: pipelines.CodePipelineSource.gitHub(GITHUB_REPO, GITHUB_BRANCH),
         commands: [
+          'printenv',
           'echo "//npm.pkg.github.com/:_authToken=${NPM_TOKEN}" > ~/.npmrc',
           "cd cdk/",
           "npm ci",
@@ -128,8 +129,6 @@ export class MarketDataPipelineStack extends cdk.Stack {
         env: {
           NPM_TOKEN: npmSecret.secretValue.unsafeUnwrap(),
           MAVEN_CREDENTIALS: githubSecret.secretValue.unsafeUnwrap(),
-          GITHUB_ACTOR: githubSecret.secretValueFromJson('GITHUB_ACTOR').unsafeUnwrap(),
-          GITHUB_TOKEN: githubSecret.secretValueFromJson('GITHUB_TOKEN').unsafeUnwrap(),
         },
         primaryOutputDirectory: 'cdk/cdk.out',
       }),
@@ -159,12 +158,6 @@ export class MarketDataPipelineStack extends cdk.Stack {
           environmentVariables: {
             MAVEN_CREDENTIALS: {
               value: githubSecret.secretValue.unsafeUnwrap(),
-            },
-            GITHUB_ACTOR: {
-              value: githubSecret.secretValueFromJson('GITHUB_ACTOR').unsafeUnwrap(),
-            },
-            GITHUB_TOKEN: {
-              value: githubSecret.secretValueFromJson('GITHUB_TOKEN').unsafeUnwrap(),
             },
           }
         },
