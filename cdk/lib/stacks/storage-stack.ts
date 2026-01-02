@@ -3,6 +3,8 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3notifications from "aws-cdk-lib/aws-s3-notifications";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import { Construct } from "constructs";
 import { MarketDataConfig } from "../config";
 
@@ -88,14 +90,13 @@ export class StorageStack extends cdk.Stack {
       new s3notifications.SqsDestination(this.mergerQueue)
     );
 
-    this.mergedBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3notifications.SqsDestination(this.transformerQueue)
-    );
+    const snsTopic = new sns.Topic(this, 'MarketDataMergerBucketSnsTopic');
+    snsTopic.addSubscription(new subs.SqsSubscription(this.transformerQueue));
+    snsTopic.addSubscription(new subs.SqsSubscription(this.gapQueue));
 
     this.mergedBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
-      new s3notifications.SqsDestination(this.gapQueue)
+      new s3notifications.SnsDestination(snsTopic)
     );
   }
 }
