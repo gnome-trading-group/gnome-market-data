@@ -121,6 +121,7 @@ export class MarketDataPipelineStack extends cdk.Stack {
         input: pipelines.CodePipelineSource.gitHub(GITHUB_REPO, GITHUB_BRANCH),
         commands: [
           'printenv',
+          'env',
           'echo "//npm.pkg.github.com/:_authToken=${NPM_TOKEN}" > ~/.npmrc',
           "cd cdk/",
           "npm ci",
