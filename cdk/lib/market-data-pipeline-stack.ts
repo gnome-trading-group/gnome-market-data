@@ -115,6 +115,8 @@ export class MarketDataPipelineStack extends cdk.Stack {
     const pipeline = new pipelines.CodePipeline(this, "MarketDataPipeline", {
       crossAccountKeys: true,
       pipelineName: "MarketDataPipeline",
+      // Enable Docker for synth - required for Lambda bundling
+      dockerEnabledForSynth: true,
       synth: new pipelines.ShellStep("Synth", {
         input: pipelines.CodePipelineSource.gitHub(GITHUB_REPO, GITHUB_BRANCH),
         commands: [
@@ -153,6 +155,7 @@ export class MarketDataPipelineStack extends cdk.Stack {
       synthCodeBuildDefaults: {
         buildEnvironment: {
           buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_5,
+          privileged: true, // Required for Docker builds
           environmentVariables: {
             MAVEN_CREDENTIALS: {
               value: githubSecret.secretValue.unsafeUnwrap(),

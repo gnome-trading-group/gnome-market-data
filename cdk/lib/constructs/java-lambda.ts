@@ -16,6 +16,9 @@ export class JavaLambda extends Construct {
 
     const projectRoot = path.join(__dirname, '..', '..', '..');
 
+    // Debug: Log what environment variables are available
+    console.log('MAVEN_CREDENTIALS available:', !!process.env.MAVEN_CREDENTIALS);
+
     this.lambdaFunction = new lambda.Function(this, 'JavaLambda', {
       runtime: lambda.Runtime.JAVA_17,
       handler: `${props.classPath}::handleRequest`,
@@ -26,12 +29,9 @@ export class JavaLambda extends Construct {
             '/bin/sh',
             '-c',
             [
-              'echo "TEST TEST TEST"',
-              'echo $MAVEN_CREDENTIALS',
-              'env',
-              // Extract GitHub credentials from the secret
-              'echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_ACTOR\'',
-              'echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_TOKEN\'',
+              'echo "=== Bundling Java Lambda ==="',
+              'echo "MAVEN_CREDENTIALS set: $([ -n "$MAVEN_CREDENTIALS" ] && echo YES || echo NO)"',
+              'echo "=== Running Maven Build ==="',
               'export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_ACTOR\')',
               'export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_TOKEN\')',
               'mvn clean package -s settings.xml',
@@ -40,8 +40,6 @@ export class JavaLambda extends Construct {
           ],
           environment: {
             MAVEN_CREDENTIALS: process.env.MAVEN_CREDENTIALS || '',
-            GITHUB_ACTOR: process.env.GITHUB_ACTOR || '',
-            GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
           },
         },
       }),
