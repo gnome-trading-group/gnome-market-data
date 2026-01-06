@@ -6,6 +6,7 @@ import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent.SQSMessage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import group.gnometrading.Dependencies;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.*;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -19,17 +20,47 @@ import java.util.*;
  * Creates job entries in DynamoDB to be processed by JobProcessorLambdaHandler.
  */
 public class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, Void> {
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
     private final S3Client s3Client;
     private final DynamoDbClient dynamoDbClient;
     private final String mergedBucketName;
     private final String transformJobsTableName;
-    
+
+    /**
+     * No-argument constructor for Lambda runtime.
+     * Uses the Dependencies singleton to obtain shared instances.
+     */
     public JobCreatorLambdaHandler() {
-        this.s3Client = S3Client.create();
-        this.dynamoDbClient = DynamoDbClient.create();
-        this.mergedBucketName = System.getenv("MERGED_BUCKET_NAME");
-        this.transformJobsTableName = System.getenv("TRANSFORM_JOBS_TABLE_NAME");
+        this(
+            Dependencies.getInstance().getS3Client(),
+            Dependencies.getInstance().getDynamoDbClient(),
+            Dependencies.getInstance().getObjectMapper(),
+            Dependencies.getInstance().getMergedBucketName(),
+            Dependencies.getInstance().getTransformJobsTableName()
+        );
+    }
+
+    /**
+     * Constructor for unit testing.
+     * Allows injection of mock dependencies.
+     *
+     * @param s3Client S3 client for accessing merged data files
+     * @param dynamoDbClient DynamoDB client for creating job records
+     * @param objectMapper Jackson ObjectMapper for JSON parsing
+     * @param mergedBucketName Name of the S3 bucket containing merged data
+     * @param transformJobsTableName Name of the DynamoDB table for transform jobs
+     */
+    JobCreatorLambdaHandler(
+            S3Client s3Client,
+            DynamoDbClient dynamoDbClient,
+            ObjectMapper objectMapper,
+            String mergedBucketName,
+            String transformJobsTableName) {
+        this.s3Client = s3Client;
+        this.dynamoDbClient = dynamoDbClient;
+        this.objectMapper = objectMapper;
+        this.mergedBucketName = mergedBucketName;
+        this.transformJobsTableName = transformJobsTableName;
     }
     
     @Override
