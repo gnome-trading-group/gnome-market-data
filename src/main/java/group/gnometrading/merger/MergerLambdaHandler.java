@@ -15,6 +15,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Lambda handler for processing S3 object creation events from SQS queue.
@@ -51,7 +52,11 @@ public class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
             Map<MarketDataEntry, List<MarketDataEntry>> keys = event.getRecords().stream()
                     .map(message -> extractKeysFromMessage(message, context))
                     .flatMap(map -> map.entrySet().stream())
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            Map.Entry::getValue,
+                            (list1, list2) -> Stream.concat(list1.stream(), list2.stream()).collect(Collectors.toList())
+                    ));
 
             keys.entrySet().parallelStream().forEach(entry -> {
                 mergeEntries(entry.getKey(), entry.getValue(), context);

@@ -454,6 +454,62 @@ class MergerLambdaHandlerTest {
         verify(logger).log(contains("Wrote 3"));
     }
 
+    /**
+     * Tests that duplicate keys from multiple SQS messages are properly merged together.
+     * This can happen when multiple SQS messages contain S3 events for raw entries
+     * that belong to the same merged key (same timestamp).
+     */
+    @Test
+    void testHandleRequestWithDuplicateKeysFromMultipleSQSMessages() throws Exception {
+        // Given: Two SQS messages, each containing raw entries for the same timestamp
+        // This simulates receiving multiple SQS messages that need to be merged together
+        String key1 = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String key2 = "1/2/2024/1/15/10/0/mbp-10/uuid-2.zst";
+        String key3 = "1/2/2024/1/15/10/0/mbp-10/uuid-3.zst";
+
+        // First SQS message contains 2 raw entries
+        String sqsMessage1Json = createS3EventJsonWithMultipleKeys(key1, key2);
+        // Second SQS message contains 1 raw entry (same timestamp, so duplicate merged key)
+        String sqsMessage2Json = createS3EventJsonWithKey(key3);
+
+        SQSEvent event = new SQSEvent();
+        SQSEvent.SQSMessage message1 = new SQSEvent.SQSMessage();
+        message1.setBody(sqsMessage1Json);
+        SQSEvent.SQSMessage message2 = new SQSEvent.SQSMessage();
+        message2.setBody(sqsMessage2Json);
+        event.setRecords(List.of(message1, message2));
+
+        when(objectMapper.readTree(sqsMessage1Json)).thenReturn(
+            new ObjectMapper().readTree(sqsMessage1Json)
+        );
+        when(objectMapper.readTree(sqsMessage2Json)).thenReturn(
+            new ObjectMapper().readTree(sqsMessage2Json)
+        );
+
+        // Mock S3 to return different data for each raw entry
+        mockS3GetObject(key1, List.of(createSchema(100L), createSchema(101L)));
+        mockS3GetObject(key2, List.of(createSchema(100L), createSchema(101L), createSchema(102L)));
+        mockS3GetObject(key3, List.of(createSchema(100L)));
+
+        // When: Handler processes the event
+        handler.handleRequest(event, context);
+
+        // Then: All 3 raw entries should be loaded from S3
+        verify(s3Client, times(3)).getObject(any(java.util.function.Consumer.class));
+
+        // And: Only 1 merged file should be created (all 3 entries have same timestamp)
+        verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
+
+        // And: The merge should process all 3 entries together
+        verify(logger).log(contains("Merging 3 entries"));
+
+        // And: The winning entry (key2 with 3 records) should be selected
+        verify(logger).log(contains("Wrote 3"));
+
+        // Verify we processed 2 SQS messages
+        verify(logger).log(contains("Received SQS event with 2 messages"));
+    }
+
     // ============================================================================
     // HELPER METHODS
     // ============================================================================
