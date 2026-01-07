@@ -50,7 +50,7 @@ public class MarketDataEntry {
                 listing.exchange().schemaType(),
                 timestamp,
                 entryType,
-                UUID.randomUUID().toString().substring(0, 8)
+                entryType == EntryType.RAW ? UUID.randomUUID().toString().substring(0, 8) : null
         );
     }
 
@@ -66,7 +66,14 @@ public class MarketDataEntry {
     }
 
     public MarketDataEntry(int securityId, int exchangeId, SchemaType schemaType, LocalDateTime timestamp, EntryType entryType) {
-        this(securityId, exchangeId, schemaType, timestamp, entryType, UUID.randomUUID().toString().substring(0, 8));
+        this(
+                securityId,
+                exchangeId,
+                schemaType,
+                timestamp,
+                entryType,
+                entryType == EntryType.RAW ? UUID.randomUUID().toString().substring(0, 8) : null
+        );
     }
 
     public MarketDataEntry(int securityId, int exchangeId, SchemaType schemaType, LocalDateTime timestamp, EntryType entryType, String uuid) {
@@ -197,34 +204,33 @@ public class MarketDataEntry {
                 exchangeId == that.exchangeId &&
                 schemaType == that.schemaType &&
                 Objects.equals(timestamp, that.timestamp) &&
-                entryType == that.entryType;
+                entryType == that.entryType &&
+                Objects.equals(this.uuid, that.uuid);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(securityId, exchangeId, schemaType, timestamp, entryType);
+        return Objects.hash(securityId, exchangeId, schemaType, timestamp, entryType, uuid);
     }
 
-    public static List<MarketDataEntry> getAllKeysForListing(S3Client s3Client, String bucket, Listing listing) {
-        return getKeysForListingByDay(s3Client, bucket, listing, null);
-    }
-
-    public static List<MarketDataEntry> getKeysForListingByDay(S3Client s3Client, String bucket, Listing listing, LocalDateTime day) {
-        final String keyPrefix;
-        if (day != null) {
-            keyPrefix = "%d/%d/%d/%d/%d/".formatted(
-                    listing.security().securityId(),
-                    listing.exchange().exchangeId(),
-                    day.getYear(),
-                    day.getMonthValue(),
-                    day.getDayOfMonth()
-            );
-        } else {
-            keyPrefix = "%d/%d/".formatted(
-                    listing.security().securityId(),
-                    listing.exchange().exchangeId()
-            );
-        }
+    public static List<MarketDataEntry> getRawKeys(
+            S3Client s3Client,
+            String bucket,
+            int securityId,
+            int exchangeId,
+            LocalDateTime timestamp,
+            SchemaType schemaType
+    ) {
+        final String keyPrefix = "%d/%d/%d/%d/%d/%d/%d/%s/".formatted(
+                securityId,
+                exchangeId,
+                timestamp.getYear(),
+                timestamp.getMonthValue(),
+                timestamp.getDayOfMonth(),
+                timestamp.getHour(),
+                timestamp.getMinute(),
+                schemaType.getIdentifier()
+        );
         var response = s3Client.listObjectsV2Paginator(request ->
                 request
                         .bucket(bucket)
@@ -234,7 +240,6 @@ public class MarketDataEntry {
                 .map(S3Object::key)
                 .map(MarketDataEntry::fromKey)
                 .sorted(Comparator.comparing(MarketDataEntry::getTimestamp))
-                .filter(entry -> entry.getSchemaType() == listing.exchange().schemaType())
                 .collect(Collectors.toList());
     }
 

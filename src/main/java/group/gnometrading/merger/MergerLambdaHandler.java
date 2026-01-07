@@ -15,7 +15,6 @@ import software.amazon.awssdk.services.s3.S3Client;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Lambda handler for processing S3 object creation events from SQS queue.
@@ -49,13 +48,16 @@ public class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
         context.getLogger().log("Received SQS event with " + event.getRecords().size() + " messages");
 
         try {
-            Map<MarketDataEntry, List<MarketDataEntry>> keys = event.getRecords().stream()
+            Map<MarketDataEntry, Set<MarketDataEntry>> keys = event.getRecords().stream()
                     .map(message -> extractKeysFromMessage(message, context))
                     .flatMap(map -> map.entrySet().stream())
                     .collect(Collectors.toMap(
                             Map.Entry::getKey,
                             Map.Entry::getValue,
-                            (list1, list2) -> Stream.concat(list1.stream(), list2.stream()).collect(Collectors.toList())
+                            (list1, list2) -> {
+                                list1.addAll(list2);
+                                return list1;
+                            }
                     ));
 
             keys.entrySet().parallelStream().forEach(entry -> {
@@ -69,7 +71,7 @@ public class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
         return null;
     }
 
-    private void mergeEntries(MarketDataEntry mergedEntry, List<MarketDataEntry> rawEntries, Context context) {
+    private void mergeEntries(MarketDataEntry mergedEntry, Set<MarketDataEntry> rawEntries, Context context) {
         context.getLogger().log("Merging " + rawEntries.size() + " entries into " + mergedEntry);
 
         Map<String, List<Schema>> entries = new LinkedHashMap<>();
@@ -97,7 +99,7 @@ public class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
         };
     }
 
-    private Map<MarketDataEntry, List<MarketDataEntry>> extractKeysFromMessage(SQSMessage message, Context context) {
+    private Map<MarketDataEntry, Set<MarketDataEntry>> extractKeysFromMessage(SQSMessage message, Context context) {
         String body = message.getBody();
         context.getLogger().log("Processing message: " + body);
 
@@ -110,7 +112,7 @@ public class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
         }
         
         JsonNode records = s3Event.get("Records");
-        Map<MarketDataEntry, List<MarketDataEntry>> keys = new HashMap<>();
+        Set<MarketDataEntry> mergedKeys = new HashSet<>();
         if (records != null && records.isArray()) {
             for (JsonNode record : records) {
                 MarketDataEntry entry = parseS3Record(record, context);
@@ -121,9 +123,23 @@ public class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
                 assert entry.getEntryType() == MarketDataEntry.EntryType.RAW : "Expected raw entry, got " + entry.getEntryType();
 
                 MarketDataEntry mergedEntry = new MarketDataEntry(entry.getSecurityId(), entry.getExchangeId(), entry.getSchemaType(), entry.getTimestamp(), MarketDataEntry.EntryType.AGGREGATED);
-                keys.computeIfAbsent(mergedEntry, k -> new ArrayList<>()).add(entry);
+                mergedKeys.add(mergedEntry);
             }
         }
+
+        Map<MarketDataEntry, Set<MarketDataEntry>> keys = new HashMap<>();
+        for (MarketDataEntry mergedEntry : mergedKeys) {
+            List<MarketDataEntry> availableKeys = MarketDataEntry.getRawKeys(
+                    s3Client,
+                    inputBucket,
+                    mergedEntry.getSecurityId(),
+                    mergedEntry.getExchangeId(),
+                    mergedEntry.getTimestamp(),
+                    mergedEntry.getSchemaType()
+            );
+            keys.computeIfAbsent(mergedEntry, k -> new HashSet<>()).addAll(availableKeys);
+        }
+
         return keys;
     }
     

@@ -21,10 +21,8 @@ import group.gnometrading.schemas.SchemaType;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.AbortableInputStream;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
 import com.github.luben.zstd.ZstdInputStream;
 import com.github.luben.zstd.ZstdOutputStream;
 
@@ -314,63 +312,67 @@ class MergerLambdaHandlerTest {
     }
 
     // ============================================================================
-    // BUSINESS LOGIC TESTS - Testing actual merge operations
+    // BUSINESS LOGIC TESTS - S3 Listing and Merging
     // ============================================================================
 
+    /**
+     * Tests that when a notification arrives for a single raw file,
+     * and it's the only file in S3, it gets merged by itself.
+     */
     @Test
-    void testHandleRequestWithSingleRawEntry() throws Exception {
-        // Given: S3 event with a single raw market data entry
-        // Key format: securityId/exchangeId/year/month/day/hour/minute/schemaType/uuid.zst
+    void testNotificationForSingleFileInS3() throws Exception {
+        // Given: Notification for uuid-1, and S3 listing returns only uuid-1
         String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
-        // Mock ObjectMapper to parse the S3 event
         when(objectMapper.readTree(s3EventJson)).thenReturn(
             new ObjectMapper().readTree(s3EventJson)
         );
 
-        // Mock S3 to return compressed data with schemas
-        List<Schema> rawSchemas = List.of(
-            createSchema(100L),
-            createSchema(101L)
-        );
-        mockS3GetObject(rawKey, rawSchemas);
+        // Mock S3 listing to return only the notified file
+        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
 
-        // Mock S3 putObject to capture what gets saved
+        // Mock S3 getObject for the file
+        mockS3GetObject(rawKey, List.of(createSchema(100L), createSchema(101L)));
+
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
             .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
-        Void result = handler.handleRequest(event, context);
+        handler.handleRequest(event, context);
 
-        // Then: Should merge and save to output bucket
-        assertNull(result);
-        verify(s3Client).getObject(any(java.util.function.Consumer.class));
-        verify(s3Client).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
+        // Then: Should list S3, load 1 file, and merge
+        verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
+        verify(s3Client, times(1)).getObject(any(java.util.function.Consumer.class));
+        verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
         verify(logger).log(contains("Merging 1 entries"));
         verify(logger).log(contains("Wrote 2"));
     }
 
+    /**
+     * Tests that when a notification arrives for one file,
+     * but S3 listing finds multiple files, all are merged together.
+     */
     @Test
-    void testHandleRequestWithMultipleRawEntries() throws Exception {
-        // Given: S3 event with multiple raw entries that should be merged together
-        // All have same timestamp (10:00) so they merge into one aggregated file
-        String key1 = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+    void testNotificationForOneFileButMultipleFilesExistInS3() throws Exception {
+        // Given: Notification for uuid-1, but S3 has uuid-1, uuid-2, uuid-3
+        String notifiedKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
         String key2 = "1/2/2024/1/15/10/0/mbp-10/uuid-2.zst";
         String key3 = "1/2/2024/1/15/10/0/mbp-10/uuid-3.zst";
 
-        String s3EventJson = createS3EventJsonWithMultipleKeys(key1, key2, key3);
+        String s3EventJson = createS3EventJsonWithKey(notifiedKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         when(objectMapper.readTree(s3EventJson)).thenReturn(
             new ObjectMapper().readTree(s3EventJson)
         );
 
-        // Mock S3 to return different data for each raw entry
-        // uuid-1 has 3 records, uuid-2 has 2 records, uuid-3 has 3 records
-        // MBP10MergeStrategy should pick uuid-1 (first with max count)
-        mockS3GetObject(key1, List.of(createSchema(100L), createSchema(101L), createSchema(102L)));
+        // Mock S3 listing to return all 3 files
+        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(notifiedKey, key2, key3));
+
+        // Mock S3 getObject for all files
+        mockS3GetObject(notifiedKey, List.of(createSchema(100L), createSchema(101L), createSchema(102L)));
         mockS3GetObject(key2, List.of(createSchema(100L), createSchema(101L)));
         mockS3GetObject(key3, List.of(createSchema(100L), createSchema(101L), createSchema(102L)));
 
@@ -378,20 +380,22 @@ class MergerLambdaHandlerTest {
             .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
-        Void result = handler.handleRequest(event, context);
+        handler.handleRequest(event, context);
 
-        // Then: Should merge all 3 entries and save result
-        assertNull(result);
+        // Then: Should list S3, load all 3 files, and merge them
+        verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, times(3)).getObject(any(java.util.function.Consumer.class));
-        verify(s3Client).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
+        verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
         verify(logger).log(contains("Merging 3 entries"));
-        verify(logger).log(contains("Wrote 3"));
+        verify(logger).log(contains("Wrote 3")); // uuid-1 or uuid-3 wins with 3 records
     }
 
+    /**
+     * Tests that notifications for different timestamps create separate merged files.
+     */
     @Test
-    void testHandleRequestWithMultipleDifferentMergedKeys() throws Exception {
-        // Given: S3 event with raw entries for different timestamps (should create separate merged files)
-        // One at 10:00, one at 11:00
+    void testNotificationsForDifferentTimestampsCreateSeparateMerges() throws Exception {
+        // Given: Notifications for files at 10:00 and 11:00
         String key1 = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
         String key2 = "1/2/2024/1/15/11/0/mbp-10/uuid-2.zst";
 
@@ -402,7 +406,11 @@ class MergerLambdaHandlerTest {
             new ObjectMapper().readTree(s3EventJson)
         );
 
-        // Mock S3 to return data for each entry
+        // Mock S3 listing for each timestamp
+        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(key1));
+        mockS3ListObjects("1/2/2024/1/15/11/0/mbp-10/", List.of(key2));
+
+        // Mock S3 getObject for each file
         mockS3GetObject(key1, List.of(createSchema(100L)));
         mockS3GetObject(key2, List.of(createSchema(200L)));
 
@@ -410,67 +418,28 @@ class MergerLambdaHandlerTest {
             .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
-        Void result = handler.handleRequest(event, context);
+        handler.handleRequest(event, context);
 
-        // Then: Should create 2 separate merged files
-        assertNull(result);
+        // Then: Should list S3 twice (once per timestamp), load 2 files, create 2 merged files
+        verify(s3Client, times(2)).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, times(2)).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(2)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
     }
 
-    @Test
-    void testMergeEntriesVerifiesOutputContent() throws Exception {
-        // Given: S3 event with raw entries
-        String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
-        String s3EventJson = createS3EventJsonWithKey(rawKey);
-        SQSEvent event = createSQSEvent(s3EventJson);
-
-        when(objectMapper.readTree(s3EventJson)).thenReturn(
-            new ObjectMapper().readTree(s3EventJson)
-        );
-
-        // Create specific schemas with known sequence numbers
-        List<Schema> inputSchemas = List.of(
-            createSchema(100L),
-            createSchema(101L),
-            createSchema(102L)
-        );
-        mockS3GetObject(rawKey, inputSchemas);
-
-        // Capture what gets written to S3
-        org.mockito.ArgumentCaptor<RequestBody> requestBodyCaptor =
-            org.mockito.ArgumentCaptor.forClass(RequestBody.class);
-        when(s3Client.putObject(any(java.util.function.Consumer.class), requestBodyCaptor.capture()))
-            .thenReturn(PutObjectResponse.builder().build());
-
-        // When: Handling the request
-        handler.handleRequest(event, context);
-
-        // Then: Verify the output was saved
-        verify(s3Client).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
-
-        // Note: We can't easily verify the exact content without decompressing,
-        // but we verified the merge strategy is called and output is saved
-        verify(logger).log(contains("Wrote 3"));
-    }
-
     /**
-     * Tests that duplicate keys from multiple SQS messages are properly merged together.
-     * This can happen when multiple SQS messages contain S3 events for raw entries
-     * that belong to the same merged key (same timestamp).
+     * Tests that duplicate notifications for the same timestamp are merged together.
+     * Multiple SQS messages with notifications for files at the same timestamp
+     * will each query S3 (one per message), but the results are deduplicated
+     * and merged into a single output file.
      */
     @Test
-    void testHandleRequestWithDuplicateKeysFromMultipleSQSMessages() throws Exception {
-        // Given: Two SQS messages, each containing raw entries for the same timestamp
-        // This simulates receiving multiple SQS messages that need to be merged together
+    void testDuplicateNotificationsForSameTimestampAreMergedTogether() throws Exception {
+        // Given: Two SQS messages with notifications for files at the same timestamp
         String key1 = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
         String key2 = "1/2/2024/1/15/10/0/mbp-10/uuid-2.zst";
-        String key3 = "1/2/2024/1/15/10/0/mbp-10/uuid-3.zst";
 
-        // First SQS message contains 2 raw entries
-        String sqsMessage1Json = createS3EventJsonWithMultipleKeys(key1, key2);
-        // Second SQS message contains 1 raw entry (same timestamp, so duplicate merged key)
-        String sqsMessage2Json = createS3EventJsonWithKey(key3);
+        String sqsMessage1Json = createS3EventJsonWithKey(key1);
+        String sqsMessage2Json = createS3EventJsonWithKey(key2);
 
         SQSEvent event = new SQSEvent();
         SQSEvent.SQSMessage message1 = new SQSEvent.SQSMessage();
@@ -486,28 +455,94 @@ class MergerLambdaHandlerTest {
             new ObjectMapper().readTree(sqsMessage2Json)
         );
 
-        // Mock S3 to return different data for each raw entry
+        // Mock S3 listing to return both files (they're both in S3)
+        // Each SQS message will trigger a separate S3 listing call
+        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(key1, key2));
+
+        // Mock S3 getObject for both files
         mockS3GetObject(key1, List.of(createSchema(100L), createSchema(101L)));
         mockS3GetObject(key2, List.of(createSchema(100L), createSchema(101L), createSchema(102L)));
-        mockS3GetObject(key3, List.of(createSchema(100L)));
 
-        // When: Handler processes the event
+        when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
+            .thenReturn(PutObjectResponse.builder().build());
+
+        // When: Handling the request
         handler.handleRequest(event, context);
 
-        // Then: All 3 raw entries should be loaded from S3
-        verify(s3Client, times(3)).getObject(any(java.util.function.Consumer.class));
-
-        // And: Only 1 merged file should be created (all 3 entries have same timestamp)
+        // Then: Should list S3 twice (once per SQS message), but deduplicate and load each file once
+        verify(s3Client, times(2)).listObjectsV2Paginator(any(java.util.function.Consumer.class));
+        verify(s3Client, times(2)).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
+        verify(logger).log(contains("Merging 2 entries"));
+        verify(logger).log(contains("Wrote 3")); // uuid-2 wins with 3 records
+    }
 
-        // And: The merge should process all 3 entries together
-        verify(logger).log(contains("Merging 3 entries"));
+    /**
+     * Tests edge case: S3 listing returns empty (no files found).
+     * This could happen if files were deleted between notification and processing.
+     * The handler will still attempt to merge with 0 entries.
+     */
+    @Test
+    void testS3ListingReturnsNoFiles() throws Exception {
+        // Given: Notification for a file, but S3 listing returns empty
+        String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String s3EventJson = createS3EventJsonWithKey(rawKey);
+        SQSEvent event = createSQSEvent(s3EventJson);
 
-        // And: The winning entry (key2 with 3 records) should be selected
-        verify(logger).log(contains("Wrote 3"));
+        when(objectMapper.readTree(s3EventJson)).thenReturn(
+            new ObjectMapper().readTree(s3EventJson)
+        );
 
-        // Verify we processed 2 SQS messages
-        verify(logger).log(contains("Received SQS event with 2 messages"));
+        // Mock S3 listing to return empty list
+        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of());
+
+        // Mock putObject since the handler will still try to save an empty merge
+        when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
+            .thenReturn(PutObjectResponse.builder().build());
+
+        // When: Handling the request
+        handler.handleRequest(event, context);
+
+        // Then: Should list S3, and merge 0 entries (creating an empty output)
+        verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
+        verify(s3Client, never()).getObject(any(java.util.function.Consumer.class));
+        verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
+        verify(logger).log(contains("Merging 0 entries"));
+        verify(logger).log(contains("Wrote 0"));
+    }
+
+    /**
+     * Tests that the Set properly deduplicates when S3 listing returns the same file
+     * that was in the notification.
+     */
+    @Test
+    void testSetDeduplicatesFilesFromListingAndNotification() throws Exception {
+        // Given: Notification for uuid-1, and S3 listing also returns uuid-1
+        String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String s3EventJson = createS3EventJsonWithKey(rawKey);
+        SQSEvent event = createSQSEvent(s3EventJson);
+
+        when(objectMapper.readTree(s3EventJson)).thenReturn(
+            new ObjectMapper().readTree(s3EventJson)
+        );
+
+        // Mock S3 listing to return the same file (uuid-1)
+        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
+
+        // Mock S3 getObject for the file
+        mockS3GetObject(rawKey, List.of(createSchema(100L), createSchema(101L)));
+
+        when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
+            .thenReturn(PutObjectResponse.builder().build());
+
+        // When: Handling the request
+        handler.handleRequest(event, context);
+
+        // Then: Should only load the file once (deduplicated by Set)
+        verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
+        verify(s3Client, times(1)).getObject(any(java.util.function.Consumer.class));
+        verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
+        verify(logger).log(contains("Merging 1 entries"));
     }
 
     // ============================================================================
@@ -630,6 +665,39 @@ class MergerLambdaHandlerTest {
         MBP10Schema schema = (MBP10Schema) SchemaType.MBP_10.newInstance();
         schema.encoder.sequence(sequenceNumber);
         return schema;
+    }
+
+    /**
+     * Mocks S3Client.listObjectsV2Paginator to return a list of keys with the given prefix.
+     */
+    private void mockS3ListObjects(String prefix, List<String> keys) {
+        // Create S3Object instances for each key
+        List<S3Object> s3Objects = keys.stream()
+            .map(key -> S3Object.builder().key(key).build())
+            .toList();
+
+        // Create a mock iterable
+        ListObjectsV2Iterable mockIterable = mock(ListObjectsV2Iterable.class);
+
+        // Mock the contents() method to return a stream of S3Objects
+        // We need to return a new stream each time to avoid stream reuse issues
+        when(mockIterable.contents()).thenAnswer(invocation -> {
+            // Create a mock SdkIterable
+            software.amazon.awssdk.core.pagination.sync.SdkIterable<S3Object> mockSdkIterable =
+                mock(software.amazon.awssdk.core.pagination.sync.SdkIterable.class);
+            when(mockSdkIterable.stream()).thenReturn(s3Objects.stream());
+            return mockSdkIterable;
+        });
+
+        // Mock the S3Client to return the iterable when listObjectsV2Paginator is called
+        // We use lenient() because not all tests will call this
+        lenient().when(s3Client.listObjectsV2Paginator(argThat((java.util.function.Consumer<ListObjectsV2Request.Builder> consumer) -> {
+            if (consumer == null) return false;
+            ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder();
+            consumer.accept(builder);
+            ListObjectsV2Request request = builder.build();
+            return request.prefix() != null && request.prefix().equals(prefix);
+        }))).thenReturn(mockIterable);
     }
 
     /**
