@@ -5,16 +5,24 @@ import * as path from "path";
 
 export interface JavaLambdaProps {
   classPath: string;
-  environment: { [key: string]: string };
+  environment?: { [key: string]: string };
 }
 
 export class JavaLambda extends Construct {
+
+  private readonly DEFAULT_JVM_OPTIONS = " --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED";
   public readonly lambdaFunction: lambda.Function;
 
   constructor(scope: Construct, id: string, props: JavaLambdaProps) {
     super(scope, id);
 
     const projectRoot = path.join(__dirname, '..', '..', '..');
+
+    const environment: { [key: string]: string } = {
+      ...(props.environment || {}),
+    };
+
+    environment.JAVA_TOOL_OPTIONS = `${environment.JAVA_TOOL_OPTIONS ?? ''}${this.DEFAULT_JVM_OPTIONS}`;
 
     this.lambdaFunction = new lambda.Function(this, 'JavaLambda', {
       runtime: lambda.Runtime.JAVA_17,
@@ -39,7 +47,7 @@ export class JavaLambda extends Construct {
       }),
       memorySize: 2048,
       timeout: cdk.Duration.minutes(15),
-      environment: props.environment,
+      environment,
     });
   }
 }
