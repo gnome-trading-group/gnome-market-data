@@ -32,8 +32,8 @@ export class GapDetectorStack extends cdk.Stack {
     props.gapsTable.grantReadWriteData(this.gapLambda);
 
     this.gapLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.gapQueue, {
-      batchSize: 10,
-      maxBatchingWindow: cdk.Duration.seconds(5),
+      batchSize: 1_000,
+      maxBatchingWindow: cdk.Duration.minutes(3),
     }));
   }
 }

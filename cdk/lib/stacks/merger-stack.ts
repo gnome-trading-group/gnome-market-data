@@ -31,8 +31,8 @@ export class MergerStack extends cdk.Stack {
     props.mergedBucket.grantReadWrite(this.mergerLambda);
 
     this.mergerLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.mergerQueue, {
-      batchSize: 10,
-      maxBatchingWindow: cdk.Duration.seconds(5),
+      batchSize: 1_000,
+      maxBatchingWindow: cdk.Duration.minutes(3),
     }));
   }
 }

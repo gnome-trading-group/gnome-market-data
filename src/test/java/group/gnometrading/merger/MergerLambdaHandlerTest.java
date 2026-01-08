@@ -545,6 +545,83 @@ class MergerLambdaHandlerTest {
         verify(logger).log(contains("Merging 1 entries"));
     }
 
+    /**
+     * Tests that S3 listing pagination works correctly.
+     * When S3 returns multiple pages of results, all files should be merged.
+     */
+    @Test
+    void testS3ListingWithMultiplePages() throws Exception {
+        // Given: Notification for a file, and S3 listing returns many files (simulating pagination)
+        String notifiedKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        List<String> allKeys = new ArrayList<>();
+        allKeys.add(notifiedKey);
+        // Add 9 more files to simulate a large listing
+        for (int i = 2; i <= 10; i++) {
+            allKeys.add("1/2/2024/1/15/10/0/mbp-10/uuid-" + i + ".zst");
+        }
+
+        String s3EventJson = createS3EventJsonWithKey(notifiedKey);
+        SQSEvent event = createSQSEvent(s3EventJson);
+
+        when(objectMapper.readTree(s3EventJson)).thenReturn(
+            new ObjectMapper().readTree(s3EventJson)
+        );
+
+        // Mock S3 listing to return all 10 files
+        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", allKeys);
+
+        // Mock S3 getObject for all files
+        for (String key : allKeys) {
+            mockS3GetObject(key, List.of(createSchema(100L)));
+        }
+
+        when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
+            .thenReturn(PutObjectResponse.builder().build());
+
+        // When: Handling the request
+        handler.handleRequest(event, context);
+
+        // Then: Should list S3, load all 10 files, and merge them
+        verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
+        verify(s3Client, times(10)).getObject(any(java.util.function.Consumer.class));
+        verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
+        verify(logger).log(contains("Merging 10 entries"));
+    }
+
+    /**
+     * Tests that when S3 getObject fails for one file, the error is logged
+     * and the handler throws an exception.
+     */
+    @Test
+    void testS3GetObjectFailure() throws Exception {
+        // Given: Notification for a file, S3 listing succeeds, but getObject fails
+        String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String s3EventJson = createS3EventJsonWithKey(rawKey);
+        SQSEvent event = createSQSEvent(s3EventJson);
+
+        when(objectMapper.readTree(s3EventJson)).thenReturn(
+            new ObjectMapper().readTree(s3EventJson)
+        );
+
+        // Mock S3 listing to return the file
+        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
+
+        // Mock S3 getObject to throw an exception
+        when(s3Client.getObject(any(java.util.function.Consumer.class)))
+            .thenThrow(new RuntimeException("S3 getObject failed"));
+
+        // When/Then: Handling the request should throw an exception
+        try {
+            handler.handleRequest(event, context);
+            fail("Expected RuntimeException to be thrown");
+        } catch (RuntimeException e) {
+            // Expected
+            verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
+            verify(s3Client).getObject(any(java.util.function.Consumer.class));
+            verify(logger).log(contains("Error processing messages"));
+        }
+    }
+
     // ============================================================================
     // HELPER METHODS
     // ============================================================================

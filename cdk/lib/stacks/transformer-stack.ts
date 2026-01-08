@@ -37,8 +37,8 @@ export class TransformerStack extends cdk.Stack {
     props.transformJobsTable.grantReadWriteData(this.transformerJobCreatorLambda);
 
     this.transformerJobCreatorLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.transformerQueue, {
-      batchSize: 10,
-      maxBatchingWindow: cdk.Duration.seconds(5),
+      batchSize: 1_000,
+      maxBatchingWindow: cdk.Duration.minutes(3),
     }));
 
     const transformerJobProcessorLambda = new JavaLambda(this, 'TransformerJobProcessorLambda', {
