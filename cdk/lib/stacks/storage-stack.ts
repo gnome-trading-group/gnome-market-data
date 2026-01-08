@@ -52,6 +52,7 @@ export class StorageStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       pointInTimeRecovery: true,
+      timeToLiveAttribute: "expiresAt",
     });
 
     this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
