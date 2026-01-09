@@ -22,6 +22,7 @@ public class S3Utils {
     private static Set<MarketDataEntry> extractKeysFromS3Event(SQSEvent.SQSMessage message, Context context, ObjectMapper objectMapper) {
         JsonNode s3Event;
         try {
+            context.getLogger().log("Processing message: " + message.getBody());
             s3Event = objectMapper.readTree(message.getBody());
         } catch (Exception e) {
             context.getLogger().log("Error parsing message: " + e.getMessage());
