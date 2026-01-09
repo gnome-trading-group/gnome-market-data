@@ -5,11 +5,13 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
 import { JavaLambda } from "../constructs/java-lambda";
+import { MarketDataConfig } from "../config";
 
 export interface MergerStackProps extends cdk.StackProps {
   rawBucket: s3.Bucket;
   mergedBucket: s3.Bucket;
   mergerQueue: sqs.IQueue;
+  config: MarketDataConfig;
 }
 
 export class MergerStack extends cdk.Stack {
@@ -23,6 +25,7 @@ export class MergerStack extends cdk.Stack {
       environment: {
         RAW_BUCKET_NAME: props.rawBucket.bucketName,
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
+        STAGE: props.config.account.stage,
       },
     });
     this.mergerLambda = javaLambda.lambdaFunction;

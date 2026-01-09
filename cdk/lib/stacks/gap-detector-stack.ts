@@ -6,11 +6,13 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
 import { JavaLambda } from "../constructs/java-lambda";
+import { MarketDataConfig } from "../config";
 
 export interface GapDetectorStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
   gapsTable: dynamodb.ITable;
   gapQueue: sqs.IQueue;
+  config: MarketDataConfig;
 }
 
 export class GapDetectorStack extends cdk.Stack {
@@ -24,6 +26,7 @@ export class GapDetectorStack extends cdk.Stack {
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
         GAPS_TABLE_NAME: props.gapsTable.tableName,
+        STAGE: props.config.account.stage,
       },
     });
     this.gapLambda = gapLambda.lambdaFunction;

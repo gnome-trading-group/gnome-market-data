@@ -9,12 +9,14 @@ import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
 import { JavaLambda } from "../constructs/java-lambda";
 import { SchemaType } from "@gnome-trading-group/gnome-shared-cdk";
+import { MarketDataConfig } from "../config";
 
 export interface TransformerStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
   finalBucket: s3.Bucket;
   transformJobsTable: dynamodb.ITable;
   transformerQueue: sqs.IQueue;
+  config: MarketDataConfig;
 }
 
 export class TransformerStack extends cdk.Stack {
@@ -29,6 +31,7 @@ export class TransformerStack extends cdk.Stack {
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
         TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
+        STAGE: props.config.account.stage,
       },
     });
     this.transformerJobCreatorLambda = transformerJobCreatorLambda.lambdaFunction;
@@ -47,6 +50,7 @@ export class TransformerStack extends cdk.Stack {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
         FINAL_BUCKET_NAME: props.finalBucket.bucketName,
         TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
+        STAGE: props.config.account.stage,
       },
     });
     this.transformerJobProcessorLambda = transformerJobProcessorLambda.lambdaFunction;
