@@ -7,6 +7,7 @@ import * as cw from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
 import { CustomMetricGroup, MonitoringFacade, SnsAlarmActionStrategy } from "cdk-monitoring-constructs";
 import { COLLECTOR_METRICS_NAMESPACE, COLLECTOR_ERROR_METRIC_NAME } from "./collector-regional-stack";
+import { ComparisonOperator, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
 
 export interface MonitoringStackProps extends cdk.StackProps {
   collectorRegions: string[];
@@ -43,13 +44,23 @@ export class MonitoringStack extends cdk.Stack {
       collectorLogMetrics.push(
         {
           metrics: [
-            new cw.Metric({
-              namespace: COLLECTOR_METRICS_NAMESPACE,
-              metricName: `${COLLECTOR_ERROR_METRIC_NAME}-${region}`,
-              region: region,
-              statistic: 'Sum',
-              period: cdk.Duration.minutes(1),
-            }),
+            {
+              alarmFriendlyName: `CollectorLogErrors-${region}`,
+              metric: new cw.Metric({
+                namespace: COLLECTOR_METRICS_NAMESPACE,
+                metricName: `${COLLECTOR_ERROR_METRIC_NAME}-${region}`,
+                region: region,
+                statistic: 'Sum',
+                period: cdk.Duration.minutes(1),
+              }),
+              addAlarm: {
+                Critical: {
+                  comparisonOperator: ComparisonOperator.GREATER_THAN_THRESHOLD,
+                  treatMissingDataOverride: TreatMissingData.IGNORE,
+                  threshold: 0,
+                }
+              }
+            },
           ],
           title: region,
         }
