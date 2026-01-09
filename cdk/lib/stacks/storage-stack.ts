@@ -86,18 +86,19 @@ export class StorageStack extends cdk.Stack {
       deliveryDelay: cdk.Duration.minutes(15),
     });
 
+    const rawTopic = new sns.Topic(this, 'MarketDataRawBucketSnsTopic');
+    rawTopic.addSubscription(new subs.SqsSubscription(this.mergerQueue));
     this.rawBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
-      new s3notifications.SqsDestination(this.mergerQueue)
+      new s3notifications.SnsDestination(rawTopic)
     );
 
-    const snsTopic = new sns.Topic(this, 'MarketDataMergerBucketSnsTopic');
-    snsTopic.addSubscription(new subs.SqsSubscription(this.transformerQueue));
-    snsTopic.addSubscription(new subs.SqsSubscription(this.gapQueue));
-
+    const mergerTopic = new sns.Topic(this, 'MarketDataMergerBucketSnsTopic');
+    mergerTopic.addSubscription(new subs.SqsSubscription(this.transformerQueue));
+    mergerTopic.addSubscription(new subs.SqsSubscription(this.gapQueue));
     this.mergedBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
-      new s3notifications.SnsDestination(snsTopic)
+      new s3notifications.SnsDestination(mergerTopic)
     );
   }
 }

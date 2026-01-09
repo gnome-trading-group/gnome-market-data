@@ -50,7 +50,6 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class MergerLambdaHandlerTest {
 
-    @Mock
     private ObjectMapper objectMapper;
 
     @Mock
@@ -73,7 +72,10 @@ class MergerLambdaHandlerTest {
 
     @BeforeEach
     void setUp() {
-        // Initialize handler with mocked dependencies
+        // Use a real ObjectMapper for JSON parsing (needed for SNS/S3 event parsing)
+        objectMapper = new ObjectMapper();
+
+        // Initialize handler with real ObjectMapper and mocked S3Client
         handler = new MergerLambdaHandler(objectMapper, s3Client, INPUT_BUCKET, OUTPUT_BUCKET);
 
         // Setup context to return logger
@@ -122,30 +124,23 @@ class MergerLambdaHandlerTest {
 
     @Test
     void testHandleRequestWithMalformedJson() throws Exception {
-        // Given: SQS event with malformed JSON
+        // Given: SQS event with malformed JSON (real malformed JSON that ObjectMapper will reject)
         String malformedJson = createMalformedJson();
         SQSEvent event = createSQSEvent(malformedJson);
-
-        when(objectMapper.readTree(malformedJson))
-            .thenThrow(new RuntimeException("Malformed JSON"));
 
         // When: Handling request (error is caught and logged, not thrown)
         Void result = handler.handleRequest(event, context);
 
         // Then: Should handle gracefully and log error
         assertNull(result);
-        verify(logger).log(contains("Error parsing message"));
+        verify(logger).log(contains("Error parsing SQS message"));
     }
 
     @Test
     void testHandleRequestWithNoRecordsInS3Event() throws Exception {
-        // Given: S3 event with no Records array
+        // Given: SNS message wrapping S3 event with no Records array
         String eventJson = createS3EventJsonNoRecords();
         SQSEvent event = createSQSEvent(eventJson);
-
-        when(objectMapper.readTree(eventJson)).thenReturn(
-            new ObjectMapper().readTree(eventJson)
-        );
 
         // When: Handling request
         Void result = handler.handleRequest(event, context);
@@ -156,13 +151,9 @@ class MergerLambdaHandlerTest {
 
     @Test
     void testHandleRequestWithMissingS3Fields() throws Exception {
-        // Given: S3 event with missing required fields
+        // Given: SNS message wrapping S3 event with missing required fields
         String eventJson = createS3EventJsonMissingFields();
         SQSEvent event = createSQSEvent(eventJson);
-
-        when(objectMapper.readTree(eventJson)).thenReturn(
-            new ObjectMapper().readTree(eventJson)
-        );
 
         // When: Handling request (missing fields are handled gracefully)
         Void result = handler.handleRequest(event, context);
@@ -174,8 +165,8 @@ class MergerLambdaHandlerTest {
 
     @Test
     void testHandleRequestWithNullS3Info() throws Exception {
-        // Given: S3 event record with null s3 field
-        String eventJson = """
+        // Given: SNS message wrapping S3 event record with null s3 field
+        String s3Event = """
             {
               "Records": [
                 {
@@ -185,11 +176,8 @@ class MergerLambdaHandlerTest {
               ]
             }
             """;
+        String eventJson = wrapInSnsMessage(s3Event);
         SQSEvent event = createSQSEvent(eventJson);
-
-        when(objectMapper.readTree(eventJson)).thenReturn(
-            new ObjectMapper().readTree(eventJson)
-        );
 
         // When: Handling request
         Void result = handler.handleRequest(event, context);
@@ -205,13 +193,10 @@ class MergerLambdaHandlerTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("invalidS3EventTestCases")
-    void testHandleRequestWithInvalidS3Events(String description, String eventJson, boolean shouldThrow) throws Exception {
-        // Given: Various invalid S3 event formats
-        SQSEvent event = createSQSEvent(eventJson);
-
-        when(objectMapper.readTree(eventJson)).thenReturn(
-            new ObjectMapper().readTree(eventJson)
-        );
+    void testHandleRequestWithInvalidS3Events(String description, String s3EventJson, boolean shouldThrow) throws Exception {
+        // Given: Various invalid S3 event formats wrapped in SNS messages
+        String snsWrappedEvent = wrapInSnsMessage(s3EventJson);
+        SQSEvent event = createSQSEvent(snsWrappedEvent);
 
         // When/Then: Verify behavior
         if (shouldThrow) {
@@ -232,44 +217,17 @@ class MergerLambdaHandlerTest {
         );
     }
 
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("jsonParsingErrorTestCases")
-    void testHandleRequestWithJsonParsingErrors(String description, String eventJson) throws Exception {
-        // Given: Event JSON that causes parsing errors
-        SQSEvent event = createSQSEvent(eventJson);
-
-        when(objectMapper.readTree(eventJson))
-            .thenThrow(new RuntimeException("JSON parsing error"));
-
-        // When: Handling request (error is caught and logged, not thrown)
-        Void result = handler.handleRequest(event, context);
-
-        // Then: Should handle gracefully and log error
-        assertNull(result);
-        verify(logger).log(contains("Error parsing message"));
-    }
-
-    static Stream<Arguments> jsonParsingErrorTestCases() {
-        return Stream.of(
-            Arguments.of("Malformed JSON", "{\"Records\": [invalid}"),
-            Arguments.of("Incomplete JSON", "{\"Records\":"),
-            Arguments.of("Invalid characters", "{\"Records\": [\u0000]}")
-        );
-    }
-
     // ============================================================================
     // INTEGRATION-STYLE TESTS (with minimal mocking)
     // ============================================================================
 
     @Test
     void testHandleRequestLogsCorrectMessageCount() throws Exception {
-        // Given: SQS event with multiple messages
-        SQSEvent event = createSQSEvent("msg1", "msg2", "msg3");
-
-        // Setup objectMapper to return empty JSON for all messages
-        lenient().when(objectMapper.readTree(anyString())).thenAnswer(invocation -> {
-            return new ObjectMapper().readTree("{}");
-        });
+        // Given: SQS event with multiple SNS-wrapped messages
+        String snsMsg1 = wrapInSnsMessage("{}");
+        String snsMsg2 = wrapInSnsMessage("{}");
+        String snsMsg3 = wrapInSnsMessage("{}");
+        SQSEvent event = createSQSEvent(snsMsg1, snsMsg2, snsMsg3);
 
         // When: Handling request
         Void result = handler.handleRequest(event, context);
@@ -281,21 +239,17 @@ class MergerLambdaHandlerTest {
 
     @Test
     void testHandleRequestProcessesEachMessage() throws Exception {
-        // Given: SQS event with 2 messages
-        String msg1 = "{}";
-        String msg2 = "{}";
-        SQSEvent event = createSQSEvent(msg1, msg2);
-
-        when(objectMapper.readTree(anyString())).thenReturn(
-            new ObjectMapper().readTree("{}")
-        );
+        // Given: SQS event with 2 SNS-wrapped messages
+        String snsMsg1 = wrapInSnsMessage("{}");
+        String snsMsg2 = wrapInSnsMessage("{}");
+        SQSEvent event = createSQSEvent(snsMsg1, snsMsg2);
 
         // When: Handling request
         Void result = handler.handleRequest(event, context);
 
-        // Then: Should process each message
+        // Then: Should process both messages (verify by checking the message count log)
         assertNull(result);
-        verify(objectMapper, times(2)).readTree(anyString());
+        verify(logger).log(contains("Extracting keys from SQS event with 2 messages"));
     }
 
     // ============================================================================
@@ -312,10 +266,6 @@ class MergerLambdaHandlerTest {
         String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
-
-        when(objectMapper.readTree(s3EventJson)).thenReturn(
-            new ObjectMapper().readTree(s3EventJson)
-        );
 
         // Mock S3 listing to return only the notified file
         mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
@@ -351,10 +301,6 @@ class MergerLambdaHandlerTest {
         String s3EventJson = createS3EventJsonWithKey(notifiedKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
-        when(objectMapper.readTree(s3EventJson)).thenReturn(
-            new ObjectMapper().readTree(s3EventJson)
-        );
-
         // Mock S3 listing to return all 3 files
         mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(notifiedKey, key2, key3));
 
@@ -388,10 +334,6 @@ class MergerLambdaHandlerTest {
 
         String s3EventJson = createS3EventJsonWithMultipleKeys(key1, key2);
         SQSEvent event = createSQSEvent(s3EventJson);
-
-        when(objectMapper.readTree(s3EventJson)).thenReturn(
-            new ObjectMapper().readTree(s3EventJson)
-        );
 
         // Mock S3 listing for each timestamp
         mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(key1));
@@ -435,13 +377,6 @@ class MergerLambdaHandlerTest {
         message2.setBody(sqsMessage2Json);
         event.setRecords(List.of(message1, message2));
 
-        when(objectMapper.readTree(sqsMessage1Json)).thenReturn(
-            new ObjectMapper().readTree(sqsMessage1Json)
-        );
-        when(objectMapper.readTree(sqsMessage2Json)).thenReturn(
-            new ObjectMapper().readTree(sqsMessage2Json)
-        );
-
         // Mock S3 listing to return both files (they're both in S3)
         // Each SQS message will trigger a separate S3 listing call
         mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(key1, key2));
@@ -475,10 +410,6 @@ class MergerLambdaHandlerTest {
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
-        when(objectMapper.readTree(s3EventJson)).thenReturn(
-            new ObjectMapper().readTree(s3EventJson)
-        );
-
         // Mock S3 listing to return empty list
         mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of());
 
@@ -507,10 +438,6 @@ class MergerLambdaHandlerTest {
         String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
-
-        when(objectMapper.readTree(s3EventJson)).thenReturn(
-            new ObjectMapper().readTree(s3EventJson)
-        );
 
         // Mock S3 listing to return the same file (uuid-1)
         mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
@@ -549,10 +476,6 @@ class MergerLambdaHandlerTest {
         String s3EventJson = createS3EventJsonWithKey(notifiedKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
-        when(objectMapper.readTree(s3EventJson)).thenReturn(
-            new ObjectMapper().readTree(s3EventJson)
-        );
-
         // Mock S3 listing to return all 10 files
         mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", allKeys);
 
@@ -584,10 +507,6 @@ class MergerLambdaHandlerTest {
         String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
-
-        when(objectMapper.readTree(s3EventJson)).thenReturn(
-            new ObjectMapper().readTree(s3EventJson)
-        );
 
         // Mock S3 listing to return the file
         mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
@@ -645,10 +564,10 @@ class MergerLambdaHandlerTest {
     }
 
     /**
-     * Creates S3 event JSON with missing required fields.
+     * Creates SNS message wrapping S3 event JSON with missing required fields.
      */
     private String createS3EventJsonMissingFields() {
-        return """
+        String s3Event = """
             {
               "Records": [
                 {
@@ -658,20 +577,21 @@ class MergerLambdaHandlerTest {
               ]
             }
             """;
+        return wrapInSnsMessage(s3Event);
     }
 
     /**
-     * Creates S3 event JSON with no Records array.
+     * Creates SNS message wrapping S3 event JSON with no Records array.
      */
     private String createS3EventJsonNoRecords() {
-        return "{}";
+        return wrapInSnsMessage("{}");
     }
 
     /**
-     * Creates S3 event JSON with a specific S3 object key.
+     * Creates SNS message wrapping S3 event JSON with a specific S3 object key.
      */
     private String createS3EventJsonWithKey(String key) {
-        return String.format("""
+        String s3Event = String.format("""
             {
               "Records": [
                 {
@@ -691,10 +611,11 @@ class MergerLambdaHandlerTest {
               ]
             }
             """, INPUT_BUCKET, key);
+        return wrapInSnsMessage(s3Event);
     }
 
     /**
-     * Creates S3 event JSON with multiple S3 object keys.
+     * Creates SNS message wrapping S3 event JSON with multiple S3 object keys.
      */
     private String createS3EventJsonWithMultipleKeys(String... keys) {
         StringBuilder records = new StringBuilder();
@@ -717,7 +638,34 @@ class MergerLambdaHandlerTest {
                 }
                 """, INPUT_BUCKET, keys[i]));
         }
-        return String.format("{\"Records\": [%s]}", records.toString());
+        String s3Event = String.format("{\"Records\": [%s]}", records.toString());
+        return wrapInSnsMessage(s3Event);
+    }
+
+    /**
+     * Wraps an S3 event JSON string in an SNS message structure.
+     * This simulates the S3 -> SNS -> SQS flow.
+     */
+    private String wrapInSnsMessage(String s3EventJson) {
+        // Escape the S3 event JSON for embedding in the SNS Message field
+        String escapedS3Event = s3EventJson
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n");
+
+        return String.format("""
+            {
+              "Type": "Notification",
+              "MessageId": "test-sns-message-id",
+              "TopicArn": "arn:aws:sns:us-east-1:123456789012:test-topic",
+              "Message": "%s",
+              "Timestamp": "2024-01-15T10:00:00.000Z",
+              "SignatureVersion": "1",
+              "Signature": "test-signature",
+              "SigningCertURL": "https://sns.us-east-1.amazonaws.com/test.pem",
+              "UnsubscribeURL": "https://sns.us-east-1.amazonaws.com/test"
+            }
+            """, escapedS3Event);
     }
 
     /**

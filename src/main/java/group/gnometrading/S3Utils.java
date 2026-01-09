@@ -20,12 +20,26 @@ public class S3Utils {
     }
 
     private static Set<MarketDataEntry> extractKeysFromS3Event(SQSEvent.SQSMessage message, Context context, ObjectMapper objectMapper) {
+        JsonNode sqsBody;
+        try {
+            sqsBody = objectMapper.readTree(message.getBody());
+        } catch (Exception e) {
+            context.getLogger().log("Error parsing SQS message: " + e.getMessage());
+            return Set.of();
+        }
+
+        JsonNode snsMessage = sqsBody.get("Message");
+        if (snsMessage == null) {
+            context.getLogger().log("No SNS Message field in SQS body");
+            return Set.of();
+        }
+
         JsonNode s3Event;
         try {
-            context.getLogger().log("Processing message: " + message.getBody());
-            s3Event = objectMapper.readTree(message.getBody());
+            String snsMessageString = snsMessage.asText();
+            s3Event = objectMapper.readTree(snsMessageString);
         } catch (Exception e) {
-            context.getLogger().log("Error parsing message: " + e.getMessage());
+            context.getLogger().log("Error parsing SNS message content: " + e.getMessage());
             return Set.of();
         }
 
