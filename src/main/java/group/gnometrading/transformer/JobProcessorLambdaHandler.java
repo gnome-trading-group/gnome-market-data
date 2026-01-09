@@ -2,7 +2,6 @@ package group.gnometrading.transformer;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -135,7 +134,7 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
                 .expressionAttributeNames(expressionNames)
                 .limit(MAX_JOBS_PER_INVOCATION)
                 .build();
-        
+
         ScanResponse response = dynamoDbClient.scan(scanRequest);
         return response.items();
     }

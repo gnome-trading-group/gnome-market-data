@@ -1,8 +1,16 @@
 package group.gnometrading;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import group.gnometrading.constants.Stage;
+import group.gnometrading.resources.Properties;
+import group.gnometrading.transformer.TransformationJob;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
+import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3Client;
+
+import java.time.Clock;
 
 /**
  * Lightweight dependency injection container for Lambda functions.
@@ -11,10 +19,16 @@ import software.amazon.awssdk.services.s3.S3Client;
  */
 public class Dependencies {
     private static volatile Dependencies instance;
-    
+
+    private final Stage stage;
+    private final Properties properties;
     private final S3Client s3Client;
+    private final DynamoDbEnhancedClient dynamoDbEnhancedClient;
     private final DynamoDbClient dynamoDbClient;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
+    private final DynamoDbTable<TransformationJob> transformJobsTable;
+    private final SecurityMaster securityMaster;
 
     private final String rawBucketName;
     private final String mergedBucketName;
@@ -27,42 +41,24 @@ public class Dependencies {
      * Initializes all AWS clients and reads environment variables.
      */
     private Dependencies() {
+        this.stage = Stage.fromStageName(System.getenv("STAGE"));
+        this.properties = createProperties();
+        this.securityMaster = createSecurityMaster();
         this.s3Client = S3Client.create();
+        this.dynamoDbEnhancedClient = DynamoDbEnhancedClient.create();
         this.dynamoDbClient = DynamoDbClient.create();
         this.objectMapper = new ObjectMapper();
+        this.clock = Clock.systemUTC();
 
-        this.rawBucketName = System.getenv("RAW_BUCKET_NAME");
-        this.mergedBucketName = System.getenv("MERGED_BUCKET_NAME");
-        this.finalBucketName = System.getenv("FINAL_BUCKET_NAME");
-        this.gapsTableName = System.getenv("GAPS_TABLE_NAME");
-        this.transformJobsTableName = System.getenv("TRANSFORM_JOBS_TABLE_NAME");
+        this.rawBucketName = properties.getStringProperty("raw.bucket.name");
+        this.mergedBucketName = properties.getStringProperty("merged.bucket.name");
+        this.finalBucketName = properties.getStringProperty("final.bucket.name");
+        this.gapsTableName = properties.getStringProperty("gaps.table.name");
+        this.transformJobsTableName = properties.getStringProperty("transform.jobs.table.name");
+
+        this.transformJobsTable = dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
     }
-    
-    /**
-     * Constructor for testing with custom dependencies.
-     * This constructor is package-private to allow testing while preventing
-     * external instantiation.
-     */
-    Dependencies(
-            S3Client s3Client,
-            DynamoDbClient dynamoDbClient,
-            ObjectMapper objectMapper,
-            String rawBucketName,
-            String mergedBucketName,
-            String finalBucketName,
-            String gapsTableName,
-            String transformJobsTableName
-    ) {
-        this.s3Client = s3Client;
-        this.dynamoDbClient = dynamoDbClient;
-        this.objectMapper = objectMapper;
-        this.rawBucketName = rawBucketName;
-        this.mergedBucketName = mergedBucketName;
-        this.finalBucketName = finalBucketName;
-        this.gapsTableName = gapsTableName;
-        this.transformJobsTableName = transformJobsTableName;
-    }
-    
+
     /**
      * Get the singleton instance of Dependencies.
      * Uses double-checked locking for thread-safe lazy initialization.
@@ -84,12 +80,28 @@ public class Dependencies {
         return s3Client;
     }
     
+    public DynamoDbEnhancedClient getDynamoDbEnhancedClient() {
+        return dynamoDbEnhancedClient;
+    }
+
     public DynamoDbClient getDynamoDbClient() {
         return dynamoDbClient;
+    }
+
+    public SecurityMaster getSecurityMaster() {
+        return securityMaster;
     }
     
     public ObjectMapper getObjectMapper() {
         return objectMapper;
+    }
+
+    public Clock getClock() {
+        return clock;
+    }
+
+    public DynamoDbTable<TransformationJob> getTransformJobsTable() {
+        return transformJobsTable;
     }
     
     public String getRawBucketName() {
@@ -110,6 +122,20 @@ public class Dependencies {
     
     public String getTransformJobsTableName() {
         return transformJobsTableName;
+    }
+
+    private Properties createProperties() {
+        try {
+            return new Properties("market-data.%s.properties".formatted(stage.getStageName()));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private SecurityMaster createSecurityMaster() {
+        final String url = this.properties.getStringProperty("registry.url");
+        final String apiKey = this.properties.getStringProperty("registry.api_key");
+        return new SecurityMaster(new RegistryConnection(url, apiKey));
     }
 }
 

@@ -113,17 +113,7 @@ class MergerLambdaHandlerTest {
 
         // Then: Returns null and logs message count
         assertNull(result);
-        verify(logger).log(contains("Received SQS event with 0 messages"));
-    }
-
-    @Test
-    void testHandleRequestWithNullRecords() {
-        // Given: SQS event with null records
-        SQSEvent event = new SQSEvent();
-        event.setRecords(null);
-
-        // When/Then: Should throw NullPointerException
-        assertThrows(NullPointerException.class, () -> handler.handleRequest(event, context));
+        verify(logger).log(contains("Extracting keys from SQS event with 0 messages"));
     }
 
     // ============================================================================
@@ -162,7 +152,6 @@ class MergerLambdaHandlerTest {
 
         // Then: Returns null without errors (empty map, no processing)
         assertNull(result);
-        verify(logger).log(contains("Processing message"));
     }
 
     @Test
@@ -287,8 +276,7 @@ class MergerLambdaHandlerTest {
 
         // Then: Should log correct message count
         assertNull(result);
-        verify(logger).log(contains("Received SQS event with 3 messages"));
-        verify(logger, times(3)).log(contains("Processing message"));
+        verify(logger).log(contains("Extracting keys from SQS event with 3 messages"));
     }
 
     @Test
@@ -308,7 +296,6 @@ class MergerLambdaHandlerTest {
         // Then: Should process each message
         assertNull(result);
         verify(objectMapper, times(2)).readTree(anyString());
-        verify(logger, times(2)).log(contains("Processing message"));
     }
 
     // ============================================================================
@@ -469,8 +456,7 @@ class MergerLambdaHandlerTest {
         // When: Handling the request
         handler.handleRequest(event, context);
 
-        // Then: Should list S3 twice (once per SQS message), but deduplicate and load each file once
-        verify(s3Client, times(2)).listObjectsV2Paginator(any(java.util.function.Consumer.class));
+        verify(s3Client, times(1)).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, times(2)).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
         verify(logger).log(contains("Merging 2 entries"));
