@@ -50,11 +50,11 @@ public class Dependencies {
         this.objectMapper = new ObjectMapper();
         this.clock = Clock.systemUTC();
 
-        this.rawBucketName = properties.getStringProperty("raw.bucket.name");
-        this.mergedBucketName = properties.getStringProperty("merged.bucket.name");
-        this.finalBucketName = properties.getStringProperty("final.bucket.name");
-        this.gapsTableName = properties.getStringProperty("gaps.table.name");
-        this.transformJobsTableName = properties.getStringProperty("transform.jobs.table.name");
+        this.rawBucketName = System.getenv("RAW_BUCKET_NAME");
+        this.mergedBucketName = System.getenv("MERGED_BUCKET_NAME");
+        this.finalBucketName = System.getenv("FINAL_BUCKET_NAME");
+        this.gapsTableName = System.getenv("GAPS_TABLE_NAME");
+        this.transformJobsTableName = System.getenv("TRANSFORM_JOBS_TABLE_NAME");
 
         this.transformJobsTable = dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
     }
