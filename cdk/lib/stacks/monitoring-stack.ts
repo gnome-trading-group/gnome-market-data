@@ -56,6 +56,16 @@ export class MonitoringStack extends cdk.Stack {
       );
     }
 
+    monitoring.monitorScope(this, {
+      lambda: {
+        props: {
+          addFaultCountAlarm: {
+            Critical: { maxErrorCount: 0, },
+          }
+        },
+      }
+    })
+
     monitoring
       .addLargeHeader('Gnome MarketData')
       .monitorCustom({
