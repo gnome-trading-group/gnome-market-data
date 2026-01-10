@@ -46,7 +46,7 @@ export class StorageStack extends cdk.Stack {
     });
 
     this.transformJobsTable = new dynamodb.Table(this, "MarketDataTransformJobsTable", {
-      tableName: "market-data-transform-jobs",
+      tableName: "market-data-transform-jobs-old",
       partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
       sortKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
