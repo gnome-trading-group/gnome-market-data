@@ -46,9 +46,9 @@ export class StorageStack extends cdk.Stack {
     });
 
     this.transformJobsTable = new dynamodb.Table(this, "MarketDataTransformJobsTable", {
-      tableName: "market-data-transform-jobs-old",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
+      tableName: "market-data-transform-jobs",
+      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       pointInTimeRecovery: true,
@@ -57,7 +57,7 @@ export class StorageStack extends cdk.Stack {
 
     this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
       tableName: "market-data-gaps",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
