@@ -14,8 +14,8 @@ export interface StorageStackProps extends cdk.StackProps {
 
 export class StorageStack extends cdk.Stack {
   public readonly collectorsTable: dynamodb.Table;
-  public readonly transformJobsTable: dynamodb.Table;
-  public readonly gapsTable: dynamodb.Table;
+  // public readonly transformJobsTable: dynamodb.Table;
+  // public readonly gapsTable: dynamodb.Table;
   public readonly rawBucket: s3.Bucket;
   public readonly mergedBucket: s3.Bucket;
   public readonly finalBucket: s3.Bucket;
@@ -45,24 +45,24 @@ export class StorageStack extends cdk.Stack {
       pointInTimeRecovery: true,
     });
 
-    this.transformJobsTable = new dynamodb.Table(this, "MarketDataTransformJobsTable", {
-      tableName: "market-data-transform-jobs",
-      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-      timeToLiveAttribute: "expiresAt",
-    });
+    // this.transformJobsTable = new dynamodb.Table(this, "MarketDataTransformJobsTable", {
+    //   tableName: "market-data-transform-jobs",
+    //   partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
+    //   sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+    //   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    //   removalPolicy: cdk.RemovalPolicy.DESTROY,
+    //   pointInTimeRecovery: true,
+    //   timeToLiveAttribute: "expiresAt",
+    // });
 
-    this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
-      tableName: "market-data-gaps",
-      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
+    // this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
+    //   tableName: "market-data-gaps",
+    //   partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
+    //   sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+    //   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    //   removalPolicy: cdk.RemovalPolicy.DESTROY,
+    //   pointInTimeRecovery: true,
+    // });
 
     this.mergerQueue = new sqs.Queue(this, 'MergerQueue', {
       queueName: 'market-data-merger-queue',

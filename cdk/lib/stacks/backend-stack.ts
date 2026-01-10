@@ -23,8 +23,8 @@ interface BackendStackProps extends cdk.StackProps {
   collectorRegions: Record<string, CollectorRegionConfig>;
   collectorDeploymentVersion: string;
   collectorEventBus: events.IEventBus;
-  transformJobsTable: dynamodb.ITable;
-  gapsTable: dynamodb.ITable;
+  // transformJobsTable: dynamodb.ITable;
+  // gapsTable: dynamodb.ITable;
 }
 
 interface EndpointConfig {

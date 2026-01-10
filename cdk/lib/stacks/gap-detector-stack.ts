@@ -10,7 +10,7 @@ import { MarketDataConfig } from "../config";
 
 export interface GapDetectorStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
-  gapsTable: dynamodb.ITable;
+  // gapsTable: dynamodb.ITable;
   gapQueue: sqs.IQueue;
   config: MarketDataConfig;
 }
@@ -25,14 +25,14 @@ export class GapDetectorStack extends cdk.Stack {
       classPath: 'group.gnometrading.gap.GapLambdaHandler',
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
-        GAPS_TABLE_NAME: props.gapsTable.tableName,
+        // GAPS_TABLE_NAME: props.gapsTable.tableName,
         STAGE: props.config.account.stage,
       },
     });
     this.gapLambda = gapLambda.lambdaFunction;
 
     props.mergedBucket.grantRead(this.gapLambda);
-    props.gapsTable.grantReadWriteData(this.gapLambda);
+    // props.gapsTable.grantReadWriteData(this.gapLambda);
 
     this.gapLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.gapQueue, {
       batchSize: 1_000,
