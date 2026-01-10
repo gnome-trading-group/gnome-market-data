@@ -30,14 +30,14 @@ export class TransformerStack extends cdk.Stack {
       classPath: 'group.gnometrading.transformer.JobCreatorLambdaHandler',
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
-        // TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
+        TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
         STAGE: props.config.account.stage,
       },
     });
     this.transformerJobCreatorLambda = transformerJobCreatorLambda.lambdaFunction;
 
     props.mergedBucket.grantRead(this.transformerJobCreatorLambda);
-    // props.transformJobsTable.grantReadWriteData(this.transformerJobCreatorLambda);
+    props.transformJobsTable.grantReadWriteData(this.transformerJobCreatorLambda);
 
     this.transformerJobCreatorLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.transformerQueue, {
       batchSize: 1_000,
