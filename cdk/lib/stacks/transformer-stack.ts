@@ -14,7 +14,7 @@ import { MarketDataConfig } from "../config";
 export interface TransformerStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
   finalBucket: s3.Bucket;
-  // transformJobsTable: dynamodb.ITable;
+  transformJobsTable: dynamodb.ITable;
   transformerQueue: sqs.IQueue;
   config: MarketDataConfig;
 }
@@ -49,7 +49,7 @@ export class TransformerStack extends cdk.Stack {
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
         FINAL_BUCKET_NAME: props.finalBucket.bucketName,
-        // TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
+        TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
         STAGE: props.config.account.stage,
       },
     });
@@ -57,7 +57,7 @@ export class TransformerStack extends cdk.Stack {
 
     props.mergedBucket.grantRead(this.transformerJobProcessorLambda);
     props.finalBucket.grantReadWrite(this.transformerJobProcessorLambda);
-    // props.transformJobsTable.grantReadWriteData(this.transformerJobProcessorLambda);
+    props.transformJobsTable.grantReadWriteData(this.transformerJobProcessorLambda);
 
     // TODO: Uncomment when ready to enable scheduled processing
     // for (const schemaType of Object.values(SchemaType)) {
