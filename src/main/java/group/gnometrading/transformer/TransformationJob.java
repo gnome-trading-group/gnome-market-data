@@ -25,9 +25,10 @@ import java.time.ZoneOffset;
 @DynamoDbBean
 public class TransformationJob {
 
+    private JobId jobId;
+    private LocalDateTime timestamp;
     private Integer listingId;
     private String schemaType;
-    private LocalDateTime timestamp;
     private TransformationStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime processedAt;
@@ -39,6 +40,28 @@ public class TransformationJob {
     }
 
     @DynamoDbPartitionKey
+    @DynamoDbAttribute("jobId")
+    @DynamoDbConvertedBy(JobId.JobIdConverter.class)
+    public JobId getJobId() {
+        return jobId;
+    }
+
+    public void setJobId(JobId jobId) {
+        this.jobId = jobId;
+    }
+
+    @DynamoDbSortKey
+    @DynamoDbAttribute("timestamp")
+    @DynamoDbConvertedBy(LocalDateTimeConverter.class)
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(LocalDateTime timestamp) {
+        this.timestamp = timestamp;
+    }
+
+
     @DynamoDbAttribute("listingId")
     public Integer getListingId() {
         return listingId;
@@ -48,7 +71,6 @@ public class TransformationJob {
         this.listingId = listingId;
     }
 
-    @DynamoDbSortKey
     @DynamoDbAttribute("schemaType")
     public String getSchemaType() {
         return schemaType;
@@ -56,16 +78,6 @@ public class TransformationJob {
 
     public void setSchemaType(String schemaType) {
         this.schemaType = schemaType;
-    }
-
-    @DynamoDbAttribute("timestamp")
-    @DynamoDbConvertedBy(LocalDateTimeConverter.class)
-    public LocalDateTime getTimestamp() {
-        return timestamp;
-    }
-
-    public void setTimestamp(LocalDateTime timestamp) {
-        this.timestamp = timestamp;
     }
 
     @DynamoDbAttribute("status")

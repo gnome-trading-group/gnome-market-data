@@ -5,14 +5,18 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
 import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.*;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
+import software.amazon.awssdk.enhanced.dynamodb.Expression;
+import software.amazon.awssdk.enhanced.dynamodb.model.PageIterable;
+import software.amazon.awssdk.enhanced.dynamodb.model.ScanEnhancedRequest;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.*;
-import java.time.Instant;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -26,55 +30,40 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
 
     private final ObjectMapper objectMapper;
     private final S3Client s3Client;
-    private final DynamoDbClient dynamoDbClient;
+    private final DynamoDbTable<TransformationJob> transformJobsTable;
     private final String mergedBucketName;
     private final String finalBucketName;
-    private final String transformJobsTableName;
+    private final Clock clock;
 
-    /**
-     * No-argument constructor for Lambda runtime.
-     * Uses the Dependencies singleton to obtain shared instances.
-     */
     public JobProcessorLambdaHandler() {
         this(
             Dependencies.getInstance().getS3Client(),
-            Dependencies.getInstance().getDynamoDbClient(),
+            Dependencies.getInstance().getTransformJobsTable(),
             Dependencies.getInstance().getObjectMapper(),
             Dependencies.getInstance().getMergedBucketName(),
             Dependencies.getInstance().getFinalBucketName(),
-            Dependencies.getInstance().getTransformJobsTableName()
+            Dependencies.getInstance().getClock()
         );
     }
 
-    /**
-     * Constructor for unit testing.
-     * Allows injection of mock dependencies.
-     *
-     * @param s3Client S3 client for accessing merged and final data files
-     * @param dynamoDbClient DynamoDB client for managing job records
-     * @param objectMapper Jackson ObjectMapper for JSON parsing
-     * @param mergedBucketName Name of the S3 bucket containing merged data
-     * @param finalBucketName Name of the S3 bucket for final transformed data
-     * @param transformJobsTableName Name of the DynamoDB table for transform jobs
-     */
     JobProcessorLambdaHandler(
             S3Client s3Client,
-            DynamoDbClient dynamoDbClient,
+            DynamoDbTable<TransformationJob> transformJobsTable,
             ObjectMapper objectMapper,
             String mergedBucketName,
             String finalBucketName,
-            String transformJobsTableName) {
+            Clock clock
+    ) {
         this.s3Client = s3Client;
-        this.dynamoDbClient = dynamoDbClient;
+        this.transformJobsTable = transformJobsTable;
         this.objectMapper = objectMapper;
         this.mergedBucketName = mergedBucketName;
         this.finalBucketName = finalBucketName;
-        this.transformJobsTableName = transformJobsTableName;
+        this.clock = clock;
     }
     
     @Override
     public Void handleRequest(Map<String, Object> event, Context context) {
-        // Get schemaType from event (passed by EventBridge rule)
         String schemaType = (String) event.get("schemaType");
         
         if (schemaType == null || schemaType.isEmpty()) {
@@ -89,18 +78,18 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
     }
     
     private void processPendingJobs(String schemaType, Context context) {
-        // Query for pending jobs
-        List<Map<String, AttributeValue>> jobs = getPendingJobs(schemaType, context);
-        
+        // Scan for pending jobs using enhanced client
+        List<TransformationJob> jobs = getPendingJobs(schemaType, context);
+
         context.getLogger().log(String.format("Found %d pending jobs", jobs.size()));
-        
+
         int processed = 0;
-        for (Map<String, AttributeValue> job : jobs) {
+        for (TransformationJob job : jobs) {
             if (processed >= MAX_JOBS_PER_INVOCATION) {
                 context.getLogger().log("Reached max jobs per invocation, stopping");
                 break;
             }
-            
+
             try {
                 processJob(job, context);
                 processed++;
@@ -109,78 +98,123 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
                 handleJobFailure(job, e.getMessage(), context);
             }
         }
-        
+
         context.getLogger().log(String.format("Processed %d jobs", processed));
     }
-    
-    private List<Map<String, AttributeValue>> getPendingJobs(String schemaType, Context context) {
+
+    private List<TransformationJob> getPendingJobs(String schemaType, Context context) {
+        // Build filter expression for PENDING status
         Map<String, AttributeValue> expressionValues = new HashMap<>();
-        expressionValues.put(":status", AttributeValue.builder().s("PENDING").build());
-        
+        expressionValues.put(":status", AttributeValue.builder().s(TransformationStatus.PENDING.name()).build());
+
         String filterExpression = "#status = :status";
-        
+        Map<String, String> expressionNames = new HashMap<>();
+        expressionNames.put("#status", "status");
+
+        // Add schema type filter if specified
         if (schemaType != null) {
             expressionValues.put(":schemaType", AttributeValue.builder().s(schemaType).build());
             filterExpression += " AND schemaType = :schemaType";
         }
-        
-        Map<String, String> expressionNames = new HashMap<>();
-        expressionNames.put("#status", "status");
-        
-        ScanRequest scanRequest = ScanRequest.builder()
-                .tableName(transformJobsTableName)
-                .filterExpression(filterExpression)
-                .expressionAttributeValues(expressionValues)
-                .expressionAttributeNames(expressionNames)
+
+        // Build scan request using enhanced client
+        ScanEnhancedRequest scanRequest = ScanEnhancedRequest.builder()
+                .filterExpression(Expression.builder()
+                        .expression(filterExpression)
+                        .expressionValues(expressionValues)
+                        .expressionNames(expressionNames)
+                        .build())
                 .limit(MAX_JOBS_PER_INVOCATION)
                 .build();
 
-        ScanResponse response = dynamoDbClient.scan(scanRequest);
-        return response.items();
+        // Execute scan and collect results
+        PageIterable<TransformationJob> pages = transformJobsTable.scan(scanRequest);
+        List<TransformationJob> jobs = new ArrayList<>();
+
+        for (TransformationJob job : pages.items()) {
+            jobs.add(job);
+            if (jobs.size() >= MAX_JOBS_PER_INVOCATION) {
+                break;
+            }
+        }
+
+        return jobs;
     }
     
-    private void processJob(Map<String, AttributeValue> job, Context context) throws Exception {
-        String jobId = job.get("jobId").s();
-        String listingId = job.get("listingId").s();
-        String date = job.get("date").s();
-        String schemaType = job.get("schemaType").s();
-        String sourceKey = job.get("sourceKey").s();
-        
-        context.getLogger().log(String.format("Processing job %s: listing=%s, date=%s, schema=%s", 
-                jobId, listingId, date, schemaType));
-        
+    private void processJob(TransformationJob job, Context context) throws Exception {
+        context.getLogger().log(String.format("Processing job: listingId=%s, schemaType=%s, timestamp=%s",
+                job.getListingId(), job.getSchemaType(), job.getTimestamp()));
+
         // Update job status to PROCESSING
-        updateJobStatus(jobId, "PROCESSING", null, context);
-        
+        updateJobStatus(job, TransformationStatus.PROCESSING, context);
+
+        // TODO: Construct source key from job information
+        // For now, this is a placeholder - you'll need to implement the actual key construction
+        // based on your S3 bucket structure for merged files
+        String sourceKey = constructMergedFileKey(job);
+
         // Download source file from merged bucket
         GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                 .bucket(mergedBucketName)
                 .key(sourceKey)
                 .build();
-        
+
         List<String> sourceData;
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(s3Client.getObject(getObjectRequest)))) {
             sourceData = reader.lines().collect(Collectors.toList());
         }
-        
+
         // Transform the data based on schema type
-        String transformedData = transformData(sourceData, schemaType, context);
-        
+        String transformedData = transformData(sourceData, job.getSchemaType(), context);
+
         // Upload transformed data to final bucket
-        String outputKey = String.format("final/%s/%s/%s_%s_%s.csv", listingId, date, listingId, date, schemaType);
+        String outputKey = constructFinalFileKey(job);
         PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                 .bucket(finalBucketName)
                 .key(outputKey)
                 .contentType("text/csv")
                 .build();
-        
+
         s3Client.putObject(putObjectRequest, RequestBody.fromString(transformedData));
 
-        // Update job status to COMPLETED
-        updateJobStatus(jobId, "COMPLETED", outputKey, context);
+        // Update job status to COMPLETE
+        updateJobStatus(job, TransformationStatus.COMPLETE, context);
 
-        context.getLogger().log(String.format("Successfully processed job %s, output: %s", jobId, outputKey));
+        context.getLogger().log(String.format("Successfully processed job: listingId=%s, schemaType=%s, output=%s",
+                job.getListingId(), job.getSchemaType(), outputKey));
+    }
+
+    private String constructMergedFileKey(TransformationJob job) {
+        // TODO: Implement actual key construction based on your S3 structure
+        // This is a placeholder implementation
+        // Example: "merged/{listingId}/{year}/{month}/{day}/{hour}/{minute}/{schemaType}.zst"
+        LocalDateTime timestamp = job.getTimestamp();
+        return String.format("merged/%d/%d/%d/%d/%d/%d/%s.zst",
+                job.getListingId(),
+                timestamp.getYear(),
+                timestamp.getMonthValue(),
+                timestamp.getDayOfMonth(),
+                timestamp.getHour(),
+                timestamp.getMinute(),
+                job.getSchemaType());
+    }
+
+    private String constructFinalFileKey(TransformationJob job) {
+        // Construct output key for final bucket
+        LocalDateTime timestamp = job.getTimestamp();
+        return String.format("final/%d/%04d/%02d/%02d/%s_%04d%02d%02d_%02d%02d_%s.csv",
+                job.getListingId(),
+                timestamp.getYear(),
+                timestamp.getMonthValue(),
+                timestamp.getDayOfMonth(),
+                job.getListingId(),
+                timestamp.getYear(),
+                timestamp.getMonthValue(),
+                timestamp.getDayOfMonth(),
+                timestamp.getHour(),
+                timestamp.getMinute(),
+                job.getSchemaType());
     }
 
     private String transformData(List<String> sourceData, String schemaType, Context context) {
@@ -230,78 +264,29 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
         return 60_000L; // Default to 1 minute
     }
 
-    private void updateJobStatus(String jobId, String status, String outputKey, Context context) {
-        Map<String, AttributeValue> key = new HashMap<>();
-        key.put("jobId", AttributeValue.builder().s(jobId).build());
+    private void updateJobStatus(TransformationJob job, TransformationStatus status, Context context) {
+        // Update job status and processedAt timestamp
+        job.setStatus(status);
+        job.setProcessedAt(LocalDateTime.now(clock));
 
-        Map<String, AttributeValueUpdate> updates = new HashMap<>();
-        updates.put("status", AttributeValueUpdate.builder()
-                .value(AttributeValue.builder().s(status).build())
-                .action(AttributeAction.PUT)
-                .build());
-        updates.put("updatedAt", AttributeValueUpdate.builder()
-                .value(AttributeValue.builder().n(String.valueOf(Instant.now().getEpochSecond())).build())
-                .action(AttributeAction.PUT)
-                .build());
+        // Use enhanced client to update the item
+        transformJobsTable.updateItem(job);
 
-        if (outputKey != null) {
-            updates.put("outputKey", AttributeValueUpdate.builder()
-                    .value(AttributeValue.builder().s(outputKey).build())
-                    .action(AttributeAction.PUT)
-                    .build());
-        }
-
-        UpdateItemRequest updateRequest = UpdateItemRequest.builder()
-                .tableName(transformJobsTableName)
-                .key(key)
-                .attributeUpdates(updates)
-                .build();
-
-        dynamoDbClient.updateItem(updateRequest);
+        context.getLogger().log(String.format("Updated job status to %s: listingId=%s, schemaType=%s",
+                status, job.getListingId(), job.getSchemaType()));
     }
 
-    private void handleJobFailure(Map<String, AttributeValue> job, String errorMessage, Context context) {
-        String jobId = job.get("jobId").s();
-        int retryCount = Integer.parseInt(job.getOrDefault("retryCount",
-                AttributeValue.builder().n("0").build()).n());
+    private void handleJobFailure(TransformationJob job, String errorMessage, Context context) {
+        // Update job with error information
+        job.setStatus(TransformationStatus.FAILED);
+        job.setErrorMessage(errorMessage);
+        job.setProcessedAt(LocalDateTime.now(clock));
 
-        retryCount++;
+        // Use enhanced client to update the item
+        transformJobsTable.updateItem(job);
 
-        Map<String, AttributeValue> key = new HashMap<>();
-        key.put("jobId", AttributeValue.builder().s(jobId).build());
-
-        Map<String, AttributeValueUpdate> updates = new HashMap<>();
-        updates.put("retryCount", AttributeValueUpdate.builder()
-                .value(AttributeValue.builder().n(String.valueOf(retryCount)).build())
-                .action(AttributeAction.PUT)
-                .build());
-        updates.put("lastError", AttributeValueUpdate.builder()
-                .value(AttributeValue.builder().s(errorMessage).build())
-                .action(AttributeAction.PUT)
-                .build());
-        updates.put("updatedAt", AttributeValueUpdate.builder()
-                .value(AttributeValue.builder().n(String.valueOf(Instant.now().getEpochSecond())).build())
-                .action(AttributeAction.PUT)
-                .build());
-
-        // If retry count exceeds threshold, mark as FAILED
-        if (retryCount >= 3) {
-            updates.put("status", AttributeValueUpdate.builder()
-                    .value(AttributeValue.builder().s("FAILED").build())
-                    .action(AttributeAction.PUT)
-                    .build());
-            context.getLogger().log(String.format("Job %s marked as FAILED after %d retries", jobId, retryCount));
-        } else {
-            context.getLogger().log(String.format("Job %s failed, retry count: %d", jobId, retryCount));
-        }
-
-        UpdateItemRequest updateRequest = UpdateItemRequest.builder()
-                .tableName(transformJobsTableName)
-                .key(key)
-                .attributeUpdates(updates)
-                .build();
-
-        dynamoDbClient.updateItem(updateRequest);
+        context.getLogger().log(String.format("Job marked as FAILED: listingId=%s, schemaType=%s, error=%s",
+                job.getListingId(), job.getSchemaType(), errorMessage));
     }
 }
 

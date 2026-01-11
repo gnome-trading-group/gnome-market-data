@@ -22,6 +22,7 @@ export class GapDetectorStack extends cdk.Stack {
     super(scope, id, props);
 
     const gapLambda = new JavaLambda(this, 'GapLambda', {
+      name: 'GapDetector',
       classPath: 'group.gnometrading.gap.GapLambdaHandler',
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,

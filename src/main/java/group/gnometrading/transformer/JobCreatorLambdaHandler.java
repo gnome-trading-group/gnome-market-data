@@ -78,26 +78,31 @@ public class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, Void> {
     }
 
     private void createTransformJob(MarketDataEntry entry, SchemaType schemaType, Context context) {
-        TransformationJob job = new TransformationJob();
         int listingId = this.securityMaster.getListing(entry.getExchangeId(), entry.getSecurityId()).listingId();
+
+        TransformationJob job = new TransformationJob();
+        job.setJobId(new JobId(listingId, schemaType));
+        job.setTimestamp(entry.getTimestamp());
         job.setListingId(listingId);
         job.setSchemaType(schemaType.getIdentifier());
-        job.setTimestamp(entry.getTimestamp());
         job.setStatus(TransformationStatus.PENDING);
         job.setCreatedAt(LocalDateTime.now(this.clock));
 
-
         try {
-            this.transformJobsTable.putItem(builder -> builder
+            this.transformJobsTable.putItem(request -> request
                     .item(job)
-                    .conditionExpression(
-                        Expression.builder()
-                                .expression("attribute_not_exists(listingId) AND attribute_not_exists(schemaType)")
-                                .build()
-                    )
+                    .conditionExpression(Expression.builder()
+                            .expression("attribute_not_exists(jobId) AND attribute_not_exists(#ts)")
+                            .putExpressionName("#ts", "timestamp")
+                            .build())
             );
+            context.getLogger().log("Created transformation job: listingId=" + listingId +
+                    ", schemaType=" + schemaType.getIdentifier() +
+                    ", timestamp=" + entry.getTimestamp());
         } catch (ConditionalCheckFailedException e) {
-            context.getLogger().log("Job already exists for entry: " + entry + ", schema: " + schemaType);
+            context.getLogger().log("Job already exists for listingId=" + listingId +
+                    ", schemaType=" + schemaType.getIdentifier() +
+                    ", timestamp=" + entry.getTimestamp());
         }
     }
 }

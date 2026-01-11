@@ -1,9 +1,11 @@
 import * as cdk from "aws-cdk-lib";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 import * as path from "path";
 
 export interface JavaLambdaProps {
+  name: string;
   classPath: string;
   environment?: { [key: string]: string };
 }
@@ -24,8 +26,9 @@ export class JavaLambda extends Construct {
 
     environment.JAVA_TOOL_OPTIONS = `${environment.JAVA_TOOL_OPTIONS ?? ''}${this.DEFAULT_JVM_OPTIONS}`;
 
-    this.lambdaFunction = new lambda.Function(this, 'JavaLambda', {
+    this.lambdaFunction = new lambda.Function(this, `${props.name}JavaLambda`, {
       runtime: lambda.Runtime.JAVA_17,
+      functionName: `${cdk.Aws.STACK_NAME}-${props.name}`,
       handler: `${props.classPath}::handleRequest`,
       code: lambda.Code.fromAsset(projectRoot, {
         bundling: {
@@ -48,6 +51,7 @@ export class JavaLambda extends Construct {
       memorySize: 2048,
       timeout: cdk.Duration.minutes(15),
       environment,
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
   }
 }
