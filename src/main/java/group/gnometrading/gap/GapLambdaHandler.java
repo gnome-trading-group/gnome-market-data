@@ -3,32 +3,42 @@ package group.gnometrading.gap;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
-import com.amazonaws.services.lambda.runtime.events.SQSEvent.SQSMessage;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
-import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.*;
+import group.gnometrading.MarketDataEntry;
+import group.gnometrading.S3Utils;
+import group.gnometrading.SecurityMaster;
+import group.gnometrading.sm.Listing;
+import group.gnometrading.transformer.JobId;
+import group.gnometrading.transformer.TransformationJob;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
+import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.time.Instant;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Lambda handler that detects gaps in merged market data files.
  * Triggered by S3 events via SQS when new merged files are created.
- * Analyzes the file to detect missing time intervals and records gaps in DynamoDB.
+ * Checks for missing previous minutes and records gaps in DynamoDB.
  */
 public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
+
+    private static final int TWO_DAYS_IN_MINUTES = Math.toIntExact(TimeUnit.DAYS.toMinutes(2));
+
     private final ObjectMapper objectMapper;
     private final S3Client s3Client;
-    private final DynamoDbClient dynamoDbClient;
+    private final SecurityMaster securityMaster;
+    private final DynamoDbTable<TransformationJob> transformJobsTable;
+    private final DynamoDbTable<Gap> gapsTable;
     private final String mergedBucketName;
-    private final String gapsTableName;
+    private final Clock clock;
 
     /**
      * No-argument constructor for Lambda runtime.
@@ -37,10 +47,12 @@ public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
     public GapLambdaHandler() {
         this(
             Dependencies.getInstance().getS3Client(),
-            Dependencies.getInstance().getDynamoDbClient(),
+            Dependencies.getInstance().getSecurityMaster(),
             Dependencies.getInstance().getObjectMapper(),
+            Dependencies.getInstance().getTransformJobsTable(),
+            Dependencies.getInstance().getGapsTable(),
             Dependencies.getInstance().getMergedBucketName(),
-            Dependencies.getInstance().getGapsTableName()
+            Dependencies.getInstance().getClock()
         );
     }
 
@@ -49,176 +61,168 @@ public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
      * Allows injection of mock dependencies.
      *
      * @param s3Client S3 client for accessing merged data files
-     * @param dynamoDbClient DynamoDB client for storing gap records
+     * @param securityMaster SecurityMaster for listing information
      * @param objectMapper Jackson ObjectMapper for JSON parsing
+     * @param transformJobsTable DynamoDB table for transformation jobs
+     * @param gapsTable DynamoDB table for gap records
      * @param mergedBucketName Name of the S3 bucket containing merged data
-     * @param gapsTableName Name of the DynamoDB table for gap records
+     * @param clock Clock for timestamps
      */
     GapLambdaHandler(
             S3Client s3Client,
-            DynamoDbClient dynamoDbClient,
+            SecurityMaster securityMaster,
             ObjectMapper objectMapper,
+            DynamoDbTable<TransformationJob> transformJobsTable,
+            DynamoDbTable<Gap> gapsTable,
             String mergedBucketName,
-            String gapsTableName) {
+            Clock clock) {
         this.s3Client = s3Client;
-        this.dynamoDbClient = dynamoDbClient;
+        this.securityMaster = securityMaster;
         this.objectMapper = objectMapper;
+        this.transformJobsTable = transformJobsTable;
+        this.gapsTable = gapsTable;
         this.mergedBucketName = mergedBucketName;
-        this.gapsTableName = gapsTableName;
+        this.clock = clock;
     }
-    
+
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
-        for (SQSMessage message : event.getRecords()) {
-            try {
-                processMessage(message, context);
-            } catch (Exception e) {
-                context.getLogger().log("Error processing message: " + e.getMessage());
-                throw new RuntimeException(e);
+        try {
+            Set<MarketDataEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, context, objectMapper);
+            context.getLogger().log("Found " + mergedEntries.size() + " merged entries in S3 event");
+
+            for (MarketDataEntry entry : mergedEntries) {
+                processEntry(entry, context);
             }
+        } catch (Exception e) {
+            context.getLogger().log("Error processing messages: " + e.getMessage());
+            throw new RuntimeException("Failed to process messages", e);
         }
         return null;
     }
-    
-    private void processMessage(SQSMessage message, Context context) throws Exception {
-        String body = message.getBody();
-        context.getLogger().log("Processing message: " + body);
-        
-        // Parse the S3 event notification from the SQS message body
-        JsonNode s3Event = objectMapper.readTree(body);
-        
-        // S3 notifications can contain multiple records
-        JsonNode records = s3Event.get("Records");
-        if (records != null && records.isArray()) {
-            for (JsonNode record : records) {
-                processS3Record(record, context);
+
+    private void processEntry(MarketDataEntry entry, Context context) {
+        context.getLogger().log("Processing entry: " + entry);
+
+        Listing listing = securityMaster.getListing(entry.getExchangeId(), entry.getSecurityId());
+        if (listing == null) {
+            context.getLogger().log("Listing not found for entry: " + entry);
+            return;
+        }
+
+        LocalDateTime currentTimestamp = entry.getTimestamp();
+
+        LocalDateTime previousMinute = currentTimestamp.minusMinutes(1);
+
+        if (hasGap(listing, previousMinute, context)) {
+            LocalDateTime mostRecentMinute = findMostRecentMinute(listing, previousMinute, context);
+
+            if (mostRecentMinute == null) {
+                context.getLogger().log("No recent data found within 2 days for listing " + listing +
+                    ", treating as first entry");
+                return;
             }
+
+            List<Gap> gaps = createGapRecords(listing, mostRecentMinute, currentTimestamp, context);
+
+            for (Gap gap : gaps) {
+                storeGap(gap, context);
+            }
+
+            context.getLogger().log(String.format("Detected %d gap(s) for listing %d between %s and %s",
+                gaps.size(), listing.listingId(), mostRecentMinute, currentTimestamp));
         }
     }
-    
-    private void processS3Record(JsonNode record, Context context) throws Exception {
-        JsonNode s3 = record.get("s3");
-        if (s3 == null) {
-            context.getLogger().log("No S3 data in record, skipping");
-            return;
+
+    private boolean hasGap(Listing listing, LocalDateTime previousMinute, Context context) {
+        if (transformationJobExists(listing, previousMinute)) {
+            context.getLogger().log("Previous minute exists in transformation jobs: " + previousMinute);
+            return false;
         }
-        
-        String bucket = s3.get("bucket").get("name").asText();
-        String key = s3.get("object").get("key").asText();
-        long size = s3.get("object").get("size").asLong();
-        
-        context.getLogger().log(String.format("Processing S3 object: bucket=%s, key=%s, size=%d", bucket, key, size));
-        
-        // Parse key to extract metadata: merged/{listing_id}/{date}/{listing_id}_{date}.csv
-        String[] parts = key.split("/");
-        if (parts.length < 3 || !parts[0].equals("merged")) {
-            context.getLogger().log("Invalid key format, skipping: " + key);
-            return;
+
+        if (s3ObjectExists(listing, previousMinute)) {
+            context.getLogger().log("Previous minute exists in S3: " + previousMinute);
+            return false;
         }
-        
-        String listingId = parts[1];
-        String date = parts[2];
-        
-        // Download and analyze the merged file for gaps
-        List<Gap> gaps = detectGaps(bucket, key, listingId, date, context);
-        
-        // Store gaps in DynamoDB
-        for (Gap gap : gaps) {
-            storeGap(gap, context);
-        }
-        
-        context.getLogger().log(String.format("Detected %d gaps for listing %s on %s", gaps.size(), listingId, date));
+
+        context.getLogger().log("Gap detected: previous minute " + previousMinute + " not found");
+        return true;
     }
-    
-    private List<Gap> detectGaps(String bucket, String key, String listingId, String date, Context context) throws Exception {
-        List<Gap> gaps = new ArrayList<>();
-        
-        // Download the file from S3
-        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                .bucket(bucket)
-                .key(key)
+
+    private boolean transformationJobExists(Listing listing, LocalDateTime timestamp) {
+        JobId jobId = new JobId(listing.listingId(), listing.exchange().schemaType());
+        Key key = Key.builder()
+                .partitionValue(jobId.toString())
+                .sortValue(timestamp.toEpochSecond(ZoneOffset.UTC))
                 .build();
-        
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(s3Client.getObject(getObjectRequest)))) {
-            
-            // Read all timestamps from the file (assuming CSV with timestamp in first column)
-            List<Long> timestamps = reader.lines()
-                    .skip(1) // Skip header
-                    .map(line -> line.split(",")[0])
-                    .map(Long::parseLong)
-                    .sorted()
-                    .collect(Collectors.toList());
-            
-            if (timestamps.isEmpty()) {
-                context.getLogger().log("No data in file: " + key);
-                return gaps;
-            }
-            
-            // Detect gaps (assuming 1-second intervals for market data)
-            long expectedInterval = 1000; // 1 second in milliseconds
-            
-            for (int i = 1; i < timestamps.size(); i++) {
-                long prev = timestamps.get(i - 1);
-                long curr = timestamps.get(i);
-                long diff = curr - prev;
-                
-                // If gap is larger than expected interval, record it
-                if (diff > expectedInterval * 2) { // Allow some tolerance
-                    gaps.add(new Gap(
-                            listingId,
-                            date,
-                            prev,
-                            curr,
-                            diff,
-                            Instant.now().getEpochSecond()
-                    ));
-                }
-            }
+
+        TransformationJob job = transformJobsTable.getItem(key);
+        return job != null;
+    }
+
+    private boolean s3ObjectExists(Listing listing, LocalDateTime timestamp) {
+        MarketDataEntry entry = new MarketDataEntry(listing, timestamp, MarketDataEntry.EntryType.AGGREGATED);
+
+        try {
+            s3Client.headObject(HeadObjectRequest.builder()
+                    .bucket(mergedBucketName)
+                    .key(entry.getKey())
+                    .build());
+            return true;
+        } catch (NoSuchKeyException e) {
+            return false;
         }
-        
+    }
+
+    private LocalDateTime findMostRecentMinute(Listing listing, LocalDateTime startingFrom, Context context) {
+        LocalDateTime checkTimestamp = startingFrom;
+        LocalDateTime twoDaysAgo = startingFrom.minusMinutes(TWO_DAYS_IN_MINUTES);
+
+        while (checkTimestamp.isAfter(twoDaysAgo)) {
+            if (transformationJobExists(listing, checkTimestamp)) {
+                context.getLogger().log("Found most recent minute in transformation jobs: " + checkTimestamp);
+                return checkTimestamp;
+            }
+
+            if (s3ObjectExists(listing, checkTimestamp)) {
+                context.getLogger().log("Found most recent minute in S3: " + checkTimestamp);
+                return checkTimestamp;
+            }
+
+            checkTimestamp = checkTimestamp.minusMinutes(1);
+        }
+
+        context.getLogger().log("No data found within 2 days before " + startingFrom);
+        return null;
+    }
+
+    private List<Gap> createGapRecords(Listing listing, LocalDateTime mostRecentMinute, LocalDateTime currentTimestamp, Context context) {
+        List<Gap> gaps = new ArrayList<>();
+        LocalDateTime gapStart = mostRecentMinute.plusMinutes(1);
+
+        while (gapStart.isBefore(currentTimestamp)) {
+            Gap gap = new Gap();
+            gap.setListingId(listing.listingId());
+            gap.setTimestamp(gapStart);
+            gap.setGapReason(GapReason.UNKNOWN);
+            gap.setExpected(false);
+            gap.setNote("Gap detected by gap detector lambda");
+            gap.setCreatedAt(LocalDateTime.now(clock));
+
+            gaps.add(gap);
+            gapStart = gapStart.plusMinutes(1);
+        }
+
         return gaps;
     }
-    
+
     private void storeGap(Gap gap, Context context) {
-        String gapId = String.format("%s_%s_%d", gap.listingId, gap.date, gap.startTimestamp);
-
-        Map<String, AttributeValue> item = new HashMap<>();
-        item.put("gapId", AttributeValue.builder().s(gapId).build());
-        item.put("listingId", AttributeValue.builder().s(gap.listingId).build());
-        item.put("date", AttributeValue.builder().s(gap.date).build());
-        item.put("startTimestamp", AttributeValue.builder().n(String.valueOf(gap.startTimestamp)).build());
-        item.put("endTimestamp", AttributeValue.builder().n(String.valueOf(gap.endTimestamp)).build());
-        item.put("gapDuration", AttributeValue.builder().n(String.valueOf(gap.gapDuration)).build());
-        item.put("detectedAt", AttributeValue.builder().n(String.valueOf(gap.detectedAt)).build());
-
-        PutItemRequest putItemRequest = PutItemRequest.builder()
-                .tableName(gapsTableName)
-                .item(item)
-                .build();
-
-        dynamoDbClient.putItem(putItemRequest);
-        context.getLogger().log("Stored gap: " + gapId);
-    }
-
-    /**
-     * Inner class representing a detected gap in market data.
-     */
-    private static class Gap {
-        final String listingId;
-        final String date;
-        final long startTimestamp;
-        final long endTimestamp;
-        final long gapDuration;
-        final long detectedAt;
-
-        Gap(String listingId, String date, long startTimestamp, long endTimestamp, long gapDuration, long detectedAt) {
-            this.listingId = listingId;
-            this.date = date;
-            this.startTimestamp = startTimestamp;
-            this.endTimestamp = endTimestamp;
-            this.gapDuration = gapDuration;
-            this.detectedAt = detectedAt;
+        try {
+            gapsTable.putItem(gap);
+            context.getLogger().log(String.format("Stored gap: listingId=%d, timestamp=%s",
+                    gap.getListingId(), gap.getTimestamp()));
+        } catch (Exception e) {
+            context.getLogger().log("Error storing gap: " + e.getMessage());
         }
     }
 }

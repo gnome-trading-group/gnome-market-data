@@ -2,6 +2,7 @@ package group.gnometrading;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.constants.Stage;
+import group.gnometrading.gap.Gap;
 import group.gnometrading.resources.Properties;
 import group.gnometrading.transformer.TransformationJob;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
@@ -28,6 +29,7 @@ public class Dependencies {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final DynamoDbTable<TransformationJob> transformJobsTable;
+    private final DynamoDbTable<Gap> gapsTable;
     private final SecurityMaster securityMaster;
 
     private final String rawBucketName;
@@ -57,6 +59,7 @@ public class Dependencies {
         this.transformJobsTableName = System.getenv("TRANSFORM_JOBS_TABLE_NAME");
 
         this.transformJobsTable = dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
+        this.gapsTable = dynamoDbEnhancedClient.table(gapsTableName, TableSchema.fromBean(Gap.class));
     }
 
     /**
@@ -103,7 +106,11 @@ public class Dependencies {
     public DynamoDbTable<TransformationJob> getTransformJobsTable() {
         return transformJobsTable;
     }
-    
+
+    public DynamoDbTable<Gap> getGapsTable() {
+        return gapsTable;
+    }
+
     public String getRawBucketName() {
         return rawBucketName;
     }
