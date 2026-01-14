@@ -70,11 +70,11 @@ export class StorageStack extends cdk.Stack {
       pointInTimeRecovery: true,
     });
 
-    this.gapsTable.addGlobalSecondaryIndex({
-      indexName: "listingId-gapReason-index",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "gapReason", type: dynamodb.AttributeType.STRING },
-    });
+    // this.gapsTable.addGlobalSecondaryIndex({
+    //   indexName: "listingId-gapReason-index",
+    //   partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+    //   sortKey: { name: "gapReason", type: dynamodb.AttributeType.STRING },
+    // });
 
     this.mergerQueue = new sqs.Queue(this, 'MergerQueue', {
       queueName: 'market-data-merger-queue',
