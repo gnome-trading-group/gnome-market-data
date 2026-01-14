@@ -97,14 +97,16 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
     }
 
     private List<TransformationJob> getPendingJobs(SchemaType schemaType) {
-        Map<String, AttributeValue> expressionValues = new HashMap<>();
-        expressionValues.put(":status", AttributeValue.builder().s(TransformationStatus.PENDING.name()).build());
-        expressionValues.put(":schemaType", AttributeValue.builder().s(schemaType.getIdentifier()).build());
+        Map<String, AttributeValue> expressionValues = Map.of(
+                ":status", AttributeValue.builder().s(TransformationStatus.PENDING.name()).build(),
+                ":schemaType", AttributeValue.builder().s(schemaType.getIdentifier()).build()
+        );
 
-        String filterExpression = "#status = :status AND schemaType = :schemaType";
-        Map<String, String> expressionNames = new HashMap<>();
-        expressionNames.put("#status", "status");
-        expressionNames.put("#schemaType", "schemaType");
+        String filterExpression = "#status = :status AND #schemaType = :schemaType";
+        Map<String, String> expressionNames = Map.of(
+                "#status", "status",
+                "#schemaType", "schemaType"
+        );
 
         ScanEnhancedRequest scanRequest = ScanEnhancedRequest.builder()
                 .filterExpression(Expression.builder()
