@@ -55,6 +55,12 @@ export class StorageStack extends cdk.Stack {
       timeToLiveAttribute: "expiresAt",
     });
 
+    this.transformJobsTable.addGlobalSecondaryIndex({
+      indexName: "jobId-status-index",
+      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "status", type: dynamodb.AttributeType.STRING },
+    });
+
     this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
       tableName: "market-data-gaps",
       partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
@@ -62,6 +68,12 @@ export class StorageStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       pointInTimeRecovery: true,
+    });
+
+    this.gapsTable.addGlobalSecondaryIndex({
+      indexName: "listingId-gapReason-index",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "gapReason", type: dynamodb.AttributeType.STRING },
     });
 
     this.mergerQueue = new sqs.Queue(this, 'MergerQueue', {
