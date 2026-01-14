@@ -30,7 +30,7 @@ import java.util.*;
  */
 public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Object>, Void> {
 
-    private static final int MAX_JOBS_PER_INVOCATION = 100;
+    private static final int MAX_JOBS_PER_INVOCATION = 10_000;
 
     private final S3Client s3Client;
     private final DynamoDbTable<TransformationJob> transformJobsTable;

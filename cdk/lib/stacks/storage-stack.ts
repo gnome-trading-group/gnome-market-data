@@ -56,8 +56,8 @@ export class StorageStack extends cdk.Stack {
     });
 
     this.transformJobsTable.addGlobalSecondaryIndex({
-      indexName: "jobId-status-index",
-      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
+      indexName: "schemaType-status-index",
+      partitionKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "status", type: dynamodb.AttributeType.STRING },
     });
 
