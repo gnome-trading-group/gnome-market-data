@@ -15,7 +15,7 @@ public record JobId(
     }
 
     public static JobId fromString(String jobId) {
-        String[] parts = jobId.split("-");
+        String[] parts = jobId.split("-", 2);
         return new JobId(Integer.parseInt(parts[0]), SchemaType.findById(parts[1]));
     }
 
