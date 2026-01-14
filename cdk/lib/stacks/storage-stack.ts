@@ -57,7 +57,7 @@ export class StorageStack extends cdk.Stack {
 
     this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
       tableName: "market-data-gaps",
-      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
       sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
