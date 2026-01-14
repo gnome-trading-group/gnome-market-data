@@ -68,13 +68,21 @@ public class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, Void> {
     }
 
     private void createTransformJobsForEntry(MarketDataEntry entry, Context context) {
-        context.getLogger().log("Creating transform jobs for entry: " + entry);
-
         for (SchemaType schemaType : SchemaType.values()) {
-            if (entry.getSchemaType() == schemaType || SchemaConversionRegistry.hasConverter(entry.getSchemaType(), schemaType)) {
-                createTransformJob(entry, schemaType, context);
+            if (SchemaConversionRegistry.hasBulkConverter(entry.getSchemaType(), schemaType)) {
+                if (shouldCreateTransformJob(entry, schemaType)) {
+                    createTransformJob(entry, schemaType, context);
+                }
             }
         }
+    }
+
+    private boolean shouldCreateTransformJob(MarketDataEntry entry, SchemaType schemaType) {
+        return switch (schemaType) {
+            case MBO, MBP_10, MBP_1, BBO_1S, BBO_1M, TRADES, OHLCV_1S, OHLCV_1M -> true;
+            case OHLCV_1H -> // Only create job at end of hour
+                    entry.getTimestamp().getMinute() == 59;
+        };
     }
 
     private void createTransformJob(MarketDataEntry entry, SchemaType schemaType, Context context) {
@@ -84,7 +92,7 @@ public class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, Void> {
         job.setJobId(new JobId(listingId, schemaType));
         job.setTimestamp(entry.getTimestamp());
         job.setListingId(listingId);
-        job.setSchemaType(schemaType.getIdentifier());
+        job.setSchemaType(schemaType);
         job.setStatus(TransformationStatus.PENDING);
         job.setCreatedAt(LocalDateTime.now(this.clock));
 

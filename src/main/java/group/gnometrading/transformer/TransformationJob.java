@@ -1,5 +1,6 @@
 package group.gnometrading.transformer;
 
+import group.gnometrading.schemas.SchemaType;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeConverter;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeValueType;
 import software.amazon.awssdk.enhanced.dynamodb.EnhancedType;
@@ -13,9 +14,10 @@ import java.time.ZoneOffset;
  * DynamoDB bean for transformation jobs.
  * 
  * Table schema:
- * - PK: listingId (number)
- * - SK: schemaType (string)
- * - timestamp: LocalDateTime
+ * - PK: jobId (string)
+ * - SK: timestamp (LocalDateTime)
+ * - listingId: int
+ * - schemaType: string
  * - status: TransformationStatus enum
  * - createdAt: LocalDateTime
  * - processedAt: LocalDateTime (nullable)
@@ -28,7 +30,7 @@ public class TransformationJob {
     private JobId jobId;
     private LocalDateTime timestamp;
     private Integer listingId;
-    private String schemaType;
+    private SchemaType schemaType;
     private TransformationStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime processedAt;
@@ -72,11 +74,12 @@ public class TransformationJob {
     }
 
     @DynamoDbAttribute("schemaType")
-    public String getSchemaType() {
+    @DynamoDbConvertedBy(SchemaTypeConverter.class)
+    public SchemaType getSchemaType() {
         return schemaType;
     }
 
-    public void setSchemaType(String schemaType) {
+    public void setSchemaType(SchemaType schemaType) {
         this.schemaType = schemaType;
     }
 
@@ -126,6 +129,34 @@ public class TransformationJob {
 
     public void setExpiresAt(Long expiresAt) {
         this.expiresAt = expiresAt;
+    }
+
+    public static class SchemaTypeConverter implements AttributeConverter<SchemaType> {
+        @Override
+        public AttributeValue transformFrom(SchemaType input) {
+            if (input == null) {
+                return AttributeValue.builder().nul(true).build();
+            }
+            return AttributeValue.builder().s(input.getIdentifier()).build();
+        }
+
+        @Override
+        public SchemaType transformTo(AttributeValue input) {
+            if (input == null || input.nul() != null && input.nul()) {
+                return null;
+            }
+            return SchemaType.findById(input.s());
+        }
+
+        @Override
+        public EnhancedType<SchemaType> type() {
+            return EnhancedType.of(SchemaType.class);
+        }
+
+        @Override
+        public AttributeValueType attributeValueType() {
+            return AttributeValueType.S;
+        }
     }
 
     /**

@@ -54,17 +54,6 @@ public class MarketDataEntry {
         );
     }
 
-    public MarketDataEntry(Listing listing, LocalDateTime timestamp, EntryType entryType, String uuid) {
-        this(
-                listing.security().securityId(),
-                listing.exchange().exchangeId(),
-                listing.exchange().schemaType(),
-                timestamp,
-                entryType,
-                uuid
-        );
-    }
-
     public MarketDataEntry(int securityId, int exchangeId, SchemaType schemaType, LocalDateTime timestamp, EntryType entryType) {
         this(
                 securityId,

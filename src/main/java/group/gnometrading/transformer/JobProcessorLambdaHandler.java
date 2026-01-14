@@ -2,23 +2,26 @@ package group.gnometrading.transformer;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
-import software.amazon.awssdk.core.sync.RequestBody;
+import group.gnometrading.MarketDataEntry;
+import group.gnometrading.SecurityMaster;
+import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.converters.SchemaBulkConverter;
+import group.gnometrading.schemas.converters.SchemaConversionRegistry;
+import group.gnometrading.sm.Listing;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.model.PageIterable;
 import software.amazon.awssdk.enhanced.dynamodb.model.ScanEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
-import java.io.*;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Lambda handler that processes transformation jobs on a schedule.
@@ -26,11 +29,12 @@ import java.util.stream.Collectors;
  * and writes the transformed data to the final S3 bucket.
  */
 public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Object>, Void> {
-    private static final int MAX_JOBS_PER_INVOCATION = 10;
 
-    private final ObjectMapper objectMapper;
+    private static final int MAX_JOBS_PER_INVOCATION = 100;
+
     private final S3Client s3Client;
     private final DynamoDbTable<TransformationJob> transformJobsTable;
+    private final SecurityMaster securityMaster;
     private final String mergedBucketName;
     private final String finalBucketName;
     private final Clock clock;
@@ -39,7 +43,7 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
         this(
             Dependencies.getInstance().getS3Client(),
             Dependencies.getInstance().getTransformJobsTable(),
-            Dependencies.getInstance().getObjectMapper(),
+            Dependencies.getInstance().getSecurityMaster(),
             Dependencies.getInstance().getMergedBucketName(),
             Dependencies.getInstance().getFinalBucketName(),
             Dependencies.getInstance().getClock()
@@ -49,14 +53,14 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
     JobProcessorLambdaHandler(
             S3Client s3Client,
             DynamoDbTable<TransformationJob> transformJobsTable,
-            ObjectMapper objectMapper,
+            SecurityMaster securityMaster,
             String mergedBucketName,
             String finalBucketName,
             Clock clock
     ) {
         this.s3Client = s3Client;
         this.transformJobsTable = transformJobsTable;
-        this.objectMapper = objectMapper;
+        this.securityMaster = securityMaster;
         this.mergedBucketName = mergedBucketName;
         this.finalBucketName = finalBucketName;
         this.clock = clock;
@@ -64,60 +68,44 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
     
     @Override
     public Void handleRequest(Map<String, Object> event, Context context) {
-        String schemaType = (String) event.get("schemaType");
+        String rawSchemaType = (String) event.get("schemaType");
         
-        if (schemaType == null || schemaType.isEmpty()) {
-            context.getLogger().log("No schemaType provided in event, processing all pending jobs");
-            processPendingJobs(null, context);
-        } else {
-            context.getLogger().log("Processing jobs for schemaType: " + schemaType);
-            processPendingJobs(schemaType, context);
+        if (rawSchemaType == null || rawSchemaType.isEmpty()) {
+            throw new IllegalArgumentException("schemaType is required");
         }
+
+        SchemaType schemaType = SchemaType.findById(rawSchemaType);
+        context.getLogger().log("Processing jobs for schemaType: " + rawSchemaType);
+        processPendingJobs(schemaType, context);
         
         return null;
     }
     
-    private void processPendingJobs(String schemaType, Context context) {
-        // Scan for pending jobs using enhanced client
-        List<TransformationJob> jobs = getPendingJobs(schemaType, context);
+    private void processPendingJobs(SchemaType schemaType, Context context) {
+        List<TransformationJob> jobs = getPendingJobs(schemaType);
 
         context.getLogger().log(String.format("Found %d pending jobs", jobs.size()));
 
-        int processed = 0;
         for (TransformationJob job : jobs) {
-            if (processed >= MAX_JOBS_PER_INVOCATION) {
-                context.getLogger().log("Reached max jobs per invocation, stopping");
-                break;
-            }
-
             try {
                 processJob(job, context);
-                processed++;
             } catch (Exception e) {
                 context.getLogger().log("Error processing job: " + e.getMessage());
                 handleJobFailure(job, e.getMessage(), context);
             }
         }
-
-        context.getLogger().log(String.format("Processed %d jobs", processed));
     }
 
-    private List<TransformationJob> getPendingJobs(String schemaType, Context context) {
-        // Build filter expression for PENDING status
+    private List<TransformationJob> getPendingJobs(SchemaType schemaType) {
         Map<String, AttributeValue> expressionValues = new HashMap<>();
         expressionValues.put(":status", AttributeValue.builder().s(TransformationStatus.PENDING.name()).build());
+        expressionValues.put(":schemaType", AttributeValue.builder().s(schemaType.getIdentifier()).build());
 
-        String filterExpression = "#status = :status";
+        String filterExpression = "#status = :status AND schemaType = :schemaType";
         Map<String, String> expressionNames = new HashMap<>();
         expressionNames.put("#status", "status");
+        expressionNames.put("#schemaType", "schemaType");
 
-        // Add schema type filter if specified
-        if (schemaType != null) {
-            expressionValues.put(":schemaType", AttributeValue.builder().s(schemaType).build());
-            filterExpression += " AND schemaType = :schemaType";
-        }
-
-        // Build scan request using enhanced client
         ScanEnhancedRequest scanRequest = ScanEnhancedRequest.builder()
                 .filterExpression(Expression.builder()
                         .expression(filterExpression)
@@ -127,7 +115,6 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
                 .limit(MAX_JOBS_PER_INVOCATION)
                 .build();
 
-        // Execute scan and collect results
         PageIterable<TransformationJob> pages = transformJobsTable.scan(scanRequest);
         List<TransformationJob> jobs = new ArrayList<>();
 
@@ -145,144 +132,77 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
         context.getLogger().log(String.format("Processing job: listingId=%s, schemaType=%s, timestamp=%s",
                 job.getListingId(), job.getSchemaType(), job.getTimestamp()));
 
-        // Update job status to PROCESSING
-        updateJobStatus(job, TransformationStatus.PROCESSING, context);
+        Window window = calculateWindow(job);
+        Listing listing = securityMaster.getListing(job.getListingId());
 
-        // TODO: Construct source key from job information
-        // For now, this is a placeholder - you'll need to implement the actual key construction
-        // based on your S3 bucket structure for merged files
-        String sourceKey = constructMergedFileKey(job);
-
-        // Download source file from merged bucket
-        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                .bucket(mergedBucketName)
-                .key(sourceKey)
-                .build();
-
-        List<String> sourceData;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(s3Client.getObject(getObjectRequest)))) {
-            sourceData = reader.lines().collect(Collectors.toList());
+        List<Schema> allSchemas = new ArrayList<>();
+        for (LocalDateTime timestamp = window.start(); !timestamp.isAfter(window.end()); timestamp = timestamp.plusMinutes(1)) {
+            MarketDataEntry entry = new MarketDataEntry(listing, timestamp, MarketDataEntry.EntryType.AGGREGATED);
+            allSchemas.addAll(downloadSafely(entry, context));
         }
 
-        // Transform the data based on schema type
-        String transformedData = transformData(sourceData, job.getSchemaType(), context);
+        if (allSchemas.isEmpty()) {
+            context.getLogger().log("No schemas available to convert for job: " + job.getJobId());
+            handleJobSuccess(job, context);
+            return;
+        }
 
-        // Upload transformed data to final bucket
-        String outputKey = constructFinalFileKey(job);
-        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
-                .bucket(finalBucketName)
-                .key(outputKey)
-                .contentType("text/csv")
-                .build();
+        SchemaType originalSchemaType = listing.exchange().schemaType();
+        SchemaBulkConverter<Schema, Schema> converter = (SchemaBulkConverter<Schema, Schema>) SchemaConversionRegistry.getBulkConverter(originalSchemaType, job.getSchemaType());
+        List<Schema> convertedSchemas = converter.convert(allSchemas);
 
-        s3Client.putObject(putObjectRequest, RequestBody.fromString(transformedData));
+        MarketDataEntry outputEntry = new MarketDataEntry(
+                listing.security().securityId(),
+                listing.exchange().exchangeId(),
+                job.getSchemaType(),
+                job.getTimestamp(),
+                MarketDataEntry.EntryType.AGGREGATED
+        );
+        outputEntry.saveToS3(s3Client, finalBucketName, convertedSchemas);
 
-        // Update job status to COMPLETE
-        updateJobStatus(job, TransformationStatus.COMPLETE, context);
+        handleJobSuccess(job, context);
 
         context.getLogger().log(String.format("Successfully processed job: listingId=%s, schemaType=%s, output=%s",
-                job.getListingId(), job.getSchemaType(), outputKey));
+                job.getListingId(), job.getSchemaType(), outputEntry.getKey()));
     }
 
-    private String constructMergedFileKey(TransformationJob job) {
-        // TODO: Implement actual key construction based on your S3 structure
-        // This is a placeholder implementation
-        // Example: "merged/{listingId}/{year}/{month}/{day}/{hour}/{minute}/{schemaType}.zst"
-        LocalDateTime timestamp = job.getTimestamp();
-        return String.format("merged/%d/%d/%d/%d/%d/%d/%s.zst",
-                job.getListingId(),
-                timestamp.getYear(),
-                timestamp.getMonthValue(),
-                timestamp.getDayOfMonth(),
-                timestamp.getHour(),
-                timestamp.getMinute(),
-                job.getSchemaType());
-    }
-
-    private String constructFinalFileKey(TransformationJob job) {
-        // Construct output key for final bucket
-        LocalDateTime timestamp = job.getTimestamp();
-        return String.format("final/%d/%04d/%02d/%02d/%s_%04d%02d%02d_%02d%02d_%s.csv",
-                job.getListingId(),
-                timestamp.getYear(),
-                timestamp.getMonthValue(),
-                timestamp.getDayOfMonth(),
-                job.getListingId(),
-                timestamp.getYear(),
-                timestamp.getMonthValue(),
-                timestamp.getDayOfMonth(),
-                timestamp.getHour(),
-                timestamp.getMinute(),
-                job.getSchemaType());
-    }
-
-    private String transformData(List<String> sourceData, String schemaType, Context context) {
-        // TODO: Implement actual transformation logic based on schemaType
-        // For now, this is a placeholder that returns the source data
-
-        context.getLogger().log("Transforming data to schema: " + schemaType);
-
-        // Example transformation logic for OHLC data
-        if (schemaType.startsWith("OHLC_")) {
-            return transformToOHLC(sourceData, schemaType, context);
+    private List<Schema> downloadSafely(MarketDataEntry entry, Context context) {
+        try {
+            return entry.loadFromS3(s3Client, mergedBucketName);
+        } catch (NoSuchKeyException e) {
+            context.getLogger().log("No S3 key found for " + entry);
+            return List.of();
         }
-
-        // Default: return source data as-is
-        return String.join("\n", sourceData);
     }
 
-    private String transformToOHLC(List<String> sourceData, String schemaType, Context context) {
-        // Extract interval from schema type (e.g., "OHLC_1MIN" -> 60000ms)
-        long intervalMs = getIntervalMs(schemaType);
+    private record Window(LocalDateTime start, LocalDateTime end) {}
 
-        // TODO: Implement OHLC aggregation logic
-        // This is a placeholder implementation
-
-        StringBuilder result = new StringBuilder();
-        result.append("timestamp,open,high,low,close,volume\n");
-
-        // For now, just return header
-        // In a real implementation, you would:
-        // 1. Parse source data (timestamp, price, volume)
-        // 2. Group by time intervals
-        // 3. Calculate OHLC values for each interval
-        // 4. Format as CSV
-
-        context.getLogger().log(String.format("OHLC transformation with interval %dms", intervalMs));
-
-        return result.toString();
+    private Window calculateWindow(TransformationJob job) {
+        return switch (job.getSchemaType()) {
+            case MBO, MBP_10, MBP_1, BBO_1S, BBO_1M, TRADES, OHLCV_1S, OHLCV_1M ->
+                new Window(job.getTimestamp(), job.getTimestamp());
+            case OHLCV_1H ->
+                new Window(job.getTimestamp().withMinute(0), job.getTimestamp().withMinute(59));
+        };
     }
 
-    private long getIntervalMs(String schemaType) {
-        // Extract interval from schema type
-        if (schemaType.contains("1MIN")) return 60_000L;
-        if (schemaType.contains("5MIN")) return 300_000L;
-        if (schemaType.contains("15MIN")) return 900_000L;
-        if (schemaType.contains("1HOUR")) return 3_600_000L;
-        if (schemaType.contains("1DAY")) return 86_400_000L;
-        return 60_000L; // Default to 1 minute
-    }
-
-    private void updateJobStatus(TransformationJob job, TransformationStatus status, Context context) {
-        // Update job status and processedAt timestamp
-        job.setStatus(status);
+    private void handleJobSuccess(TransformationJob job, Context context) {
+        job.setStatus(TransformationStatus.COMPLETE);
         job.setProcessedAt(LocalDateTime.now(clock));
+        job.setExpiresAt(LocalDateTime.now(clock).plusWeeks(1).toEpochSecond(ZoneOffset.UTC));
 
-        // Use enhanced client to update the item
         transformJobsTable.updateItem(job);
 
-        context.getLogger().log(String.format("Updated job status to %s: listingId=%s, schemaType=%s",
-                status, job.getListingId(), job.getSchemaType()));
+        context.getLogger().log(String.format("Job marked as COMPLETE: listingId=%s, schemaType=%s",
+                job.getListingId(), job.getSchemaType()));
     }
 
     private void handleJobFailure(TransformationJob job, String errorMessage, Context context) {
-        // Update job with error information
         job.setStatus(TransformationStatus.FAILED);
         job.setErrorMessage(errorMessage);
         job.setProcessedAt(LocalDateTime.now(clock));
+        job.setExpiresAt(LocalDateTime.now(clock).plusWeeks(1).toEpochSecond(ZoneOffset.UTC));
 
-        // Use enhanced client to update the item
         transformJobsTable.updateItem(job);
 
         context.getLogger().log(String.format("Job marked as FAILED: listingId=%s, schemaType=%s, error=%s",
