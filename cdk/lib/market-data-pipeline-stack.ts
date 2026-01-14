@@ -68,7 +68,7 @@ class AppStage extends cdk.Stage {
       collectorDeploymentVersion: config.collectorOrchestratorVersion,
       collectorEventBus: eventBusStack.collectorEventBus,
       transformJobsTable: storageStack.transformJobsTable,
-      // gapsTable: storageStack.gapsTable,
+      gapsTable: storageStack.gapsTable,
     });
 
     const transformerStack = new TransformerStack(this, "MarketDataTransformerStack", {
@@ -88,7 +88,7 @@ class AppStage extends cdk.Stage {
 
     const gapDetectorStack = new GapDetectorStack(this, "MarketDataGapDetectorStack", {
       mergedBucket: storageStack.mergedBucket,
-      // gapsTable: storageStack.gapsTable,
+      gapsTable: storageStack.gapsTable,
       gapQueue: storageStack.gapQueue,
       config,
     });
