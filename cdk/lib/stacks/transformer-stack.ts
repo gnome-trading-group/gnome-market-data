@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
-// import * as events from "aws-cdk-lib/aws-events";
-// import * as targets from "aws-cdk-lib/aws-events-targets";
+import * as events from "aws-cdk-lib/aws-events";
+import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sqs from "aws-cdk-lib/aws-sqs";
@@ -61,18 +61,17 @@ export class TransformerStack extends cdk.Stack {
     props.finalBucket.grantReadWrite(this.transformerJobProcessorLambda);
     props.transformJobsTable.grantReadWriteData(this.transformerJobProcessorLambda);
 
-    // TODO: Uncomment when ready to enable scheduled processing
-    // for (const schemaType of Object.values(SchemaType)) {
-    //   const schemaDuration = this.getSchemaDuration(schemaType);
-    //   const lambdaRule = new events.Rule(this, `TransformerJobProcessorRule-${schemaType}`, {
-    //     schedule: events.Schedule.rate(schemaDuration),
-    //   });
-    //   lambdaRule.addTarget(new targets.LambdaFunction(this.transformerJobProcessorLambda, {
-    //     event: events.RuleTargetInput.fromObject({
-    //       schemaType,
-    //     }),
-    //   }));
-    // }
+    for (const schemaType of Object.values(SchemaType)) {
+      const schemaDuration = this.getSchemaDuration(schemaType);
+      const lambdaRule = new events.Rule(this, `TransformerJobProcessorRule-${schemaType}`, {
+        schedule: events.Schedule.rate(schemaDuration),
+      });
+      lambdaRule.addTarget(new targets.LambdaFunction(this.transformerJobProcessorLambda, {
+        event: events.RuleTargetInput.fromObject({
+          schemaType,
+        }),
+      }));
+    }
   }
 
   private getSchemaDuration(schemaType: SchemaType): cdk.Duration {
@@ -87,7 +86,7 @@ export class TransformerStack extends cdk.Stack {
       case SchemaType.OHLCV_1M:
         return cdk.Duration.minutes(15);
       case SchemaType.OHLCV_1H:
-        return cdk.Duration.hours(2);
+        return cdk.Duration.hours(1);
       default:
         throw new Error(`Unknown schema type: ${schemaType}`);
     }
