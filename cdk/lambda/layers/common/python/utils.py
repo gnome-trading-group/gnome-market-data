@@ -70,7 +70,10 @@ def lambda_handler(func: Callable) -> Callable[[Dict[str, Any], Any], Dict[str, 
     @functools.wraps(func)
     def wrapper(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         try:
-            body = json.loads(event.get('body', '{}'))
+            if event.get('body') is None:
+                body = {}
+            else:
+                body = json.loads(event.get('body'))
 
             path_params = event.get('pathParameters') or {}
             query_params = event.get('queryStringParameters') or {}
