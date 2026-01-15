@@ -10,11 +10,13 @@ import group.gnometrading.schemas.SchemaType;
 import group.gnometrading.schemas.converters.SchemaBulkConverter;
 import group.gnometrading.schemas.converters.SchemaConversionRegistry;
 import group.gnometrading.sm.Listing;
+import software.amazon.awssdk.core.pagination.sync.SdkIterable;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
-import software.amazon.awssdk.enhanced.dynamodb.Expression;
-import software.amazon.awssdk.enhanced.dynamodb.model.PageIterable;
-import software.amazon.awssdk.enhanced.dynamodb.model.ScanEnhancedRequest;
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.enhanced.dynamodb.Key;
+import software.amazon.awssdk.enhanced.dynamodb.model.Page;
+import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
+import software.amazon.awssdk.enhanced.dynamodb.model.QueryEnhancedRequest;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
@@ -97,33 +99,30 @@ public class JobProcessorLambdaHandler implements RequestHandler<Map<String, Obj
     }
 
     private List<TransformationJob> getPendingJobs(SchemaType schemaType) {
-        Map<String, AttributeValue> expressionValues = Map.of(
-                ":status", AttributeValue.builder().s(TransformationStatus.PENDING.name()).build(),
-                ":schemaType", AttributeValue.builder().s(schemaType.getIdentifier()).build()
-        );
+        DynamoDbIndex<TransformationJob> index = transformJobsTable.index("schemaType-status-index");
 
-        String filterExpression = "#status = :status AND #schemaType = :schemaType";
-        Map<String, String> expressionNames = Map.of(
-                "#status", "status",
-                "#schemaType", "schemaType"
-        );
+        QueryConditional queryConditional = QueryConditional
+                .sortBeginsWith(
+                        Key.builder()
+                                .partitionValue(schemaType.getIdentifier())
+                                .sortValue(TransformationStatus.PENDING.name())
+                                .build()
+                );
 
-        ScanEnhancedRequest scanRequest = ScanEnhancedRequest.builder()
-                .filterExpression(Expression.builder()
-                        .expression(filterExpression)
-                        .expressionValues(expressionValues)
-                        .expressionNames(expressionNames)
-                        .build())
+        QueryEnhancedRequest queryRequest = QueryEnhancedRequest.builder()
+                .queryConditional(queryConditional)
                 .limit(MAX_JOBS_PER_INVOCATION)
                 .build();
 
-        PageIterable<TransformationJob> pages = transformJobsTable.scan(scanRequest);
+        SdkIterable<Page<TransformationJob>> pages = index.query(queryRequest);
         List<TransformationJob> jobs = new ArrayList<>();
 
-        for (TransformationJob job : pages.items()) {
-            jobs.add(job);
-            if (jobs.size() >= MAX_JOBS_PER_INVOCATION) {
-                break;
+        for (Page<TransformationJob> page : pages) {
+            for (TransformationJob job : page.items()) {
+                jobs.add(job);
+                if (jobs.size() >= MAX_JOBS_PER_INVOCATION) {
+                    return jobs;
+                }
             }
         }
 

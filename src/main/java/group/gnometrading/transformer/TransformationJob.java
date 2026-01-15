@@ -75,6 +75,7 @@ public class TransformationJob {
 
     @DynamoDbAttribute("schemaType")
     @DynamoDbConvertedBy(SchemaTypeConverter.class)
+    @DynamoDbSecondaryPartitionKey(indexNames = "schemaType-status-index")
     public SchemaType getSchemaType() {
         return schemaType;
     }
@@ -85,6 +86,7 @@ public class TransformationJob {
 
     @DynamoDbAttribute("status")
     @DynamoDbConvertedBy(TransformationStatusConverter.class)
+    @DynamoDbSecondarySortKey(indexNames = "schemaType-status-index")
     public TransformationStatus getStatus() {
         return status;
     }

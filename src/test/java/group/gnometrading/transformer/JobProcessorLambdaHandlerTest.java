@@ -20,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.model.PageIterable;
@@ -175,7 +176,7 @@ class JobProcessorLambdaHandlerTest {
         Map<String, Object> event = new HashMap<>();
         event.put("schemaType", "mbp-1");
 
-        // Mock empty scan result
+        // Mock empty query result
         mockScanWithJobs(SchemaType.MBP_1, List.of());
 
         // When: Handling the request
@@ -183,7 +184,7 @@ class JobProcessorLambdaHandlerTest {
 
         // Then: Should complete without errors
         assertNull(result);
-        verify(transformJobsTable).scan(any(software.amazon.awssdk.enhanced.dynamodb.model.ScanEnhancedRequest.class));
+        verify(transformJobsTable).index("schemaType-status-index");
     }
 
     // ============================================================================
@@ -706,19 +707,23 @@ class JobProcessorLambdaHandlerTest {
     }
 
     /**
-     * Mocks DynamoDbTable.scan to return the given jobs.
+     * Mocks DynamoDbIndex.query to return the given jobs.
      */
     private void mockScanWithJobs(SchemaType schemaType, List<TransformationJob> jobs) {
-        PageIterable<TransformationJob> pageIterable = mock(PageIterable.class);
-        software.amazon.awssdk.core.pagination.sync.SdkIterable<TransformationJob> itemsIterable =
+        DynamoDbIndex<TransformationJob> index = mock(DynamoDbIndex.class);
+        software.amazon.awssdk.core.pagination.sync.SdkIterable<Page<TransformationJob>> pagesIterable =
                 mock(software.amazon.awssdk.core.pagination.sync.SdkIterable.class);
+        Page<TransformationJob> page = mock(Page.class);
 
-        when(transformJobsTable.scan(any(software.amazon.awssdk.enhanced.dynamodb.model.ScanEnhancedRequest.class)))
-                .thenReturn(pageIterable);
+        when(transformJobsTable.index("schemaType-status-index")).thenReturn(index);
+        when(index.query(any(software.amazon.awssdk.enhanced.dynamodb.model.QueryEnhancedRequest.class)))
+                .thenReturn(pagesIterable);
 
-        // Mock items() to return an iterable of jobs
-        when(pageIterable.items()).thenReturn(itemsIterable);
-        when(itemsIterable.iterator()).thenReturn(jobs.iterator());
+        // Mock the iterator to return a single page
+        when(pagesIterable.iterator()).thenReturn(List.of(page).iterator());
+
+        // Mock the page to return the jobs
+        when(page.items()).thenReturn(jobs);
     }
 
     /**
