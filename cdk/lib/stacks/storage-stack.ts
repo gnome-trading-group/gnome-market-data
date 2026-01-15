@@ -55,11 +55,11 @@ export class StorageStack extends cdk.Stack {
       timeToLiveAttribute: "expiresAt",
     });
 
-    this.transformJobsTable.addGlobalSecondaryIndex({
-      indexName: "schemaType-status-index",
-      partitionKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "status", type: dynamodb.AttributeType.STRING },
-    });
+    // this.transformJobsTable.addGlobalSecondaryIndex({
+    //   indexName: "schemaType-status-index",
+    //   partitionKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
+    //   sortKey: { name: "status", type: dynamodb.AttributeType.STRING },
+    // });
 
     this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
       tableName: "market-data-gaps",
