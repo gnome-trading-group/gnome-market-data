@@ -5,30 +5,27 @@ from utils import lambda_handler, get_region_config
 from constants import Status
 
 @lambda_handler
-def handler(body):
+def handler(listingId: int = None):
     """
     Force redeployment of all active collectors or a specific collector to pick up new task definition version.
     This should be called after updating the collectorOrchestratorVersion in config.
     """
     deployment_version = os.environ['COLLECTOR_DEPLOYMENT_VERSION']
 
-    target_listing_id = body.get('listingId')
-
     db = DynamoDBClient()
 
-    if target_listing_id:
+    if listingId:
         # Redeploy specific collector
-        target_listing_id = int(target_listing_id)
-        collector = db.get_item(target_listing_id)
+        collector = db.get_item(listingId)
 
         if not collector:
-            raise Exception(f'Collector with listing ID {target_listing_id} not found')
+            raise Exception(f'Collector with listing ID {listingId} not found')
 
         if collector.get('status') != Status.ACTIVE.value:
-            raise Exception(f'Collector {target_listing_id} is not active (status: {collector.get("status")})')
+            raise Exception(f'Collector {listingId} is not active (status: {collector.get("status")})')
 
         collectors_to_redeploy = [collector]
-        operation_type = f'single collector {target_listing_id}'
+        operation_type = f'single collector {listingId}'
     else:
         # Redeploy all active collectors
         collectors = db.get_all_items()

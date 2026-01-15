@@ -4,18 +4,16 @@ from utils import lambda_handler, get_region_config
 from constants import Status
 
 @lambda_handler
-def handler(body):
-    listing_id = int(body['listingId'])
-
+def handler(listingId: int):
     db = DynamoDBClient()
 
-    collector = db.get_item(listing_id)
+    collector = db.get_item(listingId)
     if not collector:
-        raise Exception(f'Collector with listing ID {listing_id} not found')
+        raise Exception(f'Collector with listing ID {listingId} not found')
 
     region = collector.get('region')
     if not region:
-        raise Exception(f'Collector {listing_id} does not have a region set.')
+        raise Exception(f'Collector {listingId} does not have a region set.')
 
     region_config = get_region_config(region)
     if not region_config:
@@ -25,10 +23,10 @@ def handler(body):
 
     ecs = boto3.client('ecs', region_name=region)
 
-    service_name = f'collector-{listing_id}'
+    service_name = f'collector-{listingId}'
 
     # Update status to inactive first
-    db.update_status(listing_id, Status.INACTIVE)
+    db.update_status(listingId, Status.INACTIVE)
 
     # Delete the ECS service
     try:

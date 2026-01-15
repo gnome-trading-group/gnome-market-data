@@ -89,6 +89,7 @@ class AppStage extends cdk.Stage {
     const gapDetectorStack = new GapDetectorStack(this, "MarketDataGapDetectorStack", {
       mergedBucket: storageStack.mergedBucket,
       gapsTable: storageStack.gapsTable,
+      transformJobsTable: storageStack.transformJobsTable,
       gapQueue: storageStack.gapQueue,
       config,
     });
