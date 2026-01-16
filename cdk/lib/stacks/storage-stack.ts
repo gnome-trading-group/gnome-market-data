@@ -19,6 +19,7 @@ export class StorageStack extends cdk.Stack {
   public readonly rawBucket: s3.Bucket;
   public readonly mergedBucket: s3.Bucket;
   public readonly finalBucket: s3.Bucket;
+  public readonly metadataBucket: s3.Bucket;
   public readonly mergerQueue: sqs.Queue;
   public readonly transformerQueue: sqs.Queue;
   public readonly gapQueue: sqs.Queue;
@@ -32,10 +33,22 @@ export class StorageStack extends cdk.Stack {
     this.mergedBucket = new s3.Bucket(this, 'CollectorArchiveBucket', {
       bucketName: `gnome-market-data-merged-${props.config.account.stage}`,
     });
-
     this.finalBucket = new s3.Bucket(this, 'CollectorBucket', {
       bucketName: `gnome-market-data-${props.config.account.stage}`,
     });
+    this.metadataBucket = new s3.Bucket(this, 'CollectorMetadataBucket', {
+      bucketName: `gnome-market-data-metadata-${props.config.account.stage}`,
+    });
+
+    this.finalBucket.addInventory({
+      inventoryId: 'market-data-inventory',
+      format: s3.InventoryFormat.PARQUET,
+      frequency: s3.InventoryFrequency.DAILY,
+      destination: {
+        bucket: this.metadataBucket,
+        prefix: 'market-data-inventory',
+      },
+    })
 
     this.collectorsTable = new dynamodb.Table(this, "MarketDataCollectorsTable", {
       tableName: "market-data-collectors",
