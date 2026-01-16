@@ -15,6 +15,7 @@ import java.time.ZoneOffset;
  * Table schema:
  * - PK: listingId (number)
  * - SK: timestamp (LocalDateTime) - the timestamp of the missing minute
+ * - reviewed: boolean
  * - gapReason: GapReason enum
  * - expected: boolean
  * - note: String (nullable)
@@ -26,6 +27,7 @@ public class Gap {
     private Integer listingId;
     private LocalDateTime timestamp;
     private GapReason gapReason;
+    private boolean reviewed;
     private boolean expected;
     private String note;
     private LocalDateTime createdAt;
@@ -63,6 +65,15 @@ public class Gap {
 
     public void setGapReason(GapReason gapReason) {
         this.gapReason = gapReason;
+    }
+
+    @DynamoDbAttribute("reviewed")
+    public boolean isReviewed() {
+        return reviewed;
+    }
+
+    public void setReviewed(boolean reviewed) {
+        this.reviewed = reviewed;
     }
 
     @DynamoDbAttribute("expected")
