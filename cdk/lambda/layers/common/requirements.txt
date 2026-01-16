@@ -2,3 +2,4 @@ boto3>=1.34.0
 python-jose>=3.3.0
 requests>=2.31.0
 websocket-client>=1.7.0
+pyarrow>=18.0.0

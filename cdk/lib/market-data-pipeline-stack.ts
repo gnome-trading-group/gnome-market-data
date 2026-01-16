@@ -69,6 +69,8 @@ class AppStage extends cdk.Stage {
       collectorEventBus: eventBusStack.collectorEventBus,
       transformJobsTable: storageStack.transformJobsTable,
       gapsTable: storageStack.gapsTable,
+      finalBucket: storageStack.finalBucket,
+      metadataBucket: storageStack.metadataBucket,
     });
 
     const transformerStack = new TransformerStack(this, "MarketDataTransformerStack", {

@@ -6,6 +6,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 
 export interface CollectorRegionConfig {
@@ -25,6 +26,8 @@ interface BackendStackProps extends cdk.StackProps {
   collectorEventBus: events.IEventBus;
   transformJobsTable: dynamodb.ITable;
   gapsTable: dynamodb.ITable;
+  finalBucket: s3.IBucket;
+  metadataBucket: s3.IBucket;
 }
 
 interface EndpointConfig {
@@ -177,7 +180,116 @@ export class BackendStack extends cdk.Stack {
       },
     ];
 
+    const transformJobsEndpoints: EndpointConfig[] = [
+      {
+        name: "ListTransformJobs",
+        path: "transform-jobs/list",
+        method: "GET",
+        handlerPath: "transform-jobs/list",
+      },
+      {
+        name: "SearchTransformJobs",
+        path: "transform-jobs/search",
+        method: "GET",
+        handlerPath: "transform-jobs/search",
+      },
+    ];
+
+    const gapsEndpoints: EndpointConfig[] = [
+      {
+        name: "ListGaps",
+        path: "gaps/list",
+        method: "GET",
+        handlerPath: "gaps/list",
+      },
+      {
+        name: "GetGapsByListing",
+        path: "gaps/list/{listingId}",
+        method: "GET",
+        handlerPath: "gaps/get-by-listing",
+      },
+      {
+        name: "UpdateGaps",
+        path: "gaps/update",
+        method: "POST",
+        handlerPath: "gaps/update",
+      },
+    ];
+
+    const coverageEndpoints: EndpointConfig[] = [
+      {
+        name: "GetCoverageSummary",
+        path: "coverage/summary",
+        method: "GET",
+        handlerPath: "coverage/summary",
+      },
+      {
+        name: "GetCoverageBySecurity",
+        path: "coverage/security/{securityId}",
+        method: "GET",
+        handlerPath: "coverage/get-by-security",
+      },
+      {
+        name: "GetCoverageBySecurityExchange",
+        path: "coverage/{securityId}/{exchangeId}",
+        method: "GET",
+        handlerPath: "coverage/get-by-listing",
+      },
+    ];
+
     endpoints.forEach(createEndpoint);
+
+    const createMarketDataLambda = (name: string, handlerPath: string): lambda.Function => {
+      const fn = new lambda.Function(this, name, {
+        runtime: lambda.Runtime.PYTHON_3_13,
+        handler: "index.handler",
+        code: lambda.Code.fromAsset(`lambda/functions/${handlerPath}`),
+        layers: [commonLayer],
+        timeout: cdk.Duration.seconds(30),
+        environment: {
+          TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
+          GAPS_TABLE_NAME: props.gapsTable.tableName,
+          FINAL_BUCKET_NAME: props.finalBucket.bucketName,
+          METADATA_BUCKET_NAME: props.metadataBucket.bucketName,  
+        },
+      });
+
+      props.transformJobsTable.grantReadWriteData(fn);
+      props.gapsTable.grantReadWriteData(fn);
+      props.finalBucket.grantRead(fn);
+      props.metadataBucket.grantRead(fn);
+
+      return fn;
+    };
+
+    const createMarketDataEndpoint = (config: EndpointConfig) => {
+      const fn = createMarketDataLambda(
+        `${config.name}Function`,
+        config.handlerPath
+      );
+
+      const pathParts = config.path.split('/').filter(Boolean);
+      let resource = this.api.root;
+      for (const part of pathParts) {
+        resource = resource.getResource(part) || resource.addResource(part);
+      }
+
+      const methodOptions: apigateway.MethodOptions = {
+        apiKeyRequired: false,
+        authorizationType: apigateway.AuthorizationType.COGNITO,
+        authorizer: authorizer,
+      };
+
+      resource.addMethod(
+        config.method,
+        new apigateway.LambdaIntegration(fn),
+        methodOptions,
+      );
+    };
+
+    transformJobsEndpoints.forEach(createMarketDataEndpoint);
+    gapsEndpoints.forEach(createMarketDataEndpoint);
+    coverageEndpoints.forEach(createMarketDataEndpoint);
 
     const collectorEcsMonitorLambda = new lambda.Function(this, "CollectorEcsMonitorLambda", {
       runtime: lambda.Runtime.PYTHON_3_13,
@@ -206,8 +318,6 @@ export class BackendStack extends cdk.Stack {
     });
     ecsMonitorRule.addTarget(new targets.LambdaFunction(collectorEcsMonitorLambda));
 
-
-    // TODO: Create the Java endpoints for market data related things
 
     new cdk.CfnOutput(this, "ApiUrl", {
       value: this.api.url,
