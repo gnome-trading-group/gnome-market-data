@@ -15,7 +15,7 @@ import java.time.ZoneOffset;
  * Table schema:
  * - PK: listingId (number)
  * - SK: timestamp (LocalDateTime) - the timestamp of the missing minute
- * - reviewed: boolean
+ * - gapStatus: GapStatus enum
  * - gapReason: GapReason enum
  * - expected: boolean
  * - note: String (nullable)
@@ -26,8 +26,8 @@ public class Gap {
 
     private Integer listingId;
     private LocalDateTime timestamp;
-    private GapReason gapReason;
-    private boolean reviewed;
+    private GapStatus status;
+    private GapReason reason;
     private boolean expected;
     private String note;
     private LocalDateTime createdAt;
@@ -57,23 +57,24 @@ public class Gap {
         this.timestamp = timestamp;
     }
 
-    @DynamoDbAttribute("gapReason")
+    @DynamoDbAttribute("status")
+    @DynamoDbConvertedBy(GapStatusConverter.class)
+    public GapStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(GapStatus status) {
+        this.status = status;
+    }
+
+    @DynamoDbAttribute("reason")
     @DynamoDbConvertedBy(GapReasonConverter.class)
-    public GapReason getGapReason() {
-        return gapReason;
+    public GapReason getReason() {
+        return reason;
     }
 
-    public void setGapReason(GapReason gapReason) {
-        this.gapReason = gapReason;
-    }
-
-    @DynamoDbAttribute("reviewed")
-    public boolean isReviewed() {
-        return reviewed;
-    }
-
-    public void setReviewed(boolean reviewed) {
-        this.reviewed = reviewed;
+    public void setReason(GapReason reason) {
+        this.reason = reason;
     }
 
     @DynamoDbAttribute("expected")
@@ -102,6 +103,34 @@ public class Gap {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public static class GapStatusConverter implements AttributeConverter<GapStatus> {
+        @Override
+        public AttributeValue transformFrom(GapStatus input) {
+            if (input == null) {
+                return AttributeValue.builder().nul(true).build();
+            }
+            return AttributeValue.builder().s(input.name()).build();
+        }
+
+        @Override
+        public GapStatus transformTo(AttributeValue input) {
+            if (input == null || input.nul() != null && input.nul()) {
+                return null;
+            }
+            return GapStatus.valueOf(input.s());
+        }
+
+        @Override
+        public EnhancedType<GapStatus> type() {
+            return EnhancedType.of(GapStatus.class);
+        }
+
+        @Override
+        public AttributeValueType attributeValueType() {
+            return AttributeValueType.S;
+        }
     }
 
     public static class GapReasonConverter implements AttributeConverter<GapReason> {

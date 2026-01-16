@@ -4,7 +4,6 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import group.gnometrading.MarketDataEntry;
 import group.gnometrading.SecurityMaster;
 import group.gnometrading.schemas.SchemaType;
 import group.gnometrading.sm.Exchange;
@@ -247,7 +246,7 @@ class GapLambdaHandlerTest {
         assertEquals(LISTING_ID, capturedGap.getListingId());
         assertEquals(previousMinute, capturedGap.getTimestamp());
         assertEquals(FIXED_TIME, capturedGap.getCreatedAt());
-        assertNotNull(capturedGap.getGapReason());
+        assertNotNull(capturedGap.getReason());
         assertNotNull(capturedGap.getNote());
     }
 

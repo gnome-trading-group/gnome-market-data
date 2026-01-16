@@ -204,8 +204,8 @@ public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
             Gap gap = new Gap();
             gap.setListingId(listing.listingId());
             gap.setTimestamp(gapStart);
-            gap.setGapReason(GapReason.UNKNOWN);
-            gap.setReviewed(false);
+            gap.setStatus(GapStatus.UNREVIEWED);
+            gap.setReason(GapReason.UNKNOWN);
             gap.setExpected(false);
             gap.setNote("Gap detected by gap detector lambda");
             gap.setCreatedAt(LocalDateTime.now(clock));
