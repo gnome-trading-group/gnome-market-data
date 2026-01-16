@@ -74,6 +74,12 @@ export class StorageStack extends cdk.Stack {
       sortKey: { name: "status", type: dynamodb.AttributeType.STRING },
     });
 
+    this.transformJobsTable.addGlobalSecondaryIndex({
+      indexName: "listingId-schemaType-index",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
+    })
+
     this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
       tableName: "market-data-gaps",
       partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
