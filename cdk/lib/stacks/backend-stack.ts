@@ -71,6 +71,16 @@ export class BackendStack extends cdk.Stack {
       identitySource: 'method.request.header.Authorization',
     });
 
+    // AWS managed layer for pandas and pyarrow (optimized for Lambda)
+    // This layer includes: pandas, pyarrow, numpy, and other data processing libraries
+    // See: https://aws-sdk-pandas.readthedocs.io/en/stable/layers.html
+    const awsDataWranglerLayer = lambda.LayerVersion.fromLayerVersionArn(
+      this,
+      "AWSDataWranglerLayer",
+      `arn:aws:lambda:${cdk.Stack.of(this).region}:336392948345:layer:AWSSDKPandas-Python313:1`
+    );
+
+    // Custom layer for other dependencies (requests, websocket-client)
     const commonLayer = new lambda.LayerVersion(this, "CommonLayer", {
       code: lambda.Code.fromAsset("lambda/layers/common", {
         bundling: {
@@ -93,7 +103,7 @@ export class BackendStack extends cdk.Stack {
         runtime: lambda.Runtime.PYTHON_3_13,
         handler: "index.handler",
         code: lambda.Code.fromAsset(handlerPath),
-        layers: [commonLayer],
+        layers: [awsDataWranglerLayer, commonLayer],
         timeout: cdk.Duration.seconds(30),
         environment: {
           COLLECTORS_TABLE_NAME: props.collectorsTable.tableName,
@@ -244,13 +254,13 @@ export class BackendStack extends cdk.Stack {
         runtime: lambda.Runtime.PYTHON_3_13,
         handler: "index.handler",
         code: lambda.Code.fromAsset(`lambda/functions/${handlerPath}`),
-        layers: [commonLayer],
+        layers: [awsDataWranglerLayer, commonLayer],
         timeout: cdk.Duration.seconds(30),
         environment: {
           TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
           GAPS_TABLE_NAME: props.gapsTable.tableName,
           FINAL_BUCKET_NAME: props.finalBucket.bucketName,
-          METADATA_BUCKET_NAME: props.metadataBucket.bucketName,  
+          METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
         },
       });
 
