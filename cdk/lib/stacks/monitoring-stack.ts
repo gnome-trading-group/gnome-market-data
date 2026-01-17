@@ -18,6 +18,7 @@ export interface MonitoringStackProps extends cdk.StackProps {
   transformerJobCreatorLambda: lambda.Function;
   transformerQueue: sqs.Queue;
   transformerJobProcessorLambda: lambda.Function;
+  inventoryProcessorLambda: lambda.Function;
 }
 
 export class MonitoringStack extends cdk.Stack {
@@ -111,6 +112,11 @@ export class MonitoringStack extends cdk.Stack {
         queue: props.gapQueue,
         humanReadableName: 'Gap Detector Queue',
         alarmFriendlyName: 'GapDetectorQueue',
+      })
+      .monitorLambdaFunction({
+        lambdaFunction: props.inventoryProcessorLambda,
+        humanReadableName: 'Inventory Processor Lambda',
+        alarmFriendlyName: 'InventoryProcessorLambda',
       });
   }
 }

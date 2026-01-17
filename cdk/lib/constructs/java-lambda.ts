@@ -7,6 +7,7 @@ import * as path from "path";
 export interface JavaLambdaProps {
   name: string;
   classPath: string;
+  memorySize?: number;
   environment?: { [key: string]: string };
 }
 
@@ -48,7 +49,7 @@ export class JavaLambda extends Construct {
           },
         },
       }),
-      memorySize: 2048,
+      memorySize: props.memorySize ?? 2048,
       timeout: cdk.Duration.minutes(15),
       environment,
       logRetention: logs.RetentionDays.ONE_MONTH,

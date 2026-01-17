@@ -28,6 +28,7 @@ interface BackendStackProps extends cdk.StackProps {
   gapsTable: dynamodb.ITable;
   finalBucket: s3.IBucket;
   metadataBucket: s3.IBucket;
+  coverageTable: dynamodb.ITable;
 }
 
 interface EndpointConfig {
@@ -261,6 +262,7 @@ export class BackendStack extends cdk.Stack {
           GAPS_TABLE_NAME: props.gapsTable.tableName,
           FINAL_BUCKET_NAME: props.finalBucket.bucketName,
           METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
+          COVERAGE_TABLE_NAME: props.coverageTable.tableName,
         },
       });
 
@@ -268,6 +270,7 @@ export class BackendStack extends cdk.Stack {
       props.gapsTable.grantReadWriteData(fn);
       props.finalBucket.grantRead(fn);
       props.metadataBucket.grantRead(fn);
+      props.coverageTable.grantReadData(fn);
 
       return fn;
     };

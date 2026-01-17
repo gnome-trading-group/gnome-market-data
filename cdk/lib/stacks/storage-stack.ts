@@ -16,6 +16,7 @@ export class StorageStack extends cdk.Stack {
   public readonly collectorsTable: dynamodb.Table;
   public readonly transformJobsTable: dynamodb.Table;
   public readonly gapsTable: dynamodb.Table;
+  public readonly coverageTable: dynamodb.Table;
   public readonly rawBucket: s3.Bucket;
   public readonly mergedBucket: s3.Bucket;
   public readonly finalBucket: s3.Bucket;
@@ -23,6 +24,7 @@ export class StorageStack extends cdk.Stack {
   public readonly mergerQueue: sqs.Queue;
   public readonly transformerQueue: sqs.Queue;
   public readonly gapQueue: sqs.Queue;
+  public readonly inventoryQueue: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
@@ -104,6 +106,15 @@ export class StorageStack extends cdk.Stack {
       sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
     });
 
+    this.coverageTable = new dynamodb.Table(this, "CoverageTable", {
+      tableName: "market-data-coverage",
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+    });
+
     this.mergerQueue = new sqs.Queue(this, 'MergerQueue', {
       queueName: 'market-data-merger-queue',
       visibilityTimeout: cdk.Duration.minutes(15),
@@ -126,6 +137,13 @@ export class StorageStack extends cdk.Stack {
       deliveryDelay: cdk.Duration.minutes(15),
     });
 
+    this.inventoryQueue = new sqs.Queue(this, 'InventoryQueue', {
+      queueName: 'market-data-inventory-queue',
+      visibilityTimeout: cdk.Duration.minutes(15),
+      retentionPeriod: cdk.Duration.hours(4),
+      receiveMessageWaitTime: cdk.Duration.seconds(20),
+    });
+
     const rawTopic = new sns.Topic(this, 'MarketDataRawBucketSnsTopic');
     rawTopic.addSubscription(new subs.SqsSubscription(this.mergerQueue));
     this.rawBucket.addEventNotification(
@@ -139,6 +157,12 @@ export class StorageStack extends cdk.Stack {
     this.mergedBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3notifications.SnsDestination(mergerTopic)
+    );
+
+    this.metadataBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3notifications.SqsDestination(this.inventoryQueue),
+      { prefix: 'market-data-inventory/', suffix: '.parquet' }
     );
   }
 }

@@ -14,6 +14,7 @@ import { MonitoringStack } from "./stacks/monitoring-stack";
 import { TransformerStack } from "./stacks/transformer-stack";
 import { MergerStack } from "./stacks/merger-stack";
 import { GapDetectorStack } from "./stacks/gap-detector-stack";
+import { InventoryProcessorStack } from "./stacks/inventory-processor-stack";
 
 /** Regions where collectors can be deployed */
 export const COLLECTOR_REGIONS = ["us-east-1", "ap-northeast-1"];
@@ -71,6 +72,7 @@ class AppStage extends cdk.Stage {
       gapsTable: storageStack.gapsTable,
       finalBucket: storageStack.finalBucket,
       metadataBucket: storageStack.metadataBucket,
+      coverageTable: storageStack.coverageTable,
     });
 
     const transformerStack = new TransformerStack(this, "MarketDataTransformerStack", {
@@ -96,6 +98,12 @@ class AppStage extends cdk.Stage {
       config,
     });
 
+    const inventoryProcessorStack = new InventoryProcessorStack(this, "MarketDataInventoryProcessorStack", {
+      metadataBucket: storageStack.metadataBucket,
+      coverageTable: storageStack.coverageTable,
+      inventoryQueue: storageStack.inventoryQueue,
+    });
+
     new MonitoringStack(this, "MarketDataMonitoringStack", {
       collectorRegions: COLLECTOR_REGIONS,
       api: backendStack.api,
@@ -106,6 +114,7 @@ class AppStage extends cdk.Stage {
       transformerJobCreatorLambda: transformerStack.transformerJobCreatorLambda,
       transformerQueue: storageStack.transformerQueue,
       transformerJobProcessorLambda: transformerStack.transformerJobProcessorLambda,
+      inventoryProcessorLambda: inventoryProcessorStack.processorFunction,
     });
   }
 }

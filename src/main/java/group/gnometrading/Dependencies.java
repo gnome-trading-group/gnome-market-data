@@ -2,6 +2,7 @@ package group.gnometrading;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.constants.Stage;
+import group.gnometrading.coverage.CoverageRecord;
 import group.gnometrading.gap.Gap;
 import group.gnometrading.resources.Properties;
 import group.gnometrading.transformer.TransformationJob;
@@ -30,6 +31,7 @@ public class Dependencies {
     private final Clock clock;
     private final DynamoDbTable<TransformationJob> transformJobsTable;
     private final DynamoDbTable<Gap> gapsTable;
+    private final DynamoDbTable<CoverageRecord> coverageTable;
     private final SecurityMaster securityMaster;
 
     private final String rawBucketName;
@@ -37,6 +39,8 @@ public class Dependencies {
     private final String finalBucketName;
     private final String gapsTableName;
     private final String transformJobsTableName;
+    private final String coverageTableName;
+    private final String metadataBucketName;
     
     /**
      * Private constructor for singleton pattern.
@@ -57,9 +61,12 @@ public class Dependencies {
         this.finalBucketName = System.getenv("FINAL_BUCKET_NAME");
         this.gapsTableName = System.getenv("GAPS_TABLE_NAME");
         this.transformJobsTableName = System.getenv("TRANSFORM_JOBS_TABLE_NAME");
+        this.coverageTableName = System.getenv("COVERAGE_TABLE_NAME");
+        this.metadataBucketName = System.getenv("METADATA_BUCKET_NAME");
 
         this.transformJobsTable = dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
         this.gapsTable = dynamoDbEnhancedClient.table(gapsTableName, TableSchema.fromBean(Gap.class));
+        this.coverageTable = dynamoDbEnhancedClient.table(coverageTableName, TableSchema.fromBean(CoverageRecord.class));
     }
 
     /**
@@ -111,6 +118,10 @@ public class Dependencies {
         return gapsTable;
     }
 
+    public DynamoDbTable<CoverageRecord> getCoverageTable() {
+        return coverageTable;
+    }
+
     public String getRawBucketName() {
         return rawBucketName;
     }
@@ -129,6 +140,14 @@ public class Dependencies {
     
     public String getTransformJobsTableName() {
         return transformJobsTableName;
+    }
+
+    public String getCoverageTableName() {
+        return coverageTableName;
+    }
+
+    public String getMetadataBucketName() {
+        return metadataBucketName;
     }
 
     private Properties createProperties() {
