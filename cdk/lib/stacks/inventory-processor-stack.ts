@@ -30,7 +30,7 @@ export class InventoryProcessorStack extends cdk.Stack {
     const processLambda = new JavaLambda(this, 'InventoryProcessorLambda', {
       name: 'InventoryProcessor',
       classPath: 'group.gnometrading.coverage.InventoryProcessorLambdaHandler',
-      memorySize: 4096,
+      memorySize: 3008,
       environment: {
         METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
         COVERAGE_TABLE_NAME: props.coverageTable.tableName,
