@@ -44,13 +44,13 @@ export class StorageStack extends cdk.Stack {
 
     this.finalBucket.addInventory({
       inventoryId: 'market-data-inventory',
-      format: s3.InventoryFormat.PARQUET,
+      format: s3.InventoryFormat.CSV,
       frequency: s3.InventoryFrequency.DAILY,
       destination: {
         bucket: this.metadataBucket,
         prefix: 'market-data-inventory',
       },
-    })
+    });
 
     this.collectorsTable = new dynamodb.Table(this, "MarketDataCollectorsTable", {
       tableName: "market-data-collectors",
@@ -162,7 +162,7 @@ export class StorageStack extends cdk.Stack {
     this.metadataBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3notifications.SqsDestination(this.inventoryQueue),
-      { prefix: 'market-data-inventory/', suffix: '.parquet' }
+      { prefix: 'market-data-inventory/', suffix: '.csv' }
     );
   }
 }
