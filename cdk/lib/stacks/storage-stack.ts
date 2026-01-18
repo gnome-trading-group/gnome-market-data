@@ -46,6 +46,9 @@ export class StorageStack extends cdk.Stack {
       inventoryId: 'market-data-inventory',
       format: s3.InventoryFormat.CSV,
       frequency: s3.InventoryFrequency.DAILY,
+      optionalFields: [
+        "Size",
+      ],
       destination: {
         bucket: this.metadataBucket,
         prefix: 'market-data-inventory',
