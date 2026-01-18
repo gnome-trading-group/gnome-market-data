@@ -165,7 +165,7 @@ export class StorageStack extends cdk.Stack {
     this.metadataBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3notifications.SqsDestination(this.inventoryQueue),
-      { prefix: 'market-data-inventory/', suffix: '.csv' }
+      { prefix: 'market-data-inventory/', suffix: '.csv.gz' }
     );
   }
 }
