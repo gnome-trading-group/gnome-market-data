@@ -121,21 +121,21 @@ export class StorageStack extends cdk.Stack {
     this.mergerQueue = new sqs.Queue(this, 'MergerQueue', {
       queueName: 'market-data-merger-queue',
       visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.hours(4),
+      retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
     this.transformerQueue = new sqs.Queue(this, 'TransformerQueue', {
       queueName: 'market-data-transformer-queue',
       visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.hours(4),
+      retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
     this.gapQueue = new sqs.Queue(this, 'GapQueue', {
       queueName: 'market-data-gap-queue',
       visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.hours(4),
+      retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
       deliveryDelay: cdk.Duration.minutes(15),
     });
@@ -143,7 +143,7 @@ export class StorageStack extends cdk.Stack {
     this.inventoryQueue = new sqs.Queue(this, 'InventoryQueue', {
       queueName: 'market-data-inventory-queue',
       visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.hours(4),
+      retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
