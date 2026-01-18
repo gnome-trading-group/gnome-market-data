@@ -64,9 +64,15 @@ public class Dependencies {
         this.coverageTableName = System.getenv("COVERAGE_TABLE_NAME");
         this.metadataBucketName = System.getenv("METADATA_BUCKET_NAME");
 
-        this.transformJobsTable = dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
-        this.gapsTable = dynamoDbEnhancedClient.table(gapsTableName, TableSchema.fromBean(Gap.class));
-        this.coverageTable = dynamoDbEnhancedClient.table(coverageTableName, TableSchema.fromBean(CoverageRecord.class));
+        if (transformJobsTableName != null) {
+            this.transformJobsTable = dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
+        }
+        if (gapsTableName != null) {
+            this.gapsTable = dynamoDbEnhancedClient.table(gapsTableName, TableSchema.fromBean(Gap.class));
+        }
+        if (coverageTableName != null) {
+            this.coverageTable = dynamoDbEnhancedClient.table(coverageTableName, TableSchema.fromBean(CoverageRecord.class));
+        }
     }
 
     /**
