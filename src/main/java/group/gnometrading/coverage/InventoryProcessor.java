@@ -12,6 +12,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.GZIPInputStream;
 
 /**
  * Processes S3 inventory CSV files and writes coverage data to DynamoDB.
@@ -67,15 +68,19 @@ public class InventoryProcessor {
 
         var s3Object = s3Client.getObject(getObjectRequest);
 
-        try (CSVReader reader = new CSVReader(new InputStreamReader(s3Object))) {
+        try (GZIPInputStream gzipInputStream = new GZIPInputStream(s3Object);
+             CSVReader reader = new CSVReader(new InputStreamReader(gzipInputStream))) {
             List<String[]> lines = reader.readAll();
             for (String[] line : lines) {
-                if (line.length < 3) {
+                if (line.length < 5) {
                     continue;
                 }
 
                 String objectKey = line[1];
-                long size = Long.parseLong(line[2]);
+                long size = 0;
+                if (line.length >= 6) {
+                    size = Long.parseLong(line[5]);
+                }
 
                 records.add(new InventoryRecord(objectKey, size));
             }
