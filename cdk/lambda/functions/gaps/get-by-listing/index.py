@@ -1,7 +1,7 @@
 import os
 import boto3
 import json
-from utils import lambda_handler
+from utils import lambda_handler, CustomEncoder
 
 @lambda_handler
 def handler(listingId: int, limit: int = 1000, lastEvaluatedKey: str = None):
@@ -40,7 +40,7 @@ def handler(listingId: int, limit: int = 1000, lastEvaluatedKey: str = None):
     }
     
     if 'LastEvaluatedKey' in response:
-        result['lastEvaluatedKey'] = json.dumps(response['LastEvaluatedKey'])
+        result['lastEvaluatedKey'] = json.dumps(response['LastEvaluatedKey'], cls=CustomEncoder)
     
     return result
 

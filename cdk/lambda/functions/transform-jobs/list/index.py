@@ -1,7 +1,7 @@
 import os
 import boto3
 from boto3.dynamodb.conditions import Key
-from utils import lambda_handler
+from utils import lambda_handler, CustomEncoder
 import json
 
 @lambda_handler
@@ -48,7 +48,7 @@ def handler(status: str = None, limit: int = 100, lastEvaluatedKey: str = None):
     }
 
     if 'LastEvaluatedKey' in response:
-        result['lastEvaluatedKey'] = json.dumps(response['LastEvaluatedKey'])
+        result['lastEvaluatedKey'] = json.dumps(response['LastEvaluatedKey'], cls=CustomEncoder)
 
     return result
 

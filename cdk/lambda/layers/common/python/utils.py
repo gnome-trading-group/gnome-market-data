@@ -6,10 +6,10 @@ from typing import Any, Callable, Dict, Optional
 from decimal import Decimal
 import datetime
 
-class DecimalEncoder(json.JSONEncoder):
+class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Decimal):
-            return int(obj)
+            return float(obj)
         if isinstance(obj, datetime.datetime):
             return obj.isoformat()
         return super().default(obj)
@@ -40,7 +40,7 @@ def create_response(status_code: int, body: Any) -> Dict[str, Any]:
     return {
         'statusCode': status_code,
         'headers': CORS_HEADERS,
-        'body': json.dumps(body, cls=DecimalEncoder)
+        'body': json.dumps(body, cls=CustomEncoder)
     }
 
 def lambda_handler(func: Callable) -> Callable[[Dict[str, Any], Any], Dict[str, Any]]:
