@@ -6,11 +6,13 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import { JavaLambda } from '../constructs/java-lambda';
+import { MarketDataConfig } from '../config';
 
 export interface InventoryProcessorStackProps extends cdk.StackProps {
   metadataBucket: s3.IBucket;
   inventoryQueue: sqs.IQueue;
   coverageTable: dynamodb.ITable;
+  config: MarketDataConfig;
 }
 
 /**
@@ -34,6 +36,7 @@ export class InventoryProcessorStack extends cdk.Stack {
       environment: {
         METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
         COVERAGE_TABLE_NAME: props.coverageTable.tableName,
+        STAGE: props.config.account.stage,
       },
     });
     this.processorFunction = processLambda.lambdaFunction;

@@ -102,6 +102,7 @@ class AppStage extends cdk.Stage {
       metadataBucket: storageStack.metadataBucket,
       coverageTable: storageStack.coverageTable,
       inventoryQueue: storageStack.inventoryQueue,
+      config,
     });
 
     new MonitoringStack(this, "MarketDataMonitoringStack", {
