@@ -66,12 +66,18 @@ public class Dependencies {
 
         if (transformJobsTableName != null) {
             this.transformJobsTable = dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
+        } else {
+            this.transformJobsTable = null;
         }
         if (gapsTableName != null) {
             this.gapsTable = dynamoDbEnhancedClient.table(gapsTableName, TableSchema.fromBean(Gap.class));
+        } else {
+            this.gapsTable = null;
         }
         if (coverageTableName != null) {
             this.coverageTable = dynamoDbEnhancedClient.table(coverageTableName, TableSchema.fromBean(CoverageRecord.class));
+        } else {
+            this.coverageTable = null;
         }
     }
 
