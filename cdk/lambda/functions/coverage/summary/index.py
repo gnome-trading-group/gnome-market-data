@@ -1,4 +1,5 @@
 import os
+import json
 import boto3
 from utils import lambda_handler
 
@@ -23,7 +24,6 @@ def handler():
     table = dynamodb.Table(table_name)
     
     try:
-        # Get global summary from DynamoDB
         response = table.get_item(
             Key={
                 'pk': 'GLOBAL',
@@ -42,10 +42,8 @@ def handler():
                 'schemaTypes': {}
             }
         
-        # Return the data field which contains all the coverage information
-        data = response['Item'].get('data', {})
+        data = json.loads(response['Item'].get('data', '{}'))
         
-        # Add last updated timestamp
         if 'lastUpdated' in response['Item']:
             data['lastInventoryDate'] = response['Item']['lastUpdated']
         

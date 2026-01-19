@@ -1,4 +1,5 @@
 import os
+import json
 import boto3
 from utils import lambda_handler
 
@@ -58,7 +59,6 @@ def handler(securityId: int):
     table = dynamodb.Table(table_name)
 
     try:
-        # Get summary for this security
         pk = f'SEC#{securityId}'
         summary_response = table.get_item(
             Key={
@@ -81,9 +81,8 @@ def handler(securityId: int):
                 }
             }
 
-        summary_data = summary_response['Item'].get('data', {})
+        summary_data = json.loads(summary_response['Item'].get('data', '{}'))
 
-        # Query all date records for this security
         date_response = table.query(
             KeyConditionExpression='pk = :pk AND begins_with(sk, :sk_prefix)',
             ExpressionAttributeValues={
@@ -92,12 +91,10 @@ def handler(securityId: int):
             }
         )
 
-        # Build coverage by date
         coverage_result = {}
         for item in date_response.get('Items', []):
-            # Extract date from sk (format: DATE#YYYY-MM-DD)
             date_str = item['sk'].replace('DATE#', '')
-            coverage_result[date_str] = item.get('data', {})
+            coverage_result[date_str] = json.loads(item.get('data', '{}'))
 
         return {
             'securityId': securityId,
