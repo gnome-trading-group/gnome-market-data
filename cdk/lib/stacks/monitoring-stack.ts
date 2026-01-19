@@ -111,6 +111,9 @@ export class MonitoringStack extends cdk.Stack {
         lambdaFunction: props.inventoryProcessorLambda,
         humanReadableName: 'Inventory Processor Lambda',
         alarmFriendlyName: 'InventoryProcessorLambda',
+        addFaultCountAlarm: {
+          Critical: { maxErrorCount: 0, },
+        }
       });
 
     if (props.config.account.stage === Stage.PROD) {
