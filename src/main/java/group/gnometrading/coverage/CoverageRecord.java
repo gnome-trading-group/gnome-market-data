@@ -1,9 +1,13 @@
 package group.gnometrading.coverage;
 
-import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbAttribute;
-import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbBean;
-import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbPartitionKey;
-import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSortKey;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import software.amazon.awssdk.enhanced.dynamodb.AttributeConverter;
+import software.amazon.awssdk.enhanced.dynamodb.AttributeValueType;
+import software.amazon.awssdk.enhanced.dynamodb.EnhancedType;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.*;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 import java.util.Map;
 
@@ -19,6 +23,9 @@ import java.util.Map;
  */
 @DynamoDbBean
 public class CoverageRecord {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, Object>> TYPE = new TypeReference<>() {};
 
     private String pk;
     private String sk;
@@ -59,6 +66,7 @@ public class CoverageRecord {
     }
 
     @DynamoDbAttribute("data")
+    @DynamoDbConvertedBy(CoverageDataConverter.class)
     public Map<String, Object> getData() {
         return data;
     }
@@ -93,6 +101,49 @@ public class CoverageRecord {
                 ", version='" + version + '\'' +
                 ", lastUpdated=" + lastUpdated +
                 '}';
+    }
+
+    private static class CoverageDataConverter implements AttributeConverter<Map<String, Object>> {
+        @Override
+        public AttributeValue transformFrom(Map<String, Object> input) {
+            if (input == null) {
+                return AttributeValue.builder().nul(true).build();
+            }
+
+            try {
+                return AttributeValue.builder()
+                        .s(MAPPER.writeValueAsString(input))
+                        .build();
+            } catch (JsonProcessingException e) {
+                throw new IllegalArgumentException("Failed to serialize map to JSON", e);
+            }
+        }
+
+        @Override
+        public Map<String, Object> transformTo(AttributeValue input) {
+            if (input == null || input.nul() != null && input.nul()) {
+                return null;
+            }
+
+            try {
+                return MAPPER.readValue(input.s(), TYPE);
+            } catch (JsonProcessingException e) {
+                throw new IllegalArgumentException("Failed to deserialize JSON to map", e);
+            }
+        }
+
+        @Override
+        public EnhancedType<Map<String, Object>> type() {
+            return EnhancedType.mapOf(
+                    EnhancedType.of(String.class),
+                    EnhancedType.of(Object.class)
+            );
+        }
+
+        @Override
+        public AttributeValueType attributeValueType() {
+            return AttributeValueType.S;
+        }
     }
 }
 
