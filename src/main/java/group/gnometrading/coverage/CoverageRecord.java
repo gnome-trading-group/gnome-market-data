@@ -103,7 +103,7 @@ public class CoverageRecord {
                 '}';
     }
 
-    private static class CoverageDataConverter implements AttributeConverter<Map<String, Object>> {
+    public static class CoverageDataConverter implements AttributeConverter<Map<String, Object>> {
         @Override
         public AttributeValue transformFrom(Map<String, Object> input) {
             if (input == null) {
