@@ -7,8 +7,11 @@ import * as cw from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
 import { CustomMetricGroup, MonitoringFacade, SnsAlarmActionStrategy } from "cdk-monitoring-constructs";
 import { COLLECTOR_METRICS_NAMESPACE, COLLECTOR_ERROR_METRIC_NAME } from "./collector-regional-stack";
+import { MarketDataConfig } from "../config";
+import { Stage } from "@gnome-trading-group/gnome-shared-cdk";
 
 export interface MonitoringStackProps extends cdk.StackProps {
+  config: MarketDataConfig;
   collectorRegions: string[];
   api: apigateway.RestApi;
   gapLambda: lambda.Function;
@@ -58,15 +61,6 @@ export class MonitoringStack extends cdk.Stack {
     }
 
     monitoring
-      .monitorScope(this, {
-        lambda: {
-          props: {
-            addFaultCountAlarm: {
-              Critical: { maxErrorCount: 0, },
-            }
-          },
-        }
-      })
       .addLargeHeader('Gnome MarketData')
       .monitorCustom({
         alarmFriendlyName: 'CollectorECSLogErrors',
@@ -118,5 +112,18 @@ export class MonitoringStack extends cdk.Stack {
         humanReadableName: 'Inventory Processor Lambda',
         alarmFriendlyName: 'InventoryProcessorLambda',
       });
+
+    if (props.config.account.stage === Stage.PROD) {
+      monitoring
+        .monitorScope(this, {
+          lambda: {
+            props: {
+              addFaultCountAlarm: {
+                Critical: { maxErrorCount: 0, },
+              }
+            },
+          }
+        });
+    }
   }
 }

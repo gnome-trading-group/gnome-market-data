@@ -106,6 +106,7 @@ class AppStage extends cdk.Stage {
     });
 
     new MonitoringStack(this, "MarketDataMonitoringStack", {
+      config,
       collectorRegions: COLLECTOR_REGIONS,
       api: backendStack.api,
       gapLambda: gapDetectorStack.gapLambda,
