@@ -60,6 +60,13 @@ export class MonitoringStack extends cdk.Stack {
       );
     }
 
+    const lambdaAlarms: Record<string, any> = {}
+    if (props.config.account.stage === Stage.PROD) {
+      lambdaAlarms['addFaultCountAlarm'] = {
+        Critical: { maxErrorCount: 0, },
+      };
+    }
+
     monitoring
       .addLargeHeader('Gnome MarketData')
       .monitorCustom({
@@ -76,6 +83,7 @@ export class MonitoringStack extends cdk.Stack {
         lambdaFunction: props.mergerLambda,
         humanReadableName: 'Merger Lambda',
         alarmFriendlyName: 'MergerLambda',
+        ...lambdaAlarms,
       })
       .monitorSqsQueue({
         queue: props.mergerQueue,
@@ -86,6 +94,7 @@ export class MonitoringStack extends cdk.Stack {
         lambdaFunction: props.transformerJobCreatorLambda,
         humanReadableName: 'Transformer Job Creator Lambda',
         alarmFriendlyName: 'TransformerJobCreatorLambda',
+        ...lambdaAlarms,
       })
       .monitorSqsQueue({
         queue: props.transformerQueue,
@@ -96,11 +105,13 @@ export class MonitoringStack extends cdk.Stack {
         lambdaFunction: props.transformerJobProcessorLambda,
         humanReadableName: 'Transformer Job Processor Lambda',
         alarmFriendlyName: 'TransformerJobProcessorLambda',
+        ...lambdaAlarms,
       })
       .monitorLambdaFunction({
         lambdaFunction: props.gapLambda,
         humanReadableName: 'Gap Detector Lambda',
         alarmFriendlyName: 'GapDetectorLambda',
+        ...lambdaAlarms,
       })
       .monitorSqsQueue({
         queue: props.gapQueue,
@@ -111,22 +122,7 @@ export class MonitoringStack extends cdk.Stack {
         lambdaFunction: props.inventoryProcessorLambda,
         humanReadableName: 'Inventory Processor Lambda',
         alarmFriendlyName: 'InventoryProcessorLambda',
-        addFaultCountAlarm: {
-          Critical: { maxErrorCount: 0, },
-        }
+        ...lambdaAlarms,
       });
-
-    if (props.config.account.stage === Stage.PROD) {
-      monitoring
-        .monitorScope(this, {
-          lambda: {
-            props: {
-              addFaultCountAlarm: {
-                Critical: { maxErrorCount: 0, },
-              }
-            },
-          }
-        });
-    }
   }
 }
