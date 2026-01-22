@@ -28,12 +28,12 @@ export class JavaLambda extends Construct {
     environment.JAVA_TOOL_OPTIONS = `${environment.JAVA_TOOL_OPTIONS ?? ''}${this.DEFAULT_JVM_OPTIONS}`;
 
     this.lambdaFunction = new lambda.Function(this, `${props.name}JavaLambda`, {
-      runtime: lambda.Runtime.JAVA_17,
+      runtime: lambda.Runtime.JAVA_21,
       functionName: `${cdk.Aws.STACK_NAME}-${props.name}`,
       handler: `${props.classPath}::handleRequest`,
       code: lambda.Code.fromAsset(projectRoot, {
         bundling: {
-          image: lambda.Runtime.JAVA_17.bundlingImage,
+          image: lambda.Runtime.JAVA_21.bundlingImage,
           command: [
             '/bin/sh',
             '-c',
