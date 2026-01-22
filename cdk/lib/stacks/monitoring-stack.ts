@@ -35,7 +35,7 @@ export class MonitoringStack extends cdk.Stack {
 
     const monitoring = new MonitoringFacade(this, 'MarketDataDashboard', {
       alarmFactoryDefaults: {
-        actionsEnabled: true,
+        actionsEnabled: props.config.account.stage === Stage.PROD, // Only enable alarms in prod
         alarmNamePrefix: 'MarketData-',
         action: new SnsAlarmActionStrategy({ onAlarmTopic: slackSnsTopic }),
         datapointsToAlarm: 1,
@@ -60,12 +60,11 @@ export class MonitoringStack extends cdk.Stack {
       );
     }
 
-    const lambdaAlarms: Record<string, any> = {}
-    if (props.config.account.stage === Stage.PROD) {
-      lambdaAlarms['addFaultCountAlarm'] = {
+    const lambdaAlarms: Record<string, any> = {
+      addFaultCountAlarm: {
         Critical: { maxErrorCount: 0, },
-      };
-    }
+      },
+    };
 
     monitoring
       .addLargeHeader('Gnome MarketData')
