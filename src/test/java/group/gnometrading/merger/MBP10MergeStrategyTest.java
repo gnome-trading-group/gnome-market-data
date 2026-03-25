@@ -1,9 +1,15 @@
 package group.gnometrading.merger;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
-import group.gnometrading.schemas.MBP10Schema;
+import group.gnometrading.schemas.Mbp10Schema;
 import group.gnometrading.schemas.Schema;
 import group.gnometrading.schemas.SchemaType;
+import java.util.*;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,24 +20,17 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.*;
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-
 @ExtendWith(MockitoExtension.class)
-class MBP10MergeStrategyTest {
+class Mbp10MergeStrategyTest {
 
     @Mock
     private LambdaLogger logger;
 
-    private MBP10MergeStrategy strategy;
+    private Mbp10MergeStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new MBP10MergeStrategy();
+        strategy = new Mbp10MergeStrategy();
     }
 
     /**
@@ -39,7 +38,7 @@ class MBP10MergeStrategyTest {
      * Makes it easy to track which sequence a schema belongs to.
      */
     private Schema schema(long sequenceNumber) {
-        MBP10Schema schema = (MBP10Schema) SchemaType.MBP_10.newInstance();
+        Mbp10Schema schema = (Mbp10Schema) SchemaType.MBP_10.newInstance();
         schema.encoder.sequence(sequenceNumber);
         return schema;
     }
@@ -116,126 +115,150 @@ class MBP10MergeStrategyTest {
      */
     static Stream<Arguments> mergeTestCases() {
         return Stream.of(
-            // Empty input
-            Arguments.of("Empty records", "", "", false),
+                // Empty input
+                Arguments.of("Empty records", "", "", false),
 
-            // Single collector cases
-            Arguments.of("Single collector, single sequence, single record",
-                "c1:100", "100", false),
-            Arguments.of("Single collector, single sequence, multiple records",
-                "c1:100,100", "100,100", false),
-            Arguments.of("Single collector, multiple sequences",
-                "c1:100,101,102", "100,101,102", false),
-            Arguments.of("Single collector, many records",
-                "c1:1,2,3,4,5,6,7,8,9,10", "1,2,3,4,5,6,7,8,9,10", false),
-            Arguments.of("Single collector, large sequence numbers",
-                "c1:999999,1000000", "999999,1000000", false),
+                // Single collector cases
+                Arguments.of("Single collector, single sequence, single record", "c1:100", "100", false),
+                Arguments.of("Single collector, single sequence, multiple records", "c1:100,100", "100,100", false),
+                Arguments.of("Single collector, multiple sequences", "c1:100,101,102", "100,101,102", false),
+                Arguments.of(
+                        "Single collector, many records", "c1:1,2,3,4,5,6,7,8,9,10", "1,2,3,4,5,6,7,8,9,10", false),
+                Arguments.of("Single collector, large sequence numbers", "c1:999999,1000000", "999999,1000000", false),
 
-            // Two collectors - equal counts (no difference logs)
-            Arguments.of("Two collectors, equal single record per sequence",
-                "c1:100;c2:100", "100", false),
-            Arguments.of("Two collectors, equal multiple records per sequence",
-                "c1:100,100;c2:100,100", "100,100", false),
-            Arguments.of("Two collectors, equal records across multiple sequences",
-                "c1:100,100,101,101;c2:100,100,101,101", "100,100,101,101", false),
+                // Two collectors - equal counts (no difference logs)
+                Arguments.of("Two collectors, equal single record per sequence", "c1:100;c2:100", "100", false),
+                Arguments.of(
+                        "Two collectors, equal multiple records per sequence",
+                        "c1:100,100;c2:100,100",
+                        "100,100",
+                        false),
+                Arguments.of(
+                        "Two collectors, equal records across multiple sequences",
+                        "c1:100,100,101,101;c2:100,100,101,101",
+                        "100,100,101,101",
+                        false),
 
-            // Two collectors - unequal counts (difference logs expected)
-            // c1 has 2, c2 has 1 -> c1 wins with its records
-            Arguments.of("Two collectors, c2 missing one record",
-                "c1:100,100;c2:100", "100,100", true),
-            // c1 has 4, c2 has 2 -> c1 wins
-            Arguments.of("Two collectors, c2 missing entire sequence",
-                "c1:100,100,101,101;c2:100,100", "100,100,101,101", true),
-            // c1 has 3, c2 has 2 -> c1 wins
-            Arguments.of("Two collectors, c1 has more records",
-                "c1:100,100,100;c2:100,100", "100,100,100", true),
-            // c1 has 3, c2 has 4 -> c2 wins with its records
-            Arguments.of("Two collectors, c2 has more total records",
-                "c1:100,100,101;c2:100,101,101,101", "100,101,101,101", true),
+                // Two collectors - unequal counts (difference logs expected)
+                // c1 has 2, c2 has 1 -> c1 wins with its records
+                Arguments.of("Two collectors, c2 missing one record", "c1:100,100;c2:100", "100,100", true),
+                // c1 has 4, c2 has 2 -> c1 wins
+                Arguments.of(
+                        "Two collectors, c2 missing entire sequence",
+                        "c1:100,100,101,101;c2:100,100",
+                        "100,100,101,101",
+                        true),
+                // c1 has 3, c2 has 2 -> c1 wins
+                Arguments.of("Two collectors, c1 has more records", "c1:100,100,100;c2:100,100", "100,100,100", true),
+                // c1 has 3, c2 has 4 -> c2 wins with its records
+                Arguments.of(
+                        "Two collectors, c2 has more total records",
+                        "c1:100,100,101;c2:100,101,101,101",
+                        "100,101,101,101",
+                        true),
 
-            // Two collectors - one empty
-            Arguments.of("Two collectors, c2 empty",
-                "c1:100,100;c2:", "100,100", true),
+                // Two collectors - one empty
+                Arguments.of("Two collectors, c2 empty", "c1:100,100;c2:", "100,100", true),
 
-            // Three collectors - all equal
-            Arguments.of("Three collectors, all equal",
-                "c1:100,101;c2:100,101;c3:100,101", "100,101", false),
-            // c1 has 2, c2 has 1, c3 has 2 -> c1 wins (first with max)
-            Arguments.of("Three collectors, c2 missing sequence",
-                "c1:100,101;c2:100;c3:100,101", "100,101", true),
-            // c1 has 3, c2 has 3, c3 has 4 -> c3 wins
-            Arguments.of("Three collectors, c3 has most records",
-                "c1:100,100,101;c2:100,101,101;c3:100,100,100,101", "100,100,100,101", true),
-            // c1 has 1, c2 has 1, c3 has 2 -> c3 wins
-            Arguments.of("Three collectors, c3 has max for all sequences",
-                "c1:100;c2:100;c3:100,100", "100,100", true),
+                // Three collectors - all equal
+                Arguments.of("Three collectors, all equal", "c1:100,101;c2:100,101;c3:100,101", "100,101", false),
+                // c1 has 2, c2 has 1, c3 has 2 -> c1 wins (first with max)
+                Arguments.of("Three collectors, c2 missing sequence", "c1:100,101;c2:100;c3:100,101", "100,101", true),
+                // c1 has 3, c2 has 3, c3 has 4 -> c3 wins
+                Arguments.of(
+                        "Three collectors, c3 has most records",
+                        "c1:100,100,101;c2:100,101,101;c3:100,100,100,101",
+                        "100,100,100,101",
+                        true),
+                // c1 has 1, c2 has 1, c3 has 2 -> c3 wins
+                Arguments.of(
+                        "Three collectors, c3 has max for all sequences", "c1:100;c2:100;c3:100,100", "100,100", true),
 
-            // Edge cases with gaps
-            Arguments.of("Non-contiguous sequences",
-                "c1:100,200,300", "100,200,300", false),
-            // c1 has 3, c2 has 2 -> c1 wins
-            Arguments.of("Two collectors, non-contiguous, one missing middle",
-                "c1:100,200,300;c2:100,300", "100,200,300", true),
+                // Edge cases with gaps
+                Arguments.of("Non-contiguous sequences", "c1:100,200,300", "100,200,300", false),
+                // c1 has 3, c2 has 2 -> c1 wins
+                Arguments.of(
+                        "Two collectors, non-contiguous, one missing middle",
+                        "c1:100,200,300;c2:100,300",
+                        "100,200,300",
+                        true),
 
-            // Four collectors - c1 has 2, c2 has 1, c3 has 2, c4 has 2 -> c1 wins (first with max)
-            Arguments.of("Four collectors, mixed coverage",
-                "c1:100,101;c2:100;c3:101,101;c4:100,101", "100,101", true),
+                // Four collectors - c1 has 2, c2 has 1, c3 has 2, c4 has 2 -> c1 wins (first with max)
+                Arguments.of(
+                        "Four collectors, mixed coverage", "c1:100,101;c2:100;c3:101,101;c4:100,101", "100,101", true),
 
-            // Stress test - many sequences
-            Arguments.of("Single collector, 20 sequential records",
-                "c1:1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20",
-                "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20", false),
+                // Stress test - many sequences
+                Arguments.of(
+                        "Single collector, 20 sequential records",
+                        "c1:1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20",
+                        "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20",
+                        false),
 
-            // c1 has 6, c2 has 4 -> c1 wins
-            Arguments.of("Two collectors, c1 has most records",
-                "c1:100,100,100,101,101,101;c2:100,100,101,101", "100,100,100,101,101,101", true),
-            // c1 has 2, c2 has 3 -> c2 wins
-            Arguments.of("Two collectors, c2 wins with more records",
-                "c1:100,101;c2:100,100,101", "100,100,101", true),
+                // c1 has 6, c2 has 4 -> c1 wins
+                Arguments.of(
+                        "Two collectors, c1 has most records",
+                        "c1:100,100,100,101,101,101;c2:100,100,101,101",
+                        "100,100,100,101,101,101",
+                        true),
+                // c1 has 2, c2 has 3 -> c2 wins
+                Arguments.of(
+                        "Two collectors, c2 wins with more records", "c1:100,101;c2:100,100,101", "100,100,101", true),
 
-            // Out-of-order sequences - output preserves order from winning collector
-            Arguments.of("Single collector, out-of-order sequences preserves order",
-                "c1:102,100,101", "102,100,101", false),
-            // c1 has 2, c2 has 2 -> c1 wins (first), output is c1's order
-            Arguments.of("Two collectors equal, first wins preserving its order",
-                "c1:102,100;c2:101,100", "102,100", false),
+                // Out-of-order sequences - output preserves order from winning collector
+                Arguments.of(
+                        "Single collector, out-of-order sequences preserves order",
+                        "c1:102,100,101",
+                        "102,100,101",
+                        false),
+                // c1 has 2, c2 has 2 -> c1 wins (first), output is c1's order
+                Arguments.of(
+                        "Two collectors equal, first wins preserving its order",
+                        "c1:102,100;c2:101,100",
+                        "102,100",
+                        false),
 
-            // c1 has 1, c2 has 2 -> c2 wins
-            Arguments.of("Two collectors, c2 wins with more records",
-                "c1:100;c2:100,100", "100,100", true),
-            // c1 has 2, c2 has 4 -> c2 wins
-            Arguments.of("Two collectors, c2 wins for all sequences",
-                "c1:100,101;c2:100,100,101,101", "100,100,101,101", true),
+                // c1 has 1, c2 has 2 -> c2 wins
+                Arguments.of("Two collectors, c2 wins with more records", "c1:100;c2:100,100", "100,100", true),
+                // c1 has 2, c2 has 4 -> c2 wins
+                Arguments.of(
+                        "Two collectors, c2 wins for all sequences",
+                        "c1:100,101;c2:100,100,101,101",
+                        "100,100,101,101",
+                        true),
 
-            // Tie-breaking - first collector in iteration order wins
-            Arguments.of("Two collectors, tie goes to first (c1)",
-                "c1:100,100;c2:100,100", "100,100", false),
-            // c1 has 1, c2 has 2, c3 has 2 -> c2 wins (first with max)
-            Arguments.of("Three collectors, tie goes to first with max",
-                "c1:100;c2:100,100;c3:100,100", "100,100", true),
+                // Tie-breaking - first collector in iteration order wins
+                Arguments.of("Two collectors, tie goes to first (c1)", "c1:100,100;c2:100,100", "100,100", false),
+                // c1 has 1, c2 has 2, c3 has 2 -> c2 wins (first with max)
+                Arguments.of(
+                        "Three collectors, tie goes to first with max",
+                        "c1:100;c2:100,100;c3:100,100",
+                        "100,100",
+                        true),
 
-            // Sequence number edge cases
-            Arguments.of("Sequence number 0",
-                "c1:0,1,2", "0,1,2", false),
-            // c1 has 2, c2 has 1 -> c1 wins
-            Arguments.of("Two collectors with sequence 0",
-                "c1:0,0;c2:0", "0,0", true),
+                // Sequence number edge cases
+                Arguments.of("Sequence number 0", "c1:0,1,2", "0,1,2", false),
+                // c1 has 2, c2 has 1 -> c1 wins
+                Arguments.of("Two collectors with sequence 0", "c1:0,0;c2:0", "0,0", true),
 
-            // Many collectors stress test - all equal
-            Arguments.of("Five collectors, all equal",
-                "c1:100;c2:100;c3:100;c4:100;c5:100", "100", false),
-            // c1,c2,c4,c5 have 2, c3 has 1 -> c1 wins (first with max)
-            Arguments.of("Five collectors, one missing",
-                "c1:100,101;c2:100,101;c3:100;c4:100,101;c5:100,101", "100,101", true),
+                // Many collectors stress test - all equal
+                Arguments.of("Five collectors, all equal", "c1:100;c2:100;c3:100;c4:100;c5:100", "100", false),
+                // c1,c2,c4,c5 have 2, c3 has 1 -> c1 wins (first with max)
+                Arguments.of(
+                        "Five collectors, one missing",
+                        "c1:100,101;c2:100,101;c3:100;c4:100,101;c5:100,101",
+                        "100,101",
+                        true),
 
-            // Each collector has 1 record -> c1 wins (first)
-            Arguments.of("Three collectors, each has unique sequence, c1 wins",
-                "c1:100;c2:101;c3:102", "100", false),
+                // Each collector has 1 record -> c1 wins (first)
+                Arguments.of(
+                        "Three collectors, each has unique sequence, c1 wins", "c1:100;c2:101;c3:102", "100", false),
 
-            // c1 has 4, c2 has 3, c3 has 2 -> c1 wins
-            Arguments.of("Three collectors, c1 has most records",
-                "c1:100,100,100,101;c2:100,100,101;c3:100,101", "100,100,100,101", true)
-        );
+                // c1 has 4, c2 has 3, c3 has 2 -> c1 wins
+                Arguments.of(
+                        "Three collectors, c1 has most records",
+                        "c1:100,100,100,101;c2:100,100,101;c3:100,101",
+                        "100,100,100,101",
+                        true));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -249,19 +272,20 @@ class MBP10MergeStrategyTest {
         List<Schema> result = strategy.mergeRecords(logger, collectors);
 
         // Then: Verify output size and sequence numbers
-        assertEquals(expected.length, result.size(),
-            "Output size mismatch for: " + description);
+        assertEquals(expected.length, result.size(), "Output size mismatch for: " + description);
         for (int i = 0; i < expected.length; i++) {
-            assertEquals(expected[i], result.get(i).getSequenceNumber(),
-                "Sequence mismatch at index " + i + " for: " + description);
+            assertEquals(
+                    expected[i],
+                    result.get(i).getSequenceNumber(),
+                    "Sequence mismatch at index " + i + " for: " + description);
         }
 
         // Verify logging behavior - check that at least one "fewer records" log was made
         if (expectDifferenceLogs) {
             ArgumentCaptor<String> formatCaptor = ArgumentCaptor.forClass(String.class);
             verify(logger, atLeastOnce()).log(formatCaptor.capture());
-            boolean foundDifferenceLog = formatCaptor.getAllValues().stream()
-                    .anyMatch(f -> f.contains("fewer records"));
+            boolean foundDifferenceLog =
+                    formatCaptor.getAllValues().stream().anyMatch(f -> f.contains("fewer records"));
             assertTrue(foundDifferenceLog, "Expected difference log for: " + description);
         }
     }
@@ -279,13 +303,9 @@ class MBP10MergeStrategyTest {
 
     @Test
     void testNoDifferenceLogsWhenAllCollectorsEqual() {
-        Map<String, List<Schema>> input = collectors(
-                "collector-1", 100L, 100L,
-                "collector-2", 100L, 100L
-        );
+        Map<String, List<Schema>> input = collectors("collector-1", 100L, 100L, "collector-2", 100L, 100L);
         strategy.mergeRecords(logger, input);
         // Verify no "fewer records" logs
         verify(logger, never()).log(contains("fewer records"));
     }
 }
-

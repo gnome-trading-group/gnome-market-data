@@ -2,7 +2,6 @@ package group.gnometrading.merger;
 
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import group.gnometrading.schemas.Schema;
-
 import java.util.List;
 import java.util.Map;
 
@@ -14,4 +13,3 @@ public interface SchemaMergeStrategy {
      */
     List<Schema> mergeRecords(LambdaLogger logger, Map<String, List<Schema>> entries);
 }
-

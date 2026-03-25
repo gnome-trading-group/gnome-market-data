@@ -6,10 +6,7 @@ import software.amazon.awssdk.enhanced.dynamodb.AttributeValueType;
 import software.amazon.awssdk.enhanced.dynamodb.EnhancedType;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
-public record JobId(
-        int listingId,
-        SchemaType schemaType
-) {
+public record JobId(int listingId, SchemaType schemaType) {
     public String toString() {
         return listingId + "-" + schemaType.getIdentifier();
     }
@@ -19,7 +16,7 @@ public record JobId(
         return new JobId(Integer.parseInt(parts[0]), SchemaType.findById(parts[1]));
     }
 
-    public static class JobIdConverter implements AttributeConverter<JobId> {
+    public static final class JobIdConverter implements AttributeConverter<JobId> {
         @Override
         public AttributeValue transformFrom(JobId input) {
             if (input == null) {

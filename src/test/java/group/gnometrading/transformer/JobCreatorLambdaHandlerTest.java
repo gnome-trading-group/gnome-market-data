@@ -1,41 +1,34 @@
 package group.gnometrading.transformer;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import group.gnometrading.MarketDataEntry;
 import group.gnometrading.SecurityMaster;
 import group.gnometrading.schemas.SchemaType;
-import group.gnometrading.schemas.converters.SchemaConversionRegistry;
 import group.gnometrading.sm.Listing;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 /**
  * Comprehensive test suite for JobCreatorLambdaHandler.
@@ -72,18 +65,10 @@ class JobCreatorLambdaHandlerTest {
         objectMapper = new ObjectMapper();
 
         // Fixed clock for deterministic createdAt timestamps
-        clock = Clock.fixed(
-                FIXED_TIME.atZone(ZoneId.of("UTC")).toInstant(),
-                ZoneId.of("UTC")
-        );
+        clock = Clock.fixed(FIXED_TIME.atZone(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC"));
 
         // Initialize handler with mocks
-        handler = new JobCreatorLambdaHandler(
-                securityMaster,
-                objectMapper,
-                transformJobsTable,
-                clock
-        );
+        handler = new JobCreatorLambdaHandler(securityMaster, objectMapper, transformJobsTable, clock);
 
         // Setup context to return logger
         lenient().when(context.getLogger()).thenReturn(logger);
@@ -179,22 +164,31 @@ class JobCreatorLambdaHandlerTest {
 
         // Mock putItem to capture the jobs
         doAnswer(invocation -> {
-            Consumer<software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder<TransformationJob>> consumer =
-                    invocation.getArgument(0);
-            software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder<TransformationJob> builder =
-                    mock(software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder.class);
+                    Consumer<
+                                    software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder<
+                                            TransformationJob>>
+                            consumer = invocation.getArgument(0);
+                    software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder<TransformationJob>
+                            builder = mock(
+                                    software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder
+                                            .class);
 
-            // Capture the item
-            lenient().when(builder.item(any(TransformationJob.class))).thenAnswer(inv -> {
-                capturedJobs.add(inv.getArgument(0));
-                return builder;
-            });
-            lenient().when(builder.conditionExpression(any())).thenReturn(builder);
-            lenient().when(builder.build()).thenReturn(mock(software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.class));
+                    // Capture the item
+                    lenient().when(builder.item(any(TransformationJob.class))).thenAnswer(inv -> {
+                        capturedJobs.add(inv.getArgument(0));
+                        return builder;
+                    });
+                    lenient().when(builder.conditionExpression(any())).thenReturn(builder);
+                    lenient()
+                            .when(builder.build())
+                            .thenReturn(
+                                    mock(software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.class));
 
-            consumer.accept(builder);
-            return null;
-        }).when(transformJobsTable).putItem(any(Consumer.class));
+                    consumer.accept(builder);
+                    return null;
+                })
+                .when(transformJobsTable)
+                .putItem(any(Consumer.class));
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -221,8 +215,11 @@ class JobCreatorLambdaHandlerTest {
         when(securityMaster.getListing(2, 1)).thenReturn(listing);
 
         // Mock putItem to throw ConditionalCheckFailedException (job already exists)
-        doThrow(ConditionalCheckFailedException.builder().message("Item already exists").build())
-                .when(transformJobsTable).putItem(any(Consumer.class));
+        doThrow(ConditionalCheckFailedException.builder()
+                        .message("Item already exists")
+                        .build())
+                .when(transformJobsTable)
+                .putItem(any(Consumer.class));
 
         // When: Handling the request
         Void result = handler.handleRequest(event, context);
@@ -388,12 +385,11 @@ class JobCreatorLambdaHandlerTest {
                 Arguments.of(30, false),
                 Arguments.of(45, false),
                 Arguments.of(58, false),
-                Arguments.of(59, true)
-        );
+                Arguments.of(59, true));
     }
 
     @Test
-    void testNonOHLCV1HSchemaTypesCreatedRegardlessOfMinute() throws Exception {
+    void testNonOhlcv1hSchemaTypesCreatedRegardlessOfMinute() throws Exception {
         // Given: Event at minute 30 (not 59)
         String key = "1/2/2024/1/15/10/30/mbp-10.zst";
         SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
@@ -502,22 +498,31 @@ class JobCreatorLambdaHandlerTest {
      */
     private void captureJobsIntoList(List<TransformationJob> capturedJobs) {
         doAnswer(invocation -> {
-            Consumer<software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder<TransformationJob>> consumer =
-                    invocation.getArgument(0);
-            software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder<TransformationJob> builder =
-                    mock(software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder.class);
+                    Consumer<
+                                    software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder<
+                                            TransformationJob>>
+                            consumer = invocation.getArgument(0);
+                    software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder<TransformationJob>
+                            builder = mock(
+                                    software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.Builder
+                                            .class);
 
-            // Capture the item
-            lenient().when(builder.item(any(TransformationJob.class))).thenAnswer(inv -> {
-                capturedJobs.add(inv.getArgument(0));
-                return builder;
-            });
-            lenient().when(builder.conditionExpression(any())).thenReturn(builder);
-            lenient().when(builder.build()).thenReturn(mock(software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.class));
+                    // Capture the item
+                    lenient().when(builder.item(any(TransformationJob.class))).thenAnswer(inv -> {
+                        capturedJobs.add(inv.getArgument(0));
+                        return builder;
+                    });
+                    lenient().when(builder.conditionExpression(any())).thenReturn(builder);
+                    lenient()
+                            .when(builder.build())
+                            .thenReturn(
+                                    mock(software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest.class));
 
-            consumer.accept(builder);
-            return null;
-        }).when(transformJobsTable).putItem(any(Consumer.class));
+                    consumer.accept(builder);
+                    return null;
+                })
+                .when(transformJobsTable)
+                .putItem(any(Consumer.class));
     }
 
     /**
@@ -610,7 +615,7 @@ class JobCreatorLambdaHandlerTest {
         snsMessage.put("MessageId", "test-message-id");
         snsMessage.put("TopicArn", "arn:aws:sns:us-east-1:123456789012:test-topic");
         snsMessage.put("Subject", "Amazon S3 Notification");
-        snsMessage.put("Message", s3EventJson);  // The S3 event JSON as a string
+        snsMessage.put("Message", s3EventJson); // The S3 event JSON as a string
         snsMessage.put("Timestamp", "2024-01-15T10:30:00.000Z");
 
         return objectMapper.writeValueAsString(snsMessage);

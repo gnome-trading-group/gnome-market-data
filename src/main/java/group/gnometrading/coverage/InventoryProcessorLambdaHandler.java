@@ -12,42 +12,40 @@ import group.gnometrading.Dependencies;
  * Lambda handler for processing S3 inventory Parquet files.
  * Triggered by SQS messages from S3 event notifications.
  */
-public class InventoryProcessorLambdaHandler implements RequestHandler<SQSEvent, Void> {
-    
+public final class InventoryProcessorLambdaHandler implements RequestHandler<SQSEvent, Void> {
+
     private final InventoryProcessor processor;
     private final ObjectMapper objectMapper;
-    
+
     public InventoryProcessorLambdaHandler() {
         this(
                 new InventoryProcessor(
                         Dependencies.getInstance().getS3Client(),
                         Dependencies.getInstance().getDynamoDbEnhancedClient(),
                         Dependencies.getInstance().getCoverageTable(),
-                        Dependencies.getInstance().getMetadataBucketName()
-                ),
-                Dependencies.getInstance().getObjectMapper()
-        );
+                        Dependencies.getInstance().getMetadataBucketName()),
+                Dependencies.getInstance().getObjectMapper());
     }
 
     public InventoryProcessorLambdaHandler(InventoryProcessor processor, ObjectMapper objectMapper) {
         this.processor = processor;
         this.objectMapper = objectMapper;
     }
-    
+
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         context.getLogger().log("Received SQS event with " + event.getRecords().size() + " messages");
-        
+
         for (SQSEvent.SQSMessage message : event.getRecords()) {
             try {
                 // Extract S3 key from SQS message
                 String inventoryKey = extractS3KeyFromMessage(message, context);
-                
+
                 if (inventoryKey == null) {
                     context.getLogger().log("Could not extract S3 key from message, skipping");
                     continue;
                 }
-                
+
                 processor.processInventoryFile(inventoryKey, context);
             } catch (Exception e) {
                 context.getLogger().log("Error processing message: " + e.getMessage());
@@ -56,8 +54,9 @@ public class InventoryProcessorLambdaHandler implements RequestHandler<SQSEvent,
         }
         return null;
     }
-    
-    private String extractS3KeyFromMessage(SQSEvent.SQSMessage message, Context context) throws JsonProcessingException {
+
+    private String extractS3KeyFromMessage(SQSEvent.SQSMessage message, Context context)
+            throws JsonProcessingException {
         String body = message.getBody();
         JsonNode root = objectMapper.readTree(body);
 
@@ -91,7 +90,5 @@ public class InventoryProcessorLambdaHandler implements RequestHandler<SQSEvent,
         String key = keyNode.asText();
         context.getLogger().log("Extracted S3 key: " + key);
         return key;
-            
     }
 }
-

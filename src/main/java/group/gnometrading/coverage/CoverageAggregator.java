@@ -1,9 +1,14 @@
 package group.gnometrading.coverage;
 
 import group.gnometrading.MarketDataEntry;
-
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Aggregates inventory records into coverage statistics at multiple levels:
@@ -15,26 +20,27 @@ public class CoverageAggregator {
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter MINUTE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-    
+
     // Global aggregates
     private final Map<String, DateAggregation> globalByDate = new HashMap<>();
     private final Map<String, SchemaAggregation> globalBySchema = new HashMap<>();
     private final Map<String, SecurityExchangeAggregation> globalSecurityExchanges = new HashMap<>();
-    
+
     // Security aggregates (securityId -> date -> aggregation)
     private final Map<Integer, Map<String, DateAggregation>> securityByDate = new HashMap<>();
     private final Map<Integer, Map<Integer, ExchangeAggregation>> securityExchanges = new HashMap<>();
-    
+
     // Security+Exchange aggregates (key -> date -> aggregation)
     private final Map<String, Map<String, DateAggregation>> secExByDate = new HashMap<>();
-    
+
     /**
      * Aggregate a list of inventory records.
      */
     public void aggregate(List<InventoryRecord> records) {
         for (InventoryRecord record : records) {
             MarketDataEntry entry = MarketDataEntry.fromKey(record.key());
-            assert entry.getEntryType() == MarketDataEntry.EntryType.AGGREGATED : "Expected aggregated entry, got " + entry.getEntryType();
+            assert entry.getEntryType() == MarketDataEntry.EntryType.AGGREGATED
+                    : "Expected aggregated entry, got " + entry.getEntryType();
 
             String dateStr = entry.getTimestamp().format(DATE_FORMAT);
             String minuteKey = entry.getTimestamp().format(MINUTE_FORMAT);
@@ -44,65 +50,79 @@ public class CoverageAggregator {
             aggregateSecurityExchange(entry, record.size(), dateStr, minuteKey);
         }
     }
-    
+
     /**
      * Build DynamoDB coverage records from aggregated data.
      */
     public List<CoverageRecord> buildCoverageRecords() {
         List<CoverageRecord> records = new ArrayList<>();
-        
+
         records.addAll(buildGlobalRecords());
         records.addAll(buildSecurityRecords());
         records.addAll(buildSecurityExchangeRecords());
-        
+
         return records;
     }
-    
+
     private void aggregateGlobal(MarketDataEntry entry, long size, String date, String minute) {
         // Track by date
-        globalByDate.computeIfAbsent(date, k -> new DateAggregation())
+        globalByDate
+                .computeIfAbsent(date, k -> new DateAggregation())
                 .add(entry.getSchemaType().getIdentifier(), minute, size);
-        
+
         // Track by schema type
-        globalBySchema.computeIfAbsent(entry.getSchemaType().getIdentifier(), k -> new SchemaAggregation())
+        globalBySchema
+                .computeIfAbsent(entry.getSchemaType().getIdentifier(), k -> new SchemaAggregation())
                 .add(minute, size);
-        
+
         // Track security-exchange pairs
         String secExKey = entry.getSecurityId() + "-" + entry.getExchangeId();
-        globalSecurityExchanges.computeIfAbsent(secExKey, k ->
-                new SecurityExchangeAggregation(entry.getSecurityId(), entry.getExchangeId()))
+        globalSecurityExchanges
+                .computeIfAbsent(
+                        secExKey, k -> new SecurityExchangeAggregation(entry.getSecurityId(), entry.getExchangeId()))
                 .add(entry.getSchemaType().getIdentifier(), date, minute, size);
     }
-    
+
     private void aggregateSecurity(MarketDataEntry entry, long size, String date, String minute) {
         // Track by date for this security
-        securityByDate.computeIfAbsent(entry.getSecurityId(), k -> new HashMap<>())
+        securityByDate
+                .computeIfAbsent(entry.getSecurityId(), k -> new HashMap<>())
                 .computeIfAbsent(date, k -> new DateAggregation())
                 .addWithExchange(entry.getExchangeId(), entry.getSchemaType().getIdentifier(), minute, size);
-        
+
         // Track exchanges for this security
-        securityExchanges.computeIfAbsent(entry.getSecurityId(), k -> new HashMap<>())
+        securityExchanges
+                .computeIfAbsent(entry.getSecurityId(), k -> new HashMap<>())
                 .computeIfAbsent(entry.getExchangeId(), k -> new ExchangeAggregation(entry.getExchangeId()))
                 .add(entry.getSchemaType().getIdentifier(), date, minute, size);
     }
-    
+
     private void aggregateSecurityExchange(MarketDataEntry entry, long size, String date, String minute) {
         String key = entry.getSecurityId() + "#" + entry.getExchangeId();
 
-        secExByDate.computeIfAbsent(key, k -> new HashMap<>())
+        secExByDate
+                .computeIfAbsent(key, k -> new HashMap<>())
                 .computeIfAbsent(date, k -> new DateAggregation())
                 .add(entry.getSchemaType().getIdentifier(), minute, size);
     }
-    
+
     private List<CoverageRecord> buildGlobalRecords() {
         List<CoverageRecord> records = new ArrayList<>();
-        
+
         // Build global summary
         Map<String, Object> globalSummary = new HashMap<>();
-        globalSummary.put("totalFiles", globalByDate.values().stream().mapToInt(d -> d.fileCount).sum());
-        globalSummary.put("totalMinutes", globalByDate.values().stream()
-                .flatMap(d -> d.minutes.stream()).distinct().count());
-        globalSummary.put("totalSizeBytes", globalByDate.values().stream().mapToLong(d -> d.totalSize).sum());
+        globalSummary.put(
+                "totalFiles",
+                globalByDate.values().stream().mapToInt(d -> d.fileCount).sum());
+        globalSummary.put(
+                "totalMinutes",
+                globalByDate.values().stream()
+                        .flatMap(d -> d.minutes.stream())
+                        .distinct()
+                        .count());
+        globalSummary.put(
+                "totalSizeBytes",
+                globalByDate.values().stream().mapToLong(d -> d.totalSize).sum());
         globalSummary.put("securityExchangeCount", globalSecurityExchanges.size());
 
         // Add securities map
@@ -142,17 +162,25 @@ public class CoverageAggregator {
             // Build summary for this security
             Map<String, Object> summary = new HashMap<>();
             summary.put("totalDays", secEntry.getValue().size());
-            summary.put("totalMinutes", secEntry.getValue().values().stream()
-                    .flatMap(d -> d.minutes.stream()).distinct().count());
-            summary.put("totalSizeBytes", secEntry.getValue().values().stream()
-                    .mapToLong(d -> d.totalSize).sum());
+            summary.put(
+                    "totalMinutes",
+                    secEntry.getValue().values().stream()
+                            .flatMap(d -> d.minutes.stream())
+                            .distinct()
+                            .count());
+            summary.put(
+                    "totalSizeBytes",
+                    secEntry.getValue().values().stream()
+                            .mapToLong(d -> d.totalSize)
+                            .sum());
 
             // Add exchanges
             Map<Integer, ExchangeAggregation> exchanges = securityExchanges.get(securityId);
             if (exchanges != null) {
                 Map<String, Object> exchangesMap = new HashMap<>();
                 for (Map.Entry<Integer, ExchangeAggregation> exEntry : exchanges.entrySet()) {
-                    exchangesMap.put(String.valueOf(exEntry.getKey()), exEntry.getValue().toMap());
+                    exchangesMap.put(
+                            String.valueOf(exEntry.getKey()), exEntry.getValue().toMap());
                 }
                 summary.put("exchanges", exchangesMap);
                 summary.put("totalExchanges", exchanges.size());
@@ -172,8 +200,11 @@ public class CoverageAggregator {
             records.add(new CoverageRecord(pk, CoverageKey.summaryKey(), summary));
 
             // Build date records
-            for (Map.Entry<String, DateAggregation> dateEntry : secEntry.getValue().entrySet()) {
-                records.add(new CoverageRecord(pk, CoverageKey.dateKey(dateEntry.getKey()),
+            for (Map.Entry<String, DateAggregation> dateEntry :
+                    secEntry.getValue().entrySet()) {
+                records.add(new CoverageRecord(
+                        pk,
+                        CoverageKey.dateKey(dateEntry.getKey()),
                         dateEntry.getValue().toMapWithExchanges()));
             }
         }
@@ -193,10 +224,17 @@ public class CoverageAggregator {
             // Build summary
             Map<String, Object> summary = new HashMap<>();
             summary.put("totalDays", entry.getValue().size());
-            summary.put("totalMinutes", entry.getValue().values().stream()
-                    .flatMap(d -> d.minutes.stream()).distinct().count());
-            summary.put("totalSizeBytes", entry.getValue().values().stream()
-                    .mapToLong(d -> d.totalSize).sum());
+            summary.put(
+                    "totalMinutes",
+                    entry.getValue().values().stream()
+                            .flatMap(d -> d.minutes.stream())
+                            .distinct()
+                            .count());
+            summary.put(
+                    "totalSizeBytes",
+                    entry.getValue().values().stream()
+                            .mapToLong(d -> d.totalSize)
+                            .sum());
 
             // Add date range
             List<String> dates = new ArrayList<>(entry.getValue().keySet());
@@ -213,7 +251,9 @@ public class CoverageAggregator {
 
             // Build date records
             for (Map.Entry<String, DateAggregation> dateEntry : entry.getValue().entrySet()) {
-                records.add(new CoverageRecord(pk, CoverageKey.dateKey(dateEntry.getKey()),
+                records.add(new CoverageRecord(
+                        pk,
+                        CoverageKey.dateKey(dateEntry.getKey()),
                         dateEntry.getValue().toMap()));
             }
         }
@@ -232,7 +272,8 @@ public class CoverageAggregator {
 
         void add(String schemaType, String minute, long size) {
             minutes.add(minute);
-            schemaTypes.computeIfAbsent(schemaType, k -> new SchemaAggregation())
+            schemaTypes
+                    .computeIfAbsent(schemaType, k -> new SchemaAggregation())
                     .add(minute, size);
             totalSize += size;
             fileCount++;
@@ -240,7 +281,8 @@ public class CoverageAggregator {
 
         void addWithExchange(int exchangeId, String schemaType, String minute, long size) {
             add(schemaType, minute, size);
-            exchanges.computeIfAbsent(exchangeId, k -> new ExchangeDateAggregation())
+            exchanges
+                    .computeIfAbsent(exchangeId, k -> new ExchangeDateAggregation())
                     .add(schemaType, minute, size);
         }
 
@@ -267,7 +309,8 @@ public class CoverageAggregator {
 
             Map<String, Object> exchangesMap = new HashMap<>();
             for (Map.Entry<Integer, ExchangeDateAggregation> entry : exchanges.entrySet()) {
-                exchangesMap.put(String.valueOf(entry.getKey()), entry.getValue().toMap());
+                exchangesMap.put(
+                        String.valueOf(entry.getKey()), entry.getValue().toMap());
             }
             map.put("exchanges", exchangesMap);
 
@@ -380,7 +423,8 @@ public class CoverageAggregator {
 
         void add(String schemaType, String minute, long size) {
             minutes.add(minute);
-            schemaTypes.computeIfAbsent(schemaType, k -> new SchemaAggregation())
+            schemaTypes
+                    .computeIfAbsent(schemaType, k -> new SchemaAggregation())
                     .add(minute, size);
         }
 

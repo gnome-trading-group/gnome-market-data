@@ -1,5 +1,9 @@
 package group.gnometrading.gap;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
@@ -11,6 +15,11 @@ import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
 import group.gnometrading.transformer.JobId;
 import group.gnometrading.transformer.TransformationJob;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,16 +32,6 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-
-import java.time.Clock;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.util.*;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 /**
  * Comprehensive test suite for GapLambdaHandler.
@@ -85,21 +84,11 @@ class GapLambdaHandlerTest {
         objectMapper = new ObjectMapper();
 
         // Fixed clock for deterministic createdAt timestamps
-        clock = Clock.fixed(
-                FIXED_TIME.atZone(ZoneId.of("UTC")).toInstant(),
-                ZoneId.of("UTC")
-        );
+        clock = Clock.fixed(FIXED_TIME.atZone(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC"));
 
         // Initialize handler with mocks
         handler = new GapLambdaHandler(
-                s3Client,
-                securityMaster,
-                objectMapper,
-                transformJobsTable,
-                gapsTable,
-                MERGED_BUCKET,
-                clock
-        );
+                s3Client, securityMaster, objectMapper, transformJobsTable, gapsTable, MERGED_BUCKET, clock);
 
         // Setup context to return logger
         lenient().when(context.getLogger()).thenReturn(logger);
@@ -302,8 +291,6 @@ class GapLambdaHandlerTest {
         }
     }
 
-
-
     // ============================================================================
     // FIRST ENTRY TESTS - 2+ days of no data
     // ============================================================================
@@ -505,8 +492,6 @@ class GapLambdaHandlerTest {
         verify(gapsTable, times(5)).putItem(gapCaptor.capture());
     }
 
-
-
     // ============================================================================
     // HELPER METHODS
     // ============================================================================
@@ -649,7 +634,7 @@ class GapLambdaHandlerTest {
         snsMessage.put("MessageId", "test-message-id");
         snsMessage.put("TopicArn", "arn:aws:sns:us-east-1:123456789012:test-topic");
         snsMessage.put("Subject", "Amazon S3 Notification");
-        snsMessage.put("Message", s3EventJson);  // The S3 event JSON as a string
+        snsMessage.put("Message", s3EventJson); // The S3 event JSON as a string
         snsMessage.put("Timestamp", "2024-01-15T10:30:00.000Z");
 
         return objectMapper.writeValueAsString(snsMessage);

@@ -7,4 +7,3 @@ public enum TransformationStatus {
     GAP_UNEXPECTED,
     GAP_EXPECTED
 }
-

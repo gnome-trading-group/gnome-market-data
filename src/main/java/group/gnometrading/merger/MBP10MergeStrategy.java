@@ -2,7 +2,6 @@ package group.gnometrading.merger;
 
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import group.gnometrading.schemas.Schema;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -11,7 +10,7 @@ import java.util.Map;
  * Merge strategy for MBP10 schema type.
  * Produces output entries in sequence order.
  */
-public class MBP10MergeStrategy implements SchemaMergeStrategy {
+public final class Mbp10MergeStrategy implements SchemaMergeStrategy {
 
     @Override
     public List<Schema> mergeRecords(LambdaLogger logger, Map<String, List<Schema>> entries) {
@@ -35,10 +34,13 @@ public class MBP10MergeStrategy implements SchemaMergeStrategy {
             if (!entry.getKey().equals(winningCollector)) {
                 int missing = maxRecords - entry.getValue().size();
                 if (missing > 0) {
-                    logger.log(
-                            String.format("Collector %s has %d fewer records than %s (%d vs %d)",
-                                    entry.getKey(), missing, winningCollector, entry.getValue().size(), maxRecords)
-                    );
+                    logger.log(String.format(
+                            "Collector %s has %d fewer records than %s (%d vs %d)",
+                            entry.getKey(),
+                            missing,
+                            winningCollector,
+                            entry.getValue().size(),
+                            maxRecords));
                 }
             }
         }
@@ -46,4 +48,3 @@ public class MBP10MergeStrategy implements SchemaMergeStrategy {
         return new ArrayList<>(entries.get(winningCollector));
     }
 }
-

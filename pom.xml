@@ -4,7 +4,12 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>group.gnometrading</groupId>
+    <parent>
+        <groupId>group.gnometrading</groupId>
+        <artifactId>gnome-parent</artifactId>
+        <version>1.5.0</version>
+    </parent>
+
     <artifactId>gnome-market-data</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 
@@ -15,12 +20,6 @@
             <url>https://maven.pkg.github.com/gnome-trading-group/*</url>
         </repository>
     </repositories>
-
-    <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties>
 
     <dependencyManagement>
         <dependencies>
@@ -34,65 +33,27 @@
         </dependencies>
     </dependencyManagement>
 
-    <profiles>
-        <profile>
-            <id>linux</id>
-            <activation>
-                <os>
-                    <family>unix</family>
-                </os>
-            </activation>
-            <properties>
-                <os.classifier>linux</os.classifier>
-            </properties>
-        </profile>
-
-        <profile>
-            <id>macos</id>
-            <activation>
-                <os>
-                    <family>mac</family>
-                </os>
-            </activation>
-            <properties>
-                <os.classifier>macos</os.classifier>
-            </properties>
-        </profile>
-
-        <profile>
-            <id>windows</id>
-            <activation>
-                <os>
-                    <family>windows</family>
-                </os>
-            </activation>
-            <properties>
-                <os.classifier>windows</os.classifier>
-            </properties>
-        </profile>
-    </profiles>
-
     <dependencies>
         <dependency>
             <groupId>group.gnometrading</groupId>
             <artifactId>gnome-networking</artifactId>
-            <version>1.0.64</version>
+            <version>1.0.65</version>
             <classifier>${os.classifier}</classifier>
         </dependency>
         <dependency>
             <groupId>group.gnometrading</groupId>
             <artifactId>gnome-core</artifactId>
-            <version>1.2.8</version>
+            <version>1.2.10</version>
         </dependency>
         <dependency>
             <groupId>group.gnometrading</groupId>
             <artifactId>gnome-registry</artifactId>
-            <version>1.0.12</version>
+            <version>1.1.2</version>
         </dependency>
         <dependency>
             <groupId>group.gnometrading</groupId>
             <artifactId>gnome-schemas</artifactId>
-            <version>1.0.23</version>
+            <version>1.1.2</version>
         </dependency>
         <dependency>
             <groupId>com.github.luben</groupId>
@@ -151,19 +112,16 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <version>5.14.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
-            <version>5.14.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -172,22 +130,7 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
-                <configuration>
-                    <argLine>
-                        --add-opens java.base/jdk.internal.misc=ALL-UNNAMED
-                        --add-opens java.base/sun.nio.ch=ALL-UNNAMED
-                        --add-opens java.base/java.nio=ALL-UNNAMED
-                        --add-opens java.base/java.lang.reflect=ALL-UNNAMED
-                        --add-opens java.base/java.util.concurrent=ALL-UNNAMED
-                    </argLine>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.5.2</version>
                 <executions>
                     <execution>
                         <phase>package</phase>

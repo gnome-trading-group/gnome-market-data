@@ -1,17 +1,20 @@
 package group.gnometrading.gap;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeConverter;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeValueType;
 import software.amazon.awssdk.enhanced.dynamodb.EnhancedType;
-import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.*;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbAttribute;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbBean;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbConvertedBy;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbPartitionKey;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSortKey;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 
 /**
  * DynamoDB bean for gap records.
- * 
+ *
  * Table schema:
  * - PK: listingId (number)
  * - SK: timestamp (LocalDateTime) - the timestamp of the missing minute
@@ -22,7 +25,7 @@ import java.time.ZoneOffset;
  * - createdAt: LocalDateTime
  */
 @DynamoDbBean
-public class Gap {
+public final class Gap {
 
     private Integer listingId;
     private LocalDateTime timestamp;
@@ -105,7 +108,7 @@ public class Gap {
         this.createdAt = createdAt;
     }
 
-    public static class GapStatusConverter implements AttributeConverter<GapStatus> {
+    public static final class GapStatusConverter implements AttributeConverter<GapStatus> {
         @Override
         public AttributeValue transformFrom(GapStatus input) {
             if (input == null) {
@@ -133,7 +136,7 @@ public class Gap {
         }
     }
 
-    public static class GapReasonConverter implements AttributeConverter<GapReason> {
+    public static final class GapReasonConverter implements AttributeConverter<GapReason> {
         @Override
         public AttributeValue transformFrom(GapReason input) {
             if (input == null) {
@@ -161,7 +164,7 @@ public class Gap {
         }
     }
 
-    public static class LocalDateTimeConverter implements AttributeConverter<LocalDateTime> {
+    public static final class LocalDateTimeConverter implements AttributeConverter<LocalDateTime> {
         @Override
         public AttributeValue transformFrom(LocalDateTime input) {
             if (input == null) {
@@ -191,4 +194,3 @@ public class Gap {
         }
     }
 }
-

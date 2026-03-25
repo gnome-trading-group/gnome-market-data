@@ -1,9 +1,24 @@
 package group.gnometrading.merger;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.luben.zstd.ZstdOutputStream;
+import group.gnometrading.schemas.Mbp10Schema;
+import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.SchemaType;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,33 +27,12 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import software.amazon.awssdk.services.s3.S3Client;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import group.gnometrading.schemas.MBP10Schema;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.AbortableInputStream;
+import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
-import com.github.luben.zstd.ZstdInputStream;
-import com.github.luben.zstd.ZstdOutputStream;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 /**
  * Comprehensive test suite for MergerLambdaHandler.
@@ -86,18 +80,17 @@ class MergerLambdaHandlerTest {
         s3GetObjectCallCount = 0;
 
         // Setup S3Client to return data from the list in order
-        lenient().when(s3Client.getObject(any(java.util.function.Consumer.class)))
-            .thenAnswer(invocation -> {
-                if (s3GetObjectCallCount >= s3MockedDataList.size()) {
-                    throw new RuntimeException("No more mocked S3 data available");
-                }
-                byte[] data = s3MockedDataList.get(s3GetObjectCallCount++);
-                InputStream inputStream = new ByteArrayInputStream(data);
-                return new ResponseInputStream<>(
-                    GetObjectResponse.builder().build(),
-                    AbortableInputStream.create(inputStream)
-                );
-            });
+        lenient()
+                .when(s3Client.getObject(any(java.util.function.Consumer.class)))
+                .thenAnswer(invocation -> {
+                    if (s3GetObjectCallCount >= s3MockedDataList.size()) {
+                        throw new RuntimeException("No more mocked S3 data available");
+                    }
+                    byte[] data = s3MockedDataList.get(s3GetObjectCallCount++);
+                    InputStream inputStream = new ByteArrayInputStream(data);
+                    return new ResponseInputStream<>(
+                            GetObjectResponse.builder().build(), AbortableInputStream.create(inputStream));
+                });
     }
 
     // ============================================================================
@@ -166,7 +159,8 @@ class MergerLambdaHandlerTest {
     @Test
     void testHandleRequestWithNullS3Info() throws Exception {
         // Given: SNS message wrapping S3 event record with null s3 field
-        String s3Event = """
+        String s3Event =
+                """
             {
               "Records": [
                 {
@@ -193,7 +187,8 @@ class MergerLambdaHandlerTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("invalidS3EventTestCases")
-    void testHandleRequestWithInvalidS3Events(String description, String s3EventJson, boolean shouldThrow) throws Exception {
+    void testHandleRequestWithInvalidS3Events(String description, String s3EventJson, boolean shouldThrow)
+            throws Exception {
         // Given: Various invalid S3 event formats wrapped in SNS messages
         String snsWrappedEvent = wrapInSnsMessage(s3EventJson);
         SQSEvent event = createSQSEvent(snsWrappedEvent);
@@ -209,12 +204,10 @@ class MergerLambdaHandlerTest {
 
     static Stream<Arguments> invalidS3EventTestCases() {
         return Stream.of(
-            Arguments.of("Empty JSON object", "{}", false),
-            Arguments.of("Records is null", "{\"Records\": null}", false),
-            Arguments.of("Records is empty array", "{\"Records\": []}", false),
-            Arguments.of("Record with no s3 field",
-                "{\"Records\": [{\"eventVersion\": \"2.1\"}]}", false)
-        );
+                Arguments.of("Empty JSON object", "{}", false),
+                Arguments.of("Records is null", "{\"Records\": null}", false),
+                Arguments.of("Records is empty array", "{\"Records\": []}", false),
+                Arguments.of("Record with no s3 field", "{\"Records\": [{\"eventVersion\": \"2.1\"}]}", false));
     }
 
     // ============================================================================
@@ -274,7 +267,7 @@ class MergerLambdaHandlerTest {
         mockS3GetObject(rawKey, List.of(createSchema(100L), createSchema(101L)));
 
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
-            .thenReturn(PutObjectResponse.builder().build());
+                .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -310,7 +303,7 @@ class MergerLambdaHandlerTest {
         mockS3GetObject(key3, List.of(createSchema(100L), createSchema(101L), createSchema(102L)));
 
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
-            .thenReturn(PutObjectResponse.builder().build());
+                .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -344,7 +337,7 @@ class MergerLambdaHandlerTest {
         mockS3GetObject(key2, List.of(createSchema(200L)));
 
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
-            .thenReturn(PutObjectResponse.builder().build());
+                .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -386,7 +379,7 @@ class MergerLambdaHandlerTest {
         mockS3GetObject(key2, List.of(createSchema(100L), createSchema(101L), createSchema(102L)));
 
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
-            .thenReturn(PutObjectResponse.builder().build());
+                .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -415,7 +408,7 @@ class MergerLambdaHandlerTest {
 
         // Mock putObject since the handler will still try to save an empty merge
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
-            .thenReturn(PutObjectResponse.builder().build());
+                .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -446,7 +439,7 @@ class MergerLambdaHandlerTest {
         mockS3GetObject(rawKey, List.of(createSchema(100L), createSchema(101L)));
 
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
-            .thenReturn(PutObjectResponse.builder().build());
+                .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -485,7 +478,7 @@ class MergerLambdaHandlerTest {
         }
 
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
-            .thenReturn(PutObjectResponse.builder().build());
+                .thenReturn(PutObjectResponse.builder().build());
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -513,7 +506,7 @@ class MergerLambdaHandlerTest {
 
         // Mock S3 getObject to throw an exception
         when(s3Client.getObject(any(java.util.function.Consumer.class)))
-            .thenThrow(new RuntimeException("S3 getObject failed"));
+                .thenThrow(new RuntimeException("S3 getObject failed"));
 
         // When/Then: Handling the request should throw an exception
         try {
@@ -567,7 +560,8 @@ class MergerLambdaHandlerTest {
      * Creates SNS message wrapping S3 event JSON with missing required fields.
      */
     private String createS3EventJsonMissingFields() {
-        String s3Event = """
+        String s3Event =
+                """
             {
               "Records": [
                 {
@@ -591,7 +585,8 @@ class MergerLambdaHandlerTest {
      * Creates SNS message wrapping S3 event JSON with a specific S3 object key.
      */
     private String createS3EventJsonWithKey(String key) {
-        String s3Event = String.format("""
+        String s3Event = String.format(
+                """
             {
               "Records": [
                 {
@@ -610,7 +605,8 @@ class MergerLambdaHandlerTest {
                 }
               ]
             }
-            """, INPUT_BUCKET, key);
+            """,
+                INPUT_BUCKET, key);
         return wrapInSnsMessage(s3Event);
     }
 
@@ -621,7 +617,8 @@ class MergerLambdaHandlerTest {
         StringBuilder records = new StringBuilder();
         for (int i = 0; i < keys.length; i++) {
             if (i > 0) records.append(",");
-            records.append(String.format("""
+            records.append(String.format(
+                    """
                 {
                   "eventVersion": "2.1",
                   "eventSource": "aws:s3",
@@ -636,7 +633,8 @@ class MergerLambdaHandlerTest {
                     }
                   }
                 }
-                """, INPUT_BUCKET, keys[i]));
+                """,
+                    INPUT_BUCKET, keys[i]));
         }
         String s3Event = String.format("{\"Records\": [%s]}", records.toString());
         return wrapInSnsMessage(s3Event);
@@ -648,12 +646,11 @@ class MergerLambdaHandlerTest {
      */
     private String wrapInSnsMessage(String s3EventJson) {
         // Escape the S3 event JSON for embedding in the SNS Message field
-        String escapedS3Event = s3EventJson
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n");
+        String escapedS3Event =
+                s3EventJson.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
 
-        return String.format("""
+        return String.format(
+                """
             {
               "Type": "Notification",
               "MessageId": "test-sns-message-id",
@@ -665,15 +662,16 @@ class MergerLambdaHandlerTest {
               "SigningCertURL": "https://sns.us-east-1.amazonaws.com/test.pem",
               "UnsubscribeURL": "https://sns.us-east-1.amazonaws.com/test"
             }
-            """, escapedS3Event);
+            """,
+                escapedS3Event);
     }
 
     /**
      * Creates a Schema with a specific sequence number.
-     * Helper method similar to MBP10MergeStrategyTest.
+     * Helper method similar to Mbp10MergeStrategyTest.
      */
     private Schema createSchema(long sequenceNumber) {
-        MBP10Schema schema = (MBP10Schema) SchemaType.MBP_10.newInstance();
+        Mbp10Schema schema = (Mbp10Schema) SchemaType.MBP_10.newInstance();
         schema.encoder.sequence(sequenceNumber);
         return schema;
     }
@@ -683,9 +681,8 @@ class MergerLambdaHandlerTest {
      */
     private void mockS3ListObjects(String prefix, List<String> keys) {
         // Create S3Object instances for each key
-        List<S3Object> s3Objects = keys.stream()
-            .map(key -> S3Object.builder().key(key).build())
-            .toList();
+        List<S3Object> s3Objects =
+                keys.stream().map(key -> S3Object.builder().key(key).build()).toList();
 
         // Create a mock iterable
         ListObjectsV2Iterable mockIterable = mock(ListObjectsV2Iterable.class);
@@ -695,20 +692,23 @@ class MergerLambdaHandlerTest {
         when(mockIterable.contents()).thenAnswer(invocation -> {
             // Create a mock SdkIterable
             software.amazon.awssdk.core.pagination.sync.SdkIterable<S3Object> mockSdkIterable =
-                mock(software.amazon.awssdk.core.pagination.sync.SdkIterable.class);
+                    mock(software.amazon.awssdk.core.pagination.sync.SdkIterable.class);
             when(mockSdkIterable.stream()).thenReturn(s3Objects.stream());
             return mockSdkIterable;
         });
 
         // Mock the S3Client to return the iterable when listObjectsV2Paginator is called
         // We use lenient() because not all tests will call this
-        lenient().when(s3Client.listObjectsV2Paginator(argThat((java.util.function.Consumer<ListObjectsV2Request.Builder> consumer) -> {
-            if (consumer == null) return false;
-            ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder();
-            consumer.accept(builder);
-            ListObjectsV2Request request = builder.build();
-            return request.prefix() != null && request.prefix().equals(prefix);
-        }))).thenReturn(mockIterable);
+        lenient()
+                .when(s3Client.listObjectsV2Paginator(
+                        argThat((java.util.function.Consumer<ListObjectsV2Request.Builder> consumer) -> {
+                            if (consumer == null) return false;
+                            ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder();
+                            consumer.accept(builder);
+                            ListObjectsV2Request request = builder.build();
+                            return request.prefix() != null && request.prefix().equals(prefix);
+                        })))
+                .thenReturn(mockIterable);
     }
 
     /**

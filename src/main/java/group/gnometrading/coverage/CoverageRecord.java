@@ -3,26 +3,29 @@ package group.gnometrading.coverage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeConverter;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeValueType;
 import software.amazon.awssdk.enhanced.dynamodb.EnhancedType;
-import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.*;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbAttribute;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbBean;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbConvertedBy;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbPartitionKey;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSortKey;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-
-import java.util.Map;
 
 /**
  * DynamoDB bean for coverage records.
- * 
+ *
  * Table schema:
  * - PK: pk (string) - "GLOBAL" | "SEC#{securityId}" | "SEC#{securityId}#EX#{exchangeId}"
  * - SK: sk (string) - "SUMMARY" | "DATE#{YYYY-MM-DD}" | "SCHEMA#{schemaType}"
- * - data: Map<String, Object> - Flexible JSON data containing coverage metrics
+ * - data: {@code Map<String, Object>} - Flexible JSON data containing coverage metrics
  * - lastUpdated: Long - Unix timestamp
  * - version: String - Schema version for migrations
  */
 @DynamoDbBean
-public class CoverageRecord {
+public final class CoverageRecord {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> TYPE = new TypeReference<>() {};
@@ -95,15 +98,14 @@ public class CoverageRecord {
 
     @Override
     public String toString() {
-        return "CoverageRecord{" +
-                "pk='" + pk + '\'' +
-                ", sk='" + sk + '\'' +
-                ", version='" + version + '\'' +
-                ", lastUpdated=" + lastUpdated +
-                '}';
+        return "CoverageRecord{" + "pk='"
+                + pk + '\'' + ", sk='"
+                + sk + '\'' + ", version='"
+                + version + '\'' + ", lastUpdated="
+                + lastUpdated + '}';
     }
 
-    public static class CoverageDataConverter implements AttributeConverter<Map<String, Object>> {
+    public static final class CoverageDataConverter implements AttributeConverter<Map<String, Object>> {
         @Override
         public AttributeValue transformFrom(Map<String, Object> input) {
             if (input == null) {
@@ -134,10 +136,7 @@ public class CoverageRecord {
 
         @Override
         public EnhancedType<Map<String, Object>> type() {
-            return EnhancedType.mapOf(
-                    EnhancedType.of(String.class),
-                    EnhancedType.of(Object.class)
-            );
+            return EnhancedType.mapOf(EnhancedType.of(String.class), EnhancedType.of(Object.class));
         }
 
         @Override
@@ -146,4 +145,3 @@ public class CoverageRecord {
         }
     }
 }
-

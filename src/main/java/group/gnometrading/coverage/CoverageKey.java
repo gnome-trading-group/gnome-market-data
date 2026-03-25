@@ -4,9 +4,11 @@ package group.gnometrading.coverage;
  * Utility class for building DynamoDB partition and sort keys for coverage records.
  */
 public class CoverageKey {
-    
+
+    private CoverageKey() {}
+
     // Partition key builders
-    
+
     /**
      * Global partition key for overall summary.
      * @return "GLOBAL"
@@ -14,7 +16,7 @@ public class CoverageKey {
     public static String globalKey() {
         return "GLOBAL";
     }
-    
+
     /**
      * Security partition key for security-level aggregation.
      * @param securityId The security ID
@@ -23,7 +25,7 @@ public class CoverageKey {
     public static String securityKey(int securityId) {
         return "SEC#" + securityId;
     }
-    
+
     /**
      * Security+Exchange partition key for specific security-exchange pair.
      * @param securityId The security ID
@@ -33,9 +35,9 @@ public class CoverageKey {
     public static String securityExchangeKey(int securityId, int exchangeId) {
         return "SEC#" + securityId + "#EX#" + exchangeId;
     }
-    
+
     // Sort key builders
-    
+
     /**
      * Summary sort key for aggregated summary data.
      * @return "SUMMARY"
@@ -43,7 +45,7 @@ public class CoverageKey {
     public static String summaryKey() {
         return "SUMMARY";
     }
-    
+
     /**
      * Date sort key for date-specific coverage.
      * @param date Date in YYYY-MM-DD format
@@ -53,4 +55,3 @@ public class CoverageKey {
         return "DATE#" + date;
     }
 }
-

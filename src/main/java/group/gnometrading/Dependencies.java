@@ -6,13 +6,12 @@ import group.gnometrading.coverage.CoverageRecord;
 import group.gnometrading.gap.Gap;
 import group.gnometrading.resources.Properties;
 import group.gnometrading.transformer.TransformationJob;
+import java.time.Clock;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3Client;
-
-import java.time.Clock;
 
 /**
  * Lightweight dependency injection container for Lambda functions.
@@ -41,7 +40,7 @@ public class Dependencies {
     private final String transformJobsTableName;
     private final String coverageTableName;
     private final String metadataBucketName;
-    
+
     /**
      * Private constructor for singleton pattern.
      * Initializes all AWS clients and reads environment variables.
@@ -65,7 +64,8 @@ public class Dependencies {
         this.metadataBucketName = System.getenv("METADATA_BUCKET_NAME");
 
         if (transformJobsTableName != null) {
-            this.transformJobsTable = dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
+            this.transformJobsTable =
+                    dynamoDbEnhancedClient.table(transformJobsTableName, TableSchema.fromBean(TransformationJob.class));
         } else {
             this.transformJobsTable = null;
         }
@@ -75,7 +75,8 @@ public class Dependencies {
             this.gapsTable = null;
         }
         if (coverageTableName != null) {
-            this.coverageTable = dynamoDbEnhancedClient.table(coverageTableName, TableSchema.fromBean(CoverageRecord.class));
+            this.coverageTable =
+                    dynamoDbEnhancedClient.table(coverageTableName, TableSchema.fromBean(CoverageRecord.class));
         } else {
             this.coverageTable = null;
         }
@@ -84,7 +85,7 @@ public class Dependencies {
     /**
      * Get the singleton instance of Dependencies.
      * Uses double-checked locking for thread-safe lazy initialization.
-     * 
+     *
      * @return the singleton Dependencies instance
      */
     public static Dependencies getInstance() {
@@ -97,11 +98,11 @@ public class Dependencies {
         }
         return instance;
     }
-    
+
     public S3Client getS3Client() {
         return s3Client;
     }
-    
+
     public DynamoDbEnhancedClient getDynamoDbEnhancedClient() {
         return dynamoDbEnhancedClient;
     }
@@ -113,7 +114,7 @@ public class Dependencies {
     public SecurityMaster getSecurityMaster() {
         return securityMaster;
     }
-    
+
     public ObjectMapper getObjectMapper() {
         return objectMapper;
     }
@@ -137,19 +138,19 @@ public class Dependencies {
     public String getRawBucketName() {
         return rawBucketName;
     }
-    
+
     public String getMergedBucketName() {
         return mergedBucketName;
     }
-    
+
     public String getFinalBucketName() {
         return finalBucketName;
     }
-    
+
     public String getGapsTableName() {
         return gapsTableName;
     }
-    
+
     public String getTransformJobsTableName() {
         return transformJobsTableName;
     }
@@ -176,4 +177,3 @@ public class Dependencies {
         return new SecurityMaster(new RegistryConnection(url, apiKey));
     }
 }
-

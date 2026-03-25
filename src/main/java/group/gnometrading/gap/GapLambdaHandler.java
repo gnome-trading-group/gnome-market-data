@@ -11,24 +11,25 @@ import group.gnometrading.SecurityMaster;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.transformer.JobId;
 import group.gnometrading.transformer.TransformationJob;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
-import java.time.Clock;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-
 /**
  * Lambda handler that detects gaps in merged market data files.
  * Triggered by S3 events via SQS when new merged files are created.
  * Checks for missing previous minutes and records gaps in DynamoDB.
  */
-public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
+public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
 
     private static final int TWO_DAYS_IN_MINUTES = Math.toIntExact(TimeUnit.DAYS.toMinutes(2));
 
@@ -46,14 +47,13 @@ public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
      */
     public GapLambdaHandler() {
         this(
-            Dependencies.getInstance().getS3Client(),
-            Dependencies.getInstance().getSecurityMaster(),
-            Dependencies.getInstance().getObjectMapper(),
-            Dependencies.getInstance().getTransformJobsTable(),
-            Dependencies.getInstance().getGapsTable(),
-            Dependencies.getInstance().getMergedBucketName(),
-            Dependencies.getInstance().getClock()
-        );
+                Dependencies.getInstance().getS3Client(),
+                Dependencies.getInstance().getSecurityMaster(),
+                Dependencies.getInstance().getObjectMapper(),
+                Dependencies.getInstance().getTransformJobsTable(),
+                Dependencies.getInstance().getGapsTable(),
+                Dependencies.getInstance().getMergedBucketName(),
+                Dependencies.getInstance().getClock());
     }
 
     /**
@@ -118,8 +118,8 @@ public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
             LocalDateTime mostRecentMinute = findMostRecentMinute(listing, previousMinute, context);
 
             if (mostRecentMinute == null) {
-                context.getLogger().log("No recent data found within 2 days for listing " + listing +
-                    ", treating as first entry");
+                context.getLogger()
+                        .log("No recent data found within 2 days for listing " + listing + ", treating as first entry");
                 return;
             }
 
@@ -129,8 +129,10 @@ public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
                 storeGap(gap, context);
             }
 
-            context.getLogger().log(String.format("Detected %d gap(s) for listing %d between %s and %s",
-                gaps.size(), listing.listingId(), mostRecentMinute, currentTimestamp));
+            context.getLogger()
+                    .log(String.format(
+                            "Detected %d gap(s) for listing %d between %s and %s",
+                            gaps.size(), listing.listingId(), mostRecentMinute, currentTimestamp));
         }
     }
 
@@ -196,7 +198,8 @@ public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         return null;
     }
 
-    private List<Gap> createGapRecords(Listing listing, LocalDateTime mostRecentMinute, LocalDateTime currentTimestamp, Context context) {
+    private List<Gap> createGapRecords(
+            Listing listing, LocalDateTime mostRecentMinute, LocalDateTime currentTimestamp, Context context) {
         List<Gap> gaps = new ArrayList<>();
         LocalDateTime gapStart = mostRecentMinute.plusMinutes(1);
 
@@ -220,11 +223,11 @@ public class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
     private void storeGap(Gap gap, Context context) {
         try {
             gapsTable.putItem(gap);
-            context.getLogger().log(String.format("Stored gap: listingId=%d, timestamp=%s",
-                    gap.getListingId(), gap.getTimestamp()));
+            context.getLogger()
+                    .log(String.format(
+                            "Stored gap: listingId=%d, timestamp=%s", gap.getListingId(), gap.getTimestamp()));
         } catch (Exception e) {
             context.getLogger().log("Error storing gap: " + e.getMessage());
         }
     }
 }
-

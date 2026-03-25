@@ -1,18 +1,23 @@
 package group.gnometrading.transformer;
 
 import group.gnometrading.schemas.SchemaType;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeConverter;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeValueType;
 import software.amazon.awssdk.enhanced.dynamodb.EnhancedType;
-import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.*;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbAttribute;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbBean;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbConvertedBy;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbPartitionKey;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSecondaryPartitionKey;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSecondarySortKey;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSortKey;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 
 /**
  * DynamoDB bean for transformation jobs.
- * 
+ *
  * Table schema:
  * - PK: jobId (string)
  * - SK: timestamp (LocalDateTime)
@@ -25,7 +30,7 @@ import java.time.ZoneOffset;
  * - expiresAt: Long (TTL, nullable)
  */
 @DynamoDbBean
-public class TransformationJob {
+public final class TransformationJob {
 
     private JobId jobId;
     private LocalDateTime timestamp;
@@ -62,7 +67,6 @@ public class TransformationJob {
     public void setTimestamp(LocalDateTime timestamp) {
         this.timestamp = timestamp;
     }
-
 
     @DynamoDbAttribute("listingId")
     public Integer getListingId() {
@@ -133,7 +137,7 @@ public class TransformationJob {
         this.expiresAt = expiresAt;
     }
 
-    public static class SchemaTypeConverter implements AttributeConverter<SchemaType> {
+    public static final class SchemaTypeConverter implements AttributeConverter<SchemaType> {
         @Override
         public AttributeValue transformFrom(SchemaType input) {
             if (input == null) {
@@ -164,7 +168,7 @@ public class TransformationJob {
     /**
      * Converter for LocalDateTime to/from DynamoDB (stored as epoch seconds).
      */
-    public static class LocalDateTimeConverter implements AttributeConverter<LocalDateTime> {
+    public static final class LocalDateTimeConverter implements AttributeConverter<LocalDateTime> {
         @Override
         public AttributeValue transformFrom(LocalDateTime input) {
             if (input == null) {
@@ -197,7 +201,7 @@ public class TransformationJob {
     /**
      * Converter for TransformationStatus enum to/from DynamoDB (stored as string).
      */
-    public static class TransformationStatusConverter implements AttributeConverter<TransformationStatus> {
+    public static final class TransformationStatusConverter implements AttributeConverter<TransformationStatus> {
         @Override
         public AttributeValue transformFrom(TransformationStatus input) {
             if (input == null) {

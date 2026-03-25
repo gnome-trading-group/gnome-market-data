@@ -1,5 +1,9 @@
 package group.gnometrading.transformer;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.github.luben.zstd.ZstdInputStream;
@@ -9,12 +13,16 @@ import group.gnometrading.schemas.*;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -23,28 +31,12 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.model.Page;
-import software.amazon.awssdk.enhanced.dynamodb.model.PageIterable;
 import software.amazon.awssdk.http.AbortableInputStream;
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.*;
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 /**
  * Comprehensive test suite for JobProcessorLambdaHandler.
@@ -96,20 +88,11 @@ class JobProcessorLambdaHandlerTest {
         // Initialize the map for mocked S3 data
         mockedS3Data = new HashMap<>();
         // Fixed clock for deterministic timestamps
-        clock = Clock.fixed(
-                FIXED_TIME.atZone(ZoneId.of("UTC")).toInstant(),
-                ZoneId.of("UTC")
-        );
+        clock = Clock.fixed(FIXED_TIME.atZone(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC"));
 
         // Initialize handler with mocks
         handler = new JobProcessorLambdaHandler(
-                s3Client,
-                transformJobsTable,
-                securityMaster,
-                MERGED_BUCKET,
-                FINAL_BUCKET,
-                clock
-        );
+                s3Client, transformJobsTable, securityMaster, MERGED_BUCKET, FINAL_BUCKET, clock);
 
         // Setup context to return logger
         lenient().when(context.getLogger()).thenReturn(logger);
@@ -124,23 +107,26 @@ class JobProcessorLambdaHandlerTest {
         lenient().when(securityMaster.getListing(LISTING_ID)).thenReturn(listing);
 
         // Setup S3 getObject to use the mockedS3Data map
-        lenient().when(s3Client.getObject(any(java.util.function.Consumer.class))).thenAnswer(invocation -> {
-            java.util.function.Consumer<GetObjectRequest.Builder> consumer = invocation.getArgument(0);
-            GetObjectRequest.Builder builder = GetObjectRequest.builder();
-            consumer.accept(builder);
-            GetObjectRequest request = builder.build();
+        lenient()
+                .when(s3Client.getObject(any(java.util.function.Consumer.class)))
+                .thenAnswer(invocation -> {
+                    java.util.function.Consumer<GetObjectRequest.Builder> consumer = invocation.getArgument(0);
+                    GetObjectRequest.Builder builder = GetObjectRequest.builder();
+                    consumer.accept(builder);
+                    GetObjectRequest request = builder.build();
 
-            byte[] compressedData = mockedS3Data.get(request.key());
-            if (compressedData != null) {
-                // Return a fresh stream for each call
-                return new ResponseInputStream<>(
-                        GetObjectResponse.builder().build(),
-                        AbortableInputStream.create(new ByteArrayInputStream(compressedData))
-                );
-            }
-            // For keys not in the map, throw NoSuchKeyException
-            throw NoSuchKeyException.builder().message("Key not found: " + request.key()).build();
-        });
+                    byte[] compressedData = mockedS3Data.get(request.key());
+                    if (compressedData != null) {
+                        // Return a fresh stream for each call
+                        return new ResponseInputStream<>(
+                                GetObjectResponse.builder().build(),
+                                AbortableInputStream.create(new ByteArrayInputStream(compressedData)));
+                    }
+                    // For keys not in the map, throw NoSuchKeyException
+                    throw NoSuchKeyException.builder()
+                            .message("Key not found: " + request.key())
+                            .build();
+                });
     }
 
     // ============================================================================
@@ -201,10 +187,9 @@ class JobProcessorLambdaHandlerTest {
 
         // Create MBP10 schemas with realistic data
         List<Schema> mbp10Schemas = List.of(
-                createMBP10Schema(100, timestamp, 50000, 50100, 100, 200),
-                createMBP10Schema(101, timestamp, 50050, 50150, 150, 250),
-                createMBP10Schema(102, timestamp, 50100, 50200, 200, 300)
-        );
+                createMbp10Schema(100, timestamp, 50000, 50100, 100, 200),
+                createMbp10Schema(101, timestamp, 50050, 50150, 150, 250),
+                createMbp10Schema(102, timestamp, 50100, 50200, 200, 300));
 
         // Mock S3 to return MBP10 data
         mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", mbp10Schemas);
@@ -234,7 +219,7 @@ class JobProcessorLambdaHandlerTest {
 
         // Verify all converted schemas are MBP1
         for (Schema schema : convertedSchemas) {
-            assertTrue(schema instanceof MBP1Schema, "Converted schema should be MBP1");
+            assertTrue(schema instanceof Mbp1Schema, "Converted schema should be MBP1");
         }
     }
 
@@ -253,7 +238,7 @@ class JobProcessorLambdaHandlerTest {
         long bidSize = 100;
         long askSize = 200;
 
-        MBP10Schema mbp10 = createMBP10Schema(sequence, timestamp, bidPrice, askPrice, bidSize, askSize);
+        Mbp10Schema mbp10 = createMbp10Schema(sequence, timestamp, bidPrice, askPrice, bidSize, askSize);
 
         mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", List.of(mbp10));
 
@@ -272,7 +257,7 @@ class JobProcessorLambdaHandlerTest {
         assertFalse(convertedSchemas.isEmpty(), "Should have converted schemas");
 
         // Verify the first converted schema has correct fields
-        MBP1Schema mbp1 = (MBP1Schema) convertedSchemas.get(0);
+        Mbp1Schema mbp1 = (Mbp1Schema) convertedSchemas.get(0);
         assertEquals(sequence, mbp1.decoder.sequence(), "Sequence should be preserved");
         assertEquals(bidPrice, mbp1.decoder.bidPrice0(), "Bid price should be preserved");
         assertEquals(askPrice, mbp1.decoder.askPrice0(), "Ask price should be preserved");
@@ -294,21 +279,21 @@ class JobProcessorLambdaHandlerTest {
 
         // Create MBP10 data for the entire hour (minute 0 to 59)
         // We'll create data for minutes 0, 15, 30, 45, 59 to test the window
-        mockS3GetObject("1/2/2024/1/15/10/0/mbp-10.zst", List.of(
-                createMBP10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/15/mbp-10.zst", List.of(
-                createMBP10Schema(200, LocalDateTime.of(2024, 1, 15, 10, 15), 49000, 49100, 150, 250)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", List.of(
-                createMBP10Schema(300, LocalDateTime.of(2024, 1, 15, 10, 30), 51000, 51100, 200, 300)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/45/mbp-10.zst", List.of(
-                createMBP10Schema(400, LocalDateTime.of(2024, 1, 15, 10, 45), 52000, 52100, 250, 350)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/59/mbp-10.zst", List.of(
-                createMBP10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)
-        ));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/0/mbp-10.zst",
+                List.of(createMbp10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/15/mbp-10.zst",
+                List.of(createMbp10Schema(200, LocalDateTime.of(2024, 1, 15, 10, 15), 49000, 49100, 150, 250)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/30/mbp-10.zst",
+                List.of(createMbp10Schema(300, LocalDateTime.of(2024, 1, 15, 10, 30), 51000, 51100, 200, 300)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/45/mbp-10.zst",
+                List.of(createMbp10Schema(400, LocalDateTime.of(2024, 1, 15, 10, 45), 52000, 52100, 250, 350)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/59/mbp-10.zst",
+                List.of(createMbp10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)));
 
         // Capture output
         ArgumentCaptor<RequestBody> requestBodyCaptor = ArgumentCaptor.forClass(RequestBody.class);
@@ -325,12 +310,13 @@ class JobProcessorLambdaHandlerTest {
         verify(s3Client).putObject(any(java.util.function.Consumer.class), requestBodyCaptor.capture());
 
         // Extract and verify OHLCV schemas
-        List<Schema> convertedSchemas = extractSchemasFromRequestBody(requestBodyCaptor.getValue(), SchemaType.OHLCV_1H);
+        List<Schema> convertedSchemas =
+                extractSchemasFromRequestBody(requestBodyCaptor.getValue(), SchemaType.OHLCV_1H);
         assertFalse(convertedSchemas.isEmpty(), "Should have OHLCV_1H schemas");
 
         // Verify all converted schemas are OHLCV1H
         for (Schema schema : convertedSchemas) {
-            assertTrue(schema instanceof OHLCV1HSchema, "Converted schema should be OHLCV1H");
+            assertTrue(schema instanceof Ohlcv1hSchema, "Converted schema should be OHLCV1H");
         }
     }
 
@@ -344,21 +330,21 @@ class JobProcessorLambdaHandlerTest {
 
         // Create MBP10 data with specific prices to verify OHLC calculation
         // Open: 50000 (minute 0), High: 52000 (minute 45), Low: 49000 (minute 15), Close: 50500 (minute 59)
-        mockS3GetObject("1/2/2024/1/15/10/0/mbp-10.zst", List.of(
-                createMBP10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/15/mbp-10.zst", List.of(
-                createMBP10Schema(200, LocalDateTime.of(2024, 1, 15, 10, 15), 49000, 49100, 150, 250)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", List.of(
-                createMBP10Schema(300, LocalDateTime.of(2024, 1, 15, 10, 30), 51000, 51100, 200, 300)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/45/mbp-10.zst", List.of(
-                createMBP10Schema(400, LocalDateTime.of(2024, 1, 15, 10, 45), 52000, 52100, 250, 350)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/59/mbp-10.zst", List.of(
-                createMBP10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)
-        ));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/0/mbp-10.zst",
+                List.of(createMbp10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/15/mbp-10.zst",
+                List.of(createMbp10Schema(200, LocalDateTime.of(2024, 1, 15, 10, 15), 49000, 49100, 150, 250)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/30/mbp-10.zst",
+                List.of(createMbp10Schema(300, LocalDateTime.of(2024, 1, 15, 10, 30), 51000, 51100, 200, 300)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/45/mbp-10.zst",
+                List.of(createMbp10Schema(400, LocalDateTime.of(2024, 1, 15, 10, 45), 52000, 52100, 250, 350)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/59/mbp-10.zst",
+                List.of(createMbp10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)));
 
         // Capture output
         ArgumentCaptor<RequestBody> requestBodyCaptor = ArgumentCaptor.forClass(RequestBody.class);
@@ -370,12 +356,13 @@ class JobProcessorLambdaHandlerTest {
 
         // Then: Extract and verify OHLCV values
         verify(s3Client).putObject(any(java.util.function.Consumer.class), requestBodyCaptor.capture());
-        List<Schema> convertedSchemas = extractSchemasFromRequestBody(requestBodyCaptor.getValue(), SchemaType.OHLCV_1H);
+        List<Schema> convertedSchemas =
+                extractSchemasFromRequestBody(requestBodyCaptor.getValue(), SchemaType.OHLCV_1H);
 
         assertFalse(convertedSchemas.isEmpty(), "Should have OHLCV_1H schemas");
 
         // Verify OHLC values in the first bar
-        OHLCV1HSchema ohlcv = (OHLCV1HSchema) convertedSchemas.get(0);
+        Ohlcv1hSchema ohlcv = (Ohlcv1hSchema) convertedSchemas.get(0);
 
         // The converter should calculate OHLC from the bid prices
         long open = ohlcv.decoder.open();
@@ -404,12 +391,12 @@ class JobProcessorLambdaHandlerTest {
         mockScanWithJobs(SchemaType.OHLCV_1H, List.of(job));
 
         // Mock data for minute 0 and minute 59
-        mockS3GetObject("1/2/2024/1/15/10/0/mbp-10.zst", List.of(
-                createMBP10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/59/mbp-10.zst", List.of(
-                createMBP10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)
-        ));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/0/mbp-10.zst",
+                List.of(createMbp10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/59/mbp-10.zst",
+                List.of(createMbp10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)));
 
         // When: Processing the job
         Map<String, Object> event = new HashMap<>();
@@ -435,9 +422,8 @@ class JobProcessorLambdaHandlerTest {
 
         mockScanWithJobs(SchemaType.MBP_1, List.of(job));
 
-        mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", List.of(
-                createMBP10Schema(100, timestamp, 50000, 50100, 100, 200)
-        ));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/30/mbp-10.zst", List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
 
         // When: Processing the job
         Map<String, Object> event = new HashMap<>();
@@ -455,9 +441,8 @@ class JobProcessorLambdaHandlerTest {
         TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
 
         mockScanWithJobs(SchemaType.MBP_1, List.of(job));
-        mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", List.of(
-                createMBP10Schema(100, timestamp, 50000, 50100, 100, 200)
-        ));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/30/mbp-10.zst", List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
 
         // Capture the putObject request
         ArgumentCaptor<java.util.function.Consumer<PutObjectRequest.Builder>> putRequestCaptor =
@@ -493,9 +478,8 @@ class JobProcessorLambdaHandlerTest {
         TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
 
         mockScanWithJobs(SchemaType.MBP_1, List.of(job));
-        mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", List.of(
-                createMBP10Schema(100, timestamp, 50000, 50100, 100, 200)
-        ));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/30/mbp-10.zst", List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
 
         // When: Processing the job
         Map<String, Object> event = new HashMap<>();
@@ -585,12 +569,10 @@ class JobProcessorLambdaHandlerTest {
 
         mockScanWithJobs(SchemaType.MBP_1, List.of(job1, job2));
 
-        mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", List.of(
-                createMBP10Schema(100, timestamp1, 50000, 50100, 100, 200)
-        ));
-        mockS3GetObject("1/2/2024/1/15/10/31/mbp-10.zst", List.of(
-                createMBP10Schema(200, timestamp2, 50100, 50200, 150, 250)
-        ));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/30/mbp-10.zst", List.of(createMbp10Schema(100, timestamp1, 50000, 50100, 100, 200)));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/31/mbp-10.zst", List.of(createMbp10Schema(200, timestamp2, 50100, 50200, 150, 250)));
 
         // When: Processing the jobs
         Map<String, Object> event = new HashMap<>();
@@ -614,9 +596,8 @@ class JobProcessorLambdaHandlerTest {
         mockScanWithJobs(SchemaType.MBP_1, List.of(job1, job2));
 
         // Mock S3 to succeed for minute 31 only
-        mockS3GetObject("1/2/2024/1/15/10/31/mbp-10.zst", List.of(
-                createMBP10Schema(200, timestamp2, 50100, 50200, 150, 250)
-        ));
+        mockS3GetObject(
+                "1/2/2024/1/15/10/31/mbp-10.zst", List.of(createMbp10Schema(200, timestamp2, 50100, 50200, 150, 250)));
 
         // Override the default Answer to throw exception for minute 30
         when(s3Client.getObject(any(java.util.function.Consumer.class))).thenAnswer(invocation -> {
@@ -634,10 +615,11 @@ class JobProcessorLambdaHandlerTest {
             if (compressedData != null) {
                 return new ResponseInputStream<>(
                         GetObjectResponse.builder().build(),
-                        AbortableInputStream.create(new ByteArrayInputStream(compressedData))
-                );
+                        AbortableInputStream.create(new ByteArrayInputStream(compressedData)));
             }
-            throw NoSuchKeyException.builder().message("Key not found: " + request.key()).build();
+            throw NoSuchKeyException.builder()
+                    .message("Key not found: " + request.key())
+                    .build();
         });
 
         // When: Processing the jobs
@@ -682,9 +664,9 @@ class JobProcessorLambdaHandlerTest {
     /**
      * Creates an MBP10 schema with the given parameters.
      */
-    private MBP10Schema createMBP10Schema(long sequence, LocalDateTime timestamp,
-                                          long bidPrice, long askPrice, long bidSize, long askSize) {
-        MBP10Schema schema = (MBP10Schema) SchemaType.MBP_10.newInstance();
+    private Mbp10Schema createMbp10Schema(
+            long sequence, LocalDateTime timestamp, long bidPrice, long askPrice, long bidSize, long askSize) {
+        Mbp10Schema schema = (Mbp10Schema) SchemaType.MBP_10.newInstance();
 
         long eventTimestamp = timestamp.atZone(ZoneId.of("UTC")).toInstant().toEpochMilli() * 1_000_000;
 
@@ -753,7 +735,8 @@ class JobProcessorLambdaHandlerTest {
     /**
      * Extracts schemas from a RequestBody that was written to S3.
      */
-    private List<Schema> extractSchemasFromRequestBody(RequestBody requestBody, SchemaType schemaType) throws IOException {
+    private List<Schema> extractSchemasFromRequestBody(RequestBody requestBody, SchemaType schemaType)
+            throws IOException {
         // Get the bytes from RequestBody
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         requestBody.contentStreamProvider().newStream().transferTo(baos);
