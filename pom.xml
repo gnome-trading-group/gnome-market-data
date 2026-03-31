@@ -19,6 +19,12 @@
         <module>gnome-market-data-lambdas</module>
     </modules>
 
+    <scm>
+        <connection>scm:git:git@github.com:gnome-trading-group/gnome-market-data.git</connection>
+        <developerConnection>scm:git:git@github.com:gnome-trading-group/gnome-market-data.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
+
     <repositories>
         <repository>
             <id>github</id>
