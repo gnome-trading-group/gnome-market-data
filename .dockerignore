@@ -3,6 +3,6 @@
 .gitignore
 .idea
 .claude
-cdk
+*/**/cdk.out
 target
 README.md
