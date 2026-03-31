@@ -32,4 +32,4 @@ export const CONFIGS: { [stage in Stage]?:  MarketDataConfig } = {
 }
 
 export const GITHUB_REPO = "gnome-trading-group/gnome-market-data";
-export const GITHUB_BRANCH = "main";
+export const GITHUB_BRANCH = "release";

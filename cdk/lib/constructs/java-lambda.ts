@@ -88,7 +88,7 @@ RUN apt-get update && apt-get install -y openjdk-17-jre-headless && \
 
 WORKDIR /function
 
-COPY --from=build /build/gnome-market-data-lambdas/target/gnome-market-data-lambdas-1.0.0-SNAPSHOT.jar ./
+COPY --from=build /build/gnome-market-data-lambdas/target/gnome-market-data-lambdas.jar ./
 COPY --from=build /build/gnome-market-data-lambdas/target/dependency/*.jar ./
 
 # Set runtime interface client as default command for the container runtime

@@ -107,6 +107,13 @@ export class CollectorRegionalStack extends cdk.Stack {
         OUTPUT_BUCKET: props.rawBucketName,
         STAGE: props.config.account.stage,
       },
+      healthCheck: {
+        command: ['CMD-SHELL', 'wget --spider --quiet http://localhost:8080/health || exit 1'],
+        interval: cdk.Duration.seconds(30),
+        timeout: cdk.Duration.seconds(5),
+        retries: 3,
+        startPeriod: cdk.Duration.seconds(120),
+      },
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'collector',
         logGroup: this.collectorLogGroup,

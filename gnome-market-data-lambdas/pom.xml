@@ -90,6 +90,7 @@
     </dependencies>
 
     <build>
+        <finalName>gnome-market-data-lambdas</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
