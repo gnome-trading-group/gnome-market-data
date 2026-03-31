@@ -34,7 +34,7 @@ export class JavaLambda extends Construct {
     const dockerImageAsset = new ecrAssets.DockerImageAsset(this, `${props.name}DockerImage`, {
       directory: projectRoot,
       file: path.relative(projectRoot, path.join(dockerDir, 'Dockerfile')),
-      exclude: ['*/**/cdk.out'],
+      exclude: ['cdk', '.git', '.github', '.idea', '.claude', 'target', '**/target'],
       buildSecrets: {
         MAVEN_CREDENTIALS: 'env=MAVEN_CREDENTIALS',
       },
