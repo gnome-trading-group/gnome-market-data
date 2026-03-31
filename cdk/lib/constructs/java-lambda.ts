@@ -78,7 +78,7 @@ RUN --mount=type=secret,id=MAVEN_CREDENTIALS \
     export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_ACTOR') && \
     export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_TOKEN') && \
     mvn clean package -s settings.xml && \
-    mvn dependency:copy-dependencies -DincludeScope=runtime -pl gnome-market-data-lambdas
+    mvn dependency:copy-dependencies -DincludeScope=runtime -pl gnome-market-data-lambdas -s settings.xml
 
 # Runtime stage - ubuntu:24.04 for GLIBC requirements
 FROM ubuntu:24.04
