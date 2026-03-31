@@ -4,6 +4,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import group.gnometrading.data.MarketDataEntry;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;

@@ -1,6 +1,6 @@
 package group.gnometrading.coverage;
 
-import group.gnometrading.MarketDataEntry;
+import group.gnometrading.data.MarketDataEntry;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;

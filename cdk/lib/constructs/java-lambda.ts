@@ -69,14 +69,15 @@ WORKDIR /build
 
 COPY pom.xml .
 COPY settings.xml .
-COPY src ./src
+COPY gnome-market-data-core ./gnome-market-data-core
+COPY gnome-market-data-lambdas ./gnome-market-data-lambdas
 
 RUN --mount=type=secret,id=MAVEN_CREDENTIALS \
     export MAVEN_CREDENTIALS=$(cat /run/secrets/MAVEN_CREDENTIALS) && \
     export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_ACTOR') && \
     export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_TOKEN') && \
     mvn clean package -s settings.xml && \
-    mvn dependency:copy-dependencies -DincludeScope=runtime
+    mvn dependency:copy-dependencies -DincludeScope=runtime -pl gnome-market-data-lambdas
 
 # Runtime stage - ubuntu:24.04 for GLIBC requirements
 FROM ubuntu:24.04
@@ -86,8 +87,8 @@ RUN apt-get update && apt-get install -y openjdk-17-jre-headless && \
 
 WORKDIR /function
 
-COPY --from=build /build/target/gnome-market-data-1.0.0-SNAPSHOT.jar ./
-COPY --from=build /build/target/dependency/*.jar ./
+COPY --from=build /build/gnome-market-data-lambdas/target/gnome-market-data-lambdas-1.0.0-SNAPSHOT.jar ./
+COPY --from=build /build/gnome-market-data-lambdas/target/dependency/*.jar ./
 
 # Set runtime interface client as default command for the container runtime
 # The runtime interface client is included as a dependency in the project

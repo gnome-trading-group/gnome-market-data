@@ -1,4 +1,4 @@
-package group.gnometrading;
+package group.gnometrading.data;
 
 import com.github.luben.zstd.ZstdInputStream;
 import com.github.luben.zstd.ZstdOutputStream;
@@ -55,6 +55,16 @@ public final class MarketDataEntry {
                 entryType == EntryType.RAW ? UUID.randomUUID().toString().substring(0, 8) : null);
     }
 
+    public MarketDataEntry(Listing listing, LocalDateTime timestamp, EntryType entryType, String uuid) {
+        this(
+                listing.security().securityId(),
+                listing.exchange().exchangeId(),
+                listing.exchange().schemaType(),
+                timestamp,
+                entryType,
+                uuid);
+    }
+
     public MarketDataEntry(
             int securityId, int exchangeId, SchemaType schemaType, LocalDateTime timestamp, EntryType entryType) {
         this(
@@ -92,15 +102,14 @@ public final class MarketDataEntry {
             zstdStream.transferTo(buffer);
             byte[] decompressedData = buffer.toByteArray();
 
-            int offset;
-            for (offset = 0; offset < decompressedData.length; offset += expectedSize) {
-                byte[] recordData = Arrays.copyOfRange(decompressedData, offset, offset + expectedSize);
+            assert decompressedData.length % expectedSize == 0
+                    : "Left over bytes in key %s: %d".formatted(this.getKey(), decompressedData.length % expectedSize);
+            for (int idx = 0; idx < decompressedData.length; idx += expectedSize) {
+                byte[] recordData = Arrays.copyOfRange(decompressedData, idx, idx + expectedSize);
                 Schema schema = this.schemaType.newInstance();
                 schema.buffer.putBytes(0, recordData, 0, recordData.length);
                 schemas.add(schema);
             }
-            assert offset == decompressedData.length
-                    : "Left over bytes in key %s: %d".formatted(this.getKey(), decompressedData.length - offset);
             return schemas;
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -233,6 +242,36 @@ public final class MarketDataEntry {
         return response.contents().stream()
                 .map(S3Object::key)
                 .map(MarketDataEntry::fromKey)
+                .sorted(Comparator.comparing(MarketDataEntry::getTimestamp))
+                .collect(Collectors.toList());
+    }
+
+    public static List<MarketDataEntry> getAllKeysForListing(S3Client s3Client, String bucket, Listing listing) {
+        return getKeysForListingByDay(s3Client, bucket, listing, null);
+    }
+
+    public static List<MarketDataEntry> getKeysForListingByDay(
+            S3Client s3Client, String bucket, Listing listing, LocalDateTime day) {
+        final String keyPrefix;
+        if (day != null) {
+            keyPrefix = "%d/%d/%d/%d/%d/"
+                    .formatted(
+                            listing.security().securityId(),
+                            listing.exchange().exchangeId(),
+                            day.getYear(),
+                            day.getMonthValue(),
+                            day.getDayOfMonth());
+        } else {
+            keyPrefix = "%d/%d/"
+                    .formatted(
+                            listing.security().securityId(), listing.exchange().exchangeId());
+        }
+        var response = s3Client.listObjectsV2Paginator(
+                request -> request.bucket(bucket).prefix(keyPrefix));
+        return response.contents().stream()
+                .map(S3Object::key)
+                .map(MarketDataEntry::fromKey)
+                .filter(entry -> entry.getSchemaType() == listing.exchange().schemaType())
                 .sorted(Comparator.comparing(MarketDataEntry::getTimestamp))
                 .collect(Collectors.toList());
     }
