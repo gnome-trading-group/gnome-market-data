@@ -4,5 +4,6 @@
 .idea
 .claude
 */**/cdk.out
+cdk/node_modules
 target
 README.md
