@@ -29,7 +29,7 @@ export class InventoryProcessorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: InventoryProcessorStackProps) {
     super(scope, id, props);
 
-    const processLambda = new JavaLambda(this, 'InventoryProcessorLambda', {
+    const processLambda = new JavaLambda(this, 'InventoryProcessorLambda-v1', {
       name: 'InventoryProcessor',
       classPath: 'group.gnometrading.coverage.InventoryProcessorLambdaHandler',
       memorySize: 3008,

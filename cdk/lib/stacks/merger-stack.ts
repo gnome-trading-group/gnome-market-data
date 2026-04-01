@@ -20,7 +20,7 @@ export class MergerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: MergerStackProps) {
     super(scope, id, props);
 
-    const javaLambda = new JavaLambda(this, 'MergerLambda', {
+    const javaLambda = new JavaLambda(this, 'MergerLambda-v1', {
       name: 'Merger',
       classPath: 'group.gnometrading.merger.MergerLambdaHandler',
       environment: {

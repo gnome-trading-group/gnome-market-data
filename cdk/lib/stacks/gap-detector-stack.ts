@@ -22,7 +22,7 @@ export class GapDetectorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: GapDetectorStackProps) {
     super(scope, id, props);
 
-    const gapLambda = new JavaLambda(this, 'GapLambda', {
+    const gapLambda = new JavaLambda(this, 'GapLambda-v1', {
       name: 'GapDetector',
       classPath: 'group.gnometrading.gap.GapLambdaHandler',
       environment: {

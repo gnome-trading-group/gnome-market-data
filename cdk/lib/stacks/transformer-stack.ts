@@ -26,7 +26,7 @@ export class TransformerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: TransformerStackProps) {
     super(scope, id, props);
 
-    const transformerJobCreatorLambda = new JavaLambda(this, 'TransformerJobCreatorLambda', {
+    const transformerJobCreatorLambda = new JavaLambda(this, 'TransformerJobCreatorLambda-v1', {
       name: 'TransformerJobCreator',
       classPath: 'group.gnometrading.transformer.JobCreatorLambdaHandler',
       environment: {
@@ -45,7 +45,7 @@ export class TransformerStack extends cdk.Stack {
       maxBatchingWindow: cdk.Duration.minutes(3),
     }));
 
-    const transformerJobProcessorLambda = new JavaLambda(this, 'TransformerJobProcessorLambda', {
+    const transformerJobProcessorLambda = new JavaLambda(this, 'TransformerJobProcessorLambda-v1', {
       name: 'TransformerJobProcessor',
       classPath: 'group.gnometrading.transformer.JobProcessorLambdaHandler',
       environment: {
