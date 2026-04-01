@@ -29,7 +29,7 @@ export class JavaLambda extends Construct {
 
     environment.JAVA_TOOL_OPTIONS = `${environment.JAVA_TOOL_OPTIONS ?? ''}${this.DEFAULT_JVM_OPTIONS}`;
 
-    const dockerDir = this.buildDockerfile(props.name, props.classPath);
+    const dockerDir = this.ensureDockerfile();
 
     const dockerImageAsset = new ecrAssets.DockerImageAsset(this, `${props.name}DockerImage`, {
       directory: projectRoot,
@@ -37,6 +37,9 @@ export class JavaLambda extends Construct {
       exclude: ['*/**/cdk.out', 'cdk/node_modules', '.git', '.github', '.idea', '.claude', 'target', '**/target'],
       buildSecrets: {
         MAVEN_CREDENTIALS: 'env=MAVEN_CREDENTIALS',
+      },
+      buildArgs: {
+        HANDLER_CLASS: `${props.classPath}::handleRequest`,
       },
     });
 
@@ -52,15 +55,19 @@ export class JavaLambda extends Construct {
     });
   }
 
-  private buildDockerfile(name: string, classPath: string): string {
-    const dockerDir = path.join(__dirname, `java-lambda-docker-${name}`);
+  private ensureDockerfile(): string {
+    const dockerDir = path.join(__dirname, 'java-lambda-docker');
 
     if (!fs.existsSync(dockerDir)) {
       fs.mkdirSync(dockerDir);
     }
 
-    // Multi-stage Dockerfile: build stage + runtime stage
+    // Multi-stage Dockerfile: build stage + runtime stage.
+    // All lambdas share this single Dockerfile; the handler class is passed as a build arg.
+    // Docker BuildKit caches all layers up to the ARG directive, so Maven runs only once
+    // when building multiple lambda images sequentially.
     const dockerfileContent = `
+# syntax=docker/dockerfile:1
 # Build stage
 FROM ubuntu:24.04 AS build
 
@@ -68,22 +75,34 @@ RUN apt-get update && apt-get install -y openjdk-17-jdk maven jq
 
 WORKDIR /build
 
+# Copy POMs first so dependency resolution is a separate cached layer
 COPY pom.xml .
 COPY settings.xml .
+COPY gnome-market-data-core/pom.xml ./gnome-market-data-core/pom.xml
+COPY gnome-market-data-lambdas/pom.xml ./gnome-market-data-lambdas/pom.xml
+
+RUN --mount=type=secret,id=MAVEN_CREDENTIALS \\
+    --mount=type=cache,target=/root/.m2 \\
+    export MAVEN_CREDENTIALS=$(cat /run/secrets/MAVEN_CREDENTIALS) && \\
+    export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_ACTOR') && \\
+    export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_TOKEN') && \\
+    mvn dependency:go-offline -s settings.xml || true
+
 COPY gnome-market-data-core ./gnome-market-data-core
 COPY gnome-market-data-lambdas ./gnome-market-data-lambdas
 
-RUN --mount=type=secret,id=MAVEN_CREDENTIALS \
-    export MAVEN_CREDENTIALS=$(cat /run/secrets/MAVEN_CREDENTIALS) && \
-    export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_ACTOR') && \
-    export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_TOKEN') && \
-    mvn clean package -s settings.xml && \
+RUN --mount=type=secret,id=MAVEN_CREDENTIALS \\
+    --mount=type=cache,target=/root/.m2 \\
+    export MAVEN_CREDENTIALS=$(cat /run/secrets/MAVEN_CREDENTIALS) && \\
+    export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_ACTOR') && \\
+    export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_TOKEN') && \\
+    mvn clean package -s settings.xml && \\
     mvn dependency:copy-dependencies -DincludeScope=runtime -pl gnome-market-data-lambdas -s settings.xml
 
 # Runtime stage - ubuntu:24.04 for GLIBC requirements
 FROM ubuntu:24.04
 
-RUN apt-get update && apt-get install -y openjdk-17-jre-headless && \
+RUN apt-get update && apt-get install -y openjdk-17-jre-headless && \\
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /function
@@ -91,11 +110,10 @@ WORKDIR /function
 COPY --from=build /build/gnome-market-data-lambdas/target/gnome-market-data-lambdas.jar ./
 COPY --from=build /build/gnome-market-data-lambdas/target/dependency/*.jar ./
 
-# Set runtime interface client as default command for the container runtime
-# The runtime interface client is included as a dependency in the project
-ENTRYPOINT [ "/usr/bin/java", "-cp", "./*", "com.amazonaws.services.lambda.runtime.api.client.AWSLambda" ]
-
-CMD [ "${classPath}::handleRequest" ]
+# Handler class is the only thing that differs between lambda images
+ARG HANDLER_CLASS
+ENV _HANDLER=\${HANDLER_CLASS}
+ENTRYPOINT ["sh", "-c", "exec /usr/bin/java -cp '/function/*' com.amazonaws.services.lambda.runtime.api.client.AWSLambda \${_HANDLER}"]
 `.trim();
 
     fs.writeFileSync(path.join(dockerDir, 'Dockerfile'), dockerfileContent);

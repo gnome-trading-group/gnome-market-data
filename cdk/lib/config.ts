@@ -1,6 +1,6 @@
 import { GnomeAccount, Stage } from "@gnome-trading-group/gnome-shared-cdk";
 
-export const JAVA_LAMBDA_JAR_PATH = "lambda-jars/merger-lambda.jar";
+export const LAMBDAS_VERSION = "v1";
 
 export interface MarketDataConfig {
   account: GnomeAccount;
@@ -10,7 +10,7 @@ export interface MarketDataConfig {
 }
 
 const defaultConfig = {
-  collectorOrchestratorVersion: "1.1.25",
+  collectorOrchestratorVersion: "1.1.28",
 }
 
 export const CONFIGS: { [stage in Stage]?:  MarketDataConfig } = {

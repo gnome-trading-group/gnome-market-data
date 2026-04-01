@@ -6,7 +6,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import { JavaLambda } from '../constructs/java-lambda';
-import { MarketDataConfig } from '../config';
+import { LAMBDAS_VERSION, MarketDataConfig } from '../config';
 
 export interface InventoryProcessorStackProps extends cdk.StackProps {
   metadataBucket: s3.IBucket;
@@ -29,8 +29,8 @@ export class InventoryProcessorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: InventoryProcessorStackProps) {
     super(scope, id, props);
 
-    const processLambda = new JavaLambda(this, 'InventoryProcessorLambda-v1', {
-      name: 'InventoryProcessor-v1',
+    const processLambda = new JavaLambda(this, `InventoryProcessorLambda-${LAMBDAS_VERSION}`, {
+      name: `InventoryProcessor-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.coverage.InventoryProcessorLambdaHandler',
       memorySize: 3008,
       environment: {

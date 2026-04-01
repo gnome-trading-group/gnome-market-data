@@ -9,7 +9,7 @@ import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
 import { JavaLambda } from "../constructs/java-lambda";
 import { SchemaType } from "@gnome-trading-group/gnome-shared-cdk";
-import { MarketDataConfig } from "../config";
+import { LAMBDAS_VERSION, MarketDataConfig } from "../config";
 
 export interface TransformerStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
@@ -26,8 +26,8 @@ export class TransformerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: TransformerStackProps) {
     super(scope, id, props);
 
-    const transformerJobCreatorLambda = new JavaLambda(this, 'TransformerJobCreatorLambda-v1', {
-      name: 'TransformerJobCreator-v1',
+    const transformerJobCreatorLambda = new JavaLambda(this, `TransformerJobCreatorLambda-${LAMBDAS_VERSION}`, {
+      name: `TransformerJobCreator-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.transformer.JobCreatorLambdaHandler',
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
@@ -45,8 +45,8 @@ export class TransformerStack extends cdk.Stack {
       maxBatchingWindow: cdk.Duration.minutes(3),
     }));
 
-    const transformerJobProcessorLambda = new JavaLambda(this, 'TransformerJobProcessorLambda-v1', {
-      name: 'TransformerJobProcessor-v1',
+    const transformerJobProcessorLambda = new JavaLambda(this, `TransformerJobProcessorLambda-${LAMBDAS_VERSION}`, {
+      name: `TransformerJobProcessor-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.transformer.JobProcessorLambdaHandler',
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,

@@ -154,12 +154,14 @@ export class MarketDataPipelineStack extends cdk.Stack {
       assetPublishingCodeBuildDefaults: {
         buildEnvironment: {
           buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_5,
+          privileged: true, // Required for Docker layer caching
           environmentVariables: {
             MAVEN_CREDENTIALS: {
               value: githubSecret.secretValue.unsafeUnwrap(),
             },
           }
         },
+        cache: codebuild.Cache.local(codebuild.LocalCacheMode.DOCKER_LAYER),
       },
       synthCodeBuildDefaults: {
         buildEnvironment: {

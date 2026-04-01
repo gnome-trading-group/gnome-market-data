@@ -5,7 +5,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
 import { JavaLambda } from "../constructs/java-lambda";
-import { MarketDataConfig } from "../config";
+import { LAMBDAS_VERSION, MarketDataConfig } from "../config";
 
 export interface MergerStackProps extends cdk.StackProps {
   rawBucket: s3.Bucket;
@@ -20,8 +20,8 @@ export class MergerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: MergerStackProps) {
     super(scope, id, props);
 
-    const javaLambda = new JavaLambda(this, 'MergerLambda-v1', {
-      name: 'Merger-v1',
+    const javaLambda = new JavaLambda(this, `MergerLambda-${LAMBDAS_VERSION}`, {
+      name: `Merger-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.merger.MergerLambdaHandler',
       environment: {
         RAW_BUCKET_NAME: props.rawBucket.bucketName,

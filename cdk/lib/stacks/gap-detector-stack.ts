@@ -6,7 +6,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
 import { JavaLambda } from "../constructs/java-lambda";
-import { MarketDataConfig } from "../config";
+import { LAMBDAS_VERSION, MarketDataConfig } from "../config";
 
 export interface GapDetectorStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
@@ -22,8 +22,8 @@ export class GapDetectorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: GapDetectorStackProps) {
     super(scope, id, props);
 
-    const gapLambda = new JavaLambda(this, 'GapLambda-v1', {
-      name: 'GapDetector-v1',
+    const gapLambda = new JavaLambda(this, `GapLambda-${LAMBDAS_VERSION}`, {
+      name: `GapDetector-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.gap.GapLambdaHandler',
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,

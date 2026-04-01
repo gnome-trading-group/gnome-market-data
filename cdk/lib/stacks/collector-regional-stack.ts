@@ -93,9 +93,12 @@ export class CollectorRegionalStack extends cdk.Stack {
     });
 
     const dockerImage = new ecrAssets.DockerImageAsset(this, 'JavaAppImage', {
-      directory: this.buildDockerfile(props.config.collectorOrchestratorVersion),
+      directory: this.ensureDockerfile(),
       buildSecrets: {
         MAVEN_CREDENTIALS: 'env=MAVEN_CREDENTIALS',
+      },
+      buildArgs: {
+        ORCHESTRATOR_VERSION: props.config.collectorOrchestratorVersion,
       },
     });
 
@@ -109,10 +112,10 @@ export class CollectorRegionalStack extends cdk.Stack {
       },
       healthCheck: {
         command: ['CMD-SHELL', 'wget --spider --quiet http://localhost:8080/health || exit 1'],
-        interval: cdk.Duration.seconds(30),
+        interval: cdk.Duration.seconds(15),
         timeout: cdk.Duration.seconds(5),
         retries: 3,
-        startPeriod: cdk.Duration.seconds(120),
+        startPeriod: cdk.Duration.seconds(60),
       },
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'collector',
@@ -151,29 +154,30 @@ export class CollectorRegionalStack extends cdk.Stack {
     });
   }
 
-  private buildDockerfile(orchestratorVersion: string) {
-    const dockerDir = path.join(__dirname, `collector-docker-${this.deploymentRegion}`);
+  private ensureDockerfile() {
+    // All regions share a single Dockerfile; the orchestrator version is a build arg.
+    // Docker layer caching reuses the base layer across both regional builds.
+    const dockerDir = path.join(__dirname, 'collector-docker');
 
     if (!fs.existsSync(dockerDir)) {
       fs.mkdirSync(dockerDir);
     }
 
     const dockerfileContent = `
-      FROM ubuntu:24.04
+FROM ubuntu:24.04
 
-      RUN apt-get update && apt-get install -y wget jq openjdk-17-jdk
+RUN apt-get update && apt-get install -y wget jq openjdk-17-jdk
 
-      ARG MAIN_CLASS
+ARG ORCHESTRATOR_VERSION
+RUN --mount=type=secret,id=MAVEN_CREDENTIALS \\
+    export MAVEN_CREDENTIALS=$(cat /run/secrets/MAVEN_CREDENTIALS) && \\
+    MAVEN_USERNAME=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_ACTOR') && \\
+    MAVEN_PASSWORD=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_TOKEN') && \\
+    wget --user=$MAVEN_USERNAME --password=$MAVEN_PASSWORD -O app.jar "https://maven.pkg.github.com/gnome-trading-group/gnome-orchestrator/group/gnometrading/gnome-orchestrator/\${ORCHESTRATOR_VERSION}/gnome-orchestrator-\${ORCHESTRATOR_VERSION}.jar"
 
-      RUN --mount=type=secret,id=MAVEN_CREDENTIALS \
-        export MAVEN_CREDENTIALS=$(cat /run/secrets/MAVEN_CREDENTIALS) && \
-        MAVEN_USERNAME=$(echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_ACTOR\') && \
-        MAVEN_PASSWORD=$(echo $MAVEN_CREDENTIALS | jq -r \'.GITHUB_TOKEN\') && \
-        wget --user=$MAVEN_USERNAME --password=$MAVEN_PASSWORD -O app.jar "https://maven.pkg.github.com/gnome-trading-group/gnome-orchestrator/group/gnometrading/gnome-orchestrator/${orchestratorVersion}/gnome-orchestrator-${orchestratorVersion}.jar"
+RUN echo '#!/bin/sh\\nexec java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -cp app.jar $MAIN_CLASS' > start.sh && chmod +x start.sh
 
-      RUN echo '#!/bin/sh\\nexec java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -cp app.jar $MAIN_CLASS' > start.sh && chmod +x start.sh
-
-      CMD ["./start.sh"]
+CMD ["./start.sh"]
     `.trim();
 
     fs.writeFileSync(path.join(dockerDir, 'Dockerfile'), dockerfileContent);
