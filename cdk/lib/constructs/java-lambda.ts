@@ -38,15 +38,13 @@ export class JavaLambda extends Construct {
       buildSecrets: {
         MAVEN_CREDENTIALS: 'env=MAVEN_CREDENTIALS',
       },
-      buildArgs: {
-        HANDLER_CLASS: `${props.classPath}::handleRequest`,
-      },
     });
 
     this.lambdaFunction = new lambda.DockerImageFunction(this, `${props.name}JavaLambda`, {
       functionName: `${cdk.Aws.STACK_NAME}-${props.name}`,
       code: lambda.DockerImageCode.fromEcr(dockerImageAsset.repository, {
         tagOrDigest: dockerImageAsset.assetHash,
+        cmd: [`${props.classPath}::handleRequest`],
       }),
       memorySize: props.memorySize ?? 2048,
       timeout: cdk.Duration.minutes(15),
@@ -110,10 +108,7 @@ WORKDIR /function
 COPY --from=build /build/gnome-market-data-lambdas/target/gnome-market-data-lambdas.jar ./
 COPY --from=build /build/gnome-market-data-lambdas/target/dependency/*.jar ./
 
-# Handler class is the only thing that differs between lambda images
-ARG HANDLER_CLASS
-ENV _HANDLER=\${HANDLER_CLASS}
-ENTRYPOINT ["sh", "-c", "exec /usr/bin/java -cp '/function/*' com.amazonaws.services.lambda.runtime.api.client.AWSLambda \${_HANDLER}"]
+ENTRYPOINT ["/usr/bin/java", "-cp", "/function/*", "com.amazonaws.services.lambda.runtime.api.client.AWSLambda"]
 `.trim();
 
     fs.writeFileSync(path.join(dockerDir, 'Dockerfile'), dockerfileContent);
