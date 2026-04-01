@@ -175,7 +175,7 @@ RUN --mount=type=secret,id=MAVEN_CREDENTIALS \\
     MAVEN_PASSWORD=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_TOKEN') && \\
     wget --user=$MAVEN_USERNAME --password=$MAVEN_PASSWORD -O app.jar "https://maven.pkg.github.com/gnome-trading-group/gnome-orchestrator/group/gnometrading/gnome-orchestrator/\${ORCHESTRATOR_VERSION}/gnome-orchestrator-\${ORCHESTRATOR_VERSION}.jar"
 
-RUN echo '#!/bin/sh\\nexec java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -cp app.jar $MAIN_CLASS' > start.sh && chmod +x start.sh
+RUN echo '#!/bin/sh\\nexec java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED -cp app.jar $MAIN_CLASS' > start.sh && chmod +x start.sh
 
 CMD ["./start.sh"]
     `.trim();
