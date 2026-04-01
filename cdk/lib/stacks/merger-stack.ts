@@ -21,7 +21,7 @@ export class MergerStack extends cdk.Stack {
     super(scope, id, props);
 
     const javaLambda = new JavaLambda(this, 'MergerLambda-v1', {
-      name: 'Merger',
+      name: 'Merger-v1',
       classPath: 'group.gnometrading.merger.MergerLambdaHandler',
       environment: {
         RAW_BUCKET_NAME: props.rawBucket.bucketName,

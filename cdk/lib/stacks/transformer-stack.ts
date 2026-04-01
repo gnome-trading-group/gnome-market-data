@@ -27,7 +27,7 @@ export class TransformerStack extends cdk.Stack {
     super(scope, id, props);
 
     const transformerJobCreatorLambda = new JavaLambda(this, 'TransformerJobCreatorLambda-v1', {
-      name: 'TransformerJobCreator',
+      name: 'TransformerJobCreator-v1',
       classPath: 'group.gnometrading.transformer.JobCreatorLambdaHandler',
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
@@ -46,7 +46,7 @@ export class TransformerStack extends cdk.Stack {
     }));
 
     const transformerJobProcessorLambda = new JavaLambda(this, 'TransformerJobProcessorLambda-v1', {
-      name: 'TransformerJobProcessor',
+      name: 'TransformerJobProcessor-v1',
       classPath: 'group.gnometrading.transformer.JobProcessorLambdaHandler',
       environment: {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
