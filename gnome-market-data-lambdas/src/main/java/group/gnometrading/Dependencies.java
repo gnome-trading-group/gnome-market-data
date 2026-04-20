@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.constants.Stage;
 import group.gnometrading.coverage.CoverageRecord;
 import group.gnometrading.gap.Gap;
+import group.gnometrading.quality.model.ListingStatistics;
+import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.resources.Properties;
 import group.gnometrading.transformer.TransformationJob;
 import java.time.Clock;
@@ -31,6 +33,8 @@ public class Dependencies {
     private final DynamoDbTable<TransformationJob> transformJobsTable;
     private final DynamoDbTable<Gap> gapsTable;
     private final DynamoDbTable<CoverageRecord> coverageTable;
+    private final DynamoDbTable<QualityIssue> qualityIssuesTable;
+    private final DynamoDbTable<ListingStatistics> listingStatisticsTable;
     private final SecurityMaster securityMaster;
 
     private final String rawBucketName;
@@ -40,6 +44,8 @@ public class Dependencies {
     private final String transformJobsTableName;
     private final String coverageTableName;
     private final String metadataBucketName;
+    private final String qualityIssuesTableName;
+    private final String listingStatisticsTableName;
 
     /**
      * Private constructor for singleton pattern.
@@ -62,6 +68,8 @@ public class Dependencies {
         this.transformJobsTableName = System.getenv("TRANSFORM_JOBS_TABLE_NAME");
         this.coverageTableName = System.getenv("COVERAGE_TABLE_NAME");
         this.metadataBucketName = System.getenv("METADATA_BUCKET_NAME");
+        this.qualityIssuesTableName = System.getenv("QUALITY_ISSUES_TABLE_NAME");
+        this.listingStatisticsTableName = System.getenv("LISTING_STATISTICS_TABLE_NAME");
 
         if (transformJobsTableName != null) {
             this.transformJobsTable =
@@ -79,6 +87,18 @@ public class Dependencies {
                     dynamoDbEnhancedClient.table(coverageTableName, TableSchema.fromBean(CoverageRecord.class));
         } else {
             this.coverageTable = null;
+        }
+        if (qualityIssuesTableName != null) {
+            this.qualityIssuesTable =
+                    dynamoDbEnhancedClient.table(qualityIssuesTableName, TableSchema.fromBean(QualityIssue.class));
+        } else {
+            this.qualityIssuesTable = null;
+        }
+        if (listingStatisticsTableName != null) {
+            this.listingStatisticsTable = dynamoDbEnhancedClient.table(
+                    listingStatisticsTableName, TableSchema.fromBean(ListingStatistics.class));
+        } else {
+            this.listingStatisticsTable = null;
         }
     }
 
@@ -161,6 +181,22 @@ public class Dependencies {
 
     public String getMetadataBucketName() {
         return metadataBucketName;
+    }
+
+    public DynamoDbTable<QualityIssue> getQualityIssuesTable() {
+        return qualityIssuesTable;
+    }
+
+    public String getQualityIssuesTableName() {
+        return qualityIssuesTableName;
+    }
+
+    public DynamoDbTable<ListingStatistics> getListingStatisticsTable() {
+        return listingStatisticsTable;
+    }
+
+    public String getListingStatisticsTableName() {
+        return listingStatisticsTableName;
     }
 
     private Properties createProperties() {

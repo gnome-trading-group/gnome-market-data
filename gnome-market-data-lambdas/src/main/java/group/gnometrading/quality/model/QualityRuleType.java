@@ -1,0 +1,13 @@
+package group.gnometrading.quality.model;
+
+public enum QualityRuleType {
+    TIMESTAMP_ALIGNMENT,
+    SEQUENCE_MONOTONICITY,
+    BAD_DATA_FLAGS,
+    TICK_COUNT_ANOMALY,
+    SPREAD_ANOMALY,
+    MID_PRICE_ANOMALY,
+    TRADE_VOLUME_ANOMALY,
+    TRADE_FREQUENCY_ANOMALY,
+    VOLATILITY_ANOMALY
+}

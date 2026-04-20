@@ -15,6 +15,7 @@ import { TransformerStack } from "./stacks/transformer-stack";
 import { MergerStack } from "./stacks/merger-stack";
 import { GapDetectorStack } from "./stacks/gap-detector-stack";
 import { InventoryProcessorStack } from "./stacks/inventory-processor-stack";
+import { QualityCheckStack } from "./stacks/quality-check-stack";
 
 /** Regions where collectors can be deployed */
 export const COLLECTOR_REGIONS = ["us-east-1", "ap-northeast-1"];
@@ -62,6 +63,14 @@ class AppStage extends cdk.Stage {
       };
     }
 
+    const qualityCheckStack = new QualityCheckStack(this, "MarketDataQualityCheckStack", {
+      mergedBucket: storageStack.mergedBucket,
+      qualityIssuesTable: storageStack.qualityIssuesTable,
+      listingStatisticsTable: storageStack.listingStatisticsTable,
+      qualityCheckQueue: storageStack.qualityCheckQueue,
+      config,
+    });
+
     const backendStack = new BackendStack(this, "MarketDataBackendStack", {
       crossRegionReferences: true,
       collectorsTable: storageStack.collectorsTable,
@@ -73,6 +82,9 @@ class AppStage extends cdk.Stage {
       finalBucket: storageStack.finalBucket,
       metadataBucket: storageStack.metadataBucket,
       coverageTable: storageStack.coverageTable,
+      qualityIssuesTable: storageStack.qualityIssuesTable,
+      listingStatisticsTable: storageStack.listingStatisticsTable,
+      qualityBackfillLambda: qualityCheckStack.qualityBackfillLambda,
     });
 
     const transformerStack = new TransformerStack(this, "MarketDataTransformerStack", {
@@ -117,6 +129,8 @@ class AppStage extends cdk.Stage {
       transformerQueue: storageStack.transformerQueue,
       transformerJobProcessorLambda: transformerStack.transformerJobProcessorLambda,
       inventoryProcessorLambda: inventoryProcessorStack.processorFunction,
+      qualityCheckLambda: qualityCheckStack.qualityCheckLambda,
+      qualityCheckQueue: storageStack.qualityCheckQueue,
     });
   }
 }

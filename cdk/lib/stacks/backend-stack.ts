@@ -29,6 +29,9 @@ interface BackendStackProps extends cdk.StackProps {
   finalBucket: s3.IBucket;
   metadataBucket: s3.IBucket;
   coverageTable: dynamodb.ITable;
+  qualityIssuesTable: dynamodb.ITable;
+  listingStatisticsTable: dynamodb.ITable;
+  qualityBackfillLambda: lambda.IFunction;
 }
 
 interface EndpointConfig {
@@ -263,6 +266,7 @@ export class BackendStack extends cdk.Stack {
           FINAL_BUCKET_NAME: props.finalBucket.bucketName,
           METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
           COVERAGE_TABLE_NAME: props.coverageTable.tableName,
+          QUALITY_ISSUES_TABLE_NAME: props.qualityIssuesTable.tableName,
         },
       });
 
@@ -271,6 +275,7 @@ export class BackendStack extends cdk.Stack {
       props.finalBucket.grantRead(fn);
       props.metadataBucket.grantRead(fn);
       props.coverageTable.grantReadData(fn);
+      props.qualityIssuesTable.grantReadWriteData(fn);
 
       return fn;
     };
@@ -300,9 +305,75 @@ export class BackendStack extends cdk.Stack {
       );
     };
 
+    const qualityIssuesEndpoints: EndpointConfig[] = [
+      {
+        name: "ListQualityIssues",
+        path: "quality-issues/list",
+        method: "GET",
+        handlerPath: "quality-issues/list",
+      },
+      {
+        name: "GetQualityIssuesByListing",
+        path: "quality-issues/list/{listingId}",
+        method: "GET",
+        handlerPath: "quality-issues/get-by-listing",
+      },
+      {
+        name: "UpdateQualityIssues",
+        path: "quality-issues/update",
+        method: "POST",
+        handlerPath: "quality-issues/update",
+      },
+    ];
+
     transformJobsEndpoints.forEach(createMarketDataEndpoint);
     gapsEndpoints.forEach(createMarketDataEndpoint);
     coverageEndpoints.forEach(createMarketDataEndpoint);
+    qualityIssuesEndpoints.forEach(createMarketDataEndpoint);
+
+    // Listing statistics endpoint — read-only, only needs listingStatisticsTable
+    const listingStatsLambda = new lambda.Function(this, "GetListingStatisticsFunction", {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("lambda/functions/listing-statistics/get"),
+      layers: [commonLayer],
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        LISTING_STATISTICS_TABLE_NAME: props.listingStatisticsTable.tableName,
+      },
+    });
+    props.listingStatisticsTable.grantReadData(listingStatsLambda);
+
+    const listingStatsResource = this.api.root
+      .addResource("listing-statistics")
+      .addResource("{listingId}");
+    listingStatsResource.addMethod(
+      "GET",
+      new apigateway.LambdaIntegration(listingStatsLambda),
+      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
+    );
+
+    // Quality backfill trigger — async invocation of the Java backfill Lambda
+    const qualityBackfillTriggerLambda = new lambda.Function(this, "TriggerQualityBackfillFunction", {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("lambda/functions/quality-issues/backfill"),
+      layers: [commonLayer],
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        QUALITY_BACKFILL_FUNCTION_NAME: props.qualityBackfillLambda.functionName,
+      },
+    });
+    props.qualityBackfillLambda.grantInvoke(qualityBackfillTriggerLambda);
+
+    const backfillResource = this.api.root
+      .getResource("quality-issues")!
+      .addResource("backfill");
+    backfillResource.addMethod(
+      "POST",
+      new apigateway.LambdaIntegration(qualityBackfillTriggerLambda),
+      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
+    );
 
     const collectorEcsMonitorLambda = new lambda.Function(this, "CollectorEcsMonitorLambda", {
       runtime: lambda.Runtime.PYTHON_3_13,

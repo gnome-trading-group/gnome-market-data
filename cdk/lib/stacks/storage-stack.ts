@@ -25,6 +25,9 @@ export class StorageStack extends cdk.Stack {
   public readonly transformerQueue: sqs.Queue;
   public readonly gapQueue: sqs.Queue;
   public readonly inventoryQueue: sqs.Queue;
+  public readonly qualityIssuesTable: dynamodb.Table;
+  public readonly listingStatisticsTable: dynamodb.Table;
+  public readonly qualityCheckQueue: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
@@ -140,6 +143,42 @@ export class StorageStack extends cdk.Stack {
       deliveryDelay: cdk.Duration.minutes(15),
     });
 
+    this.qualityIssuesTable = new dynamodb.Table(this, "QualityIssuesTable", {
+      tableName: "market-data-quality-issues",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "issueId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+    });
+
+    this.qualityIssuesTable.addGlobalSecondaryIndex({
+      indexName: "status-timestamp-index",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+    });
+
+    this.qualityIssuesTable.addGlobalSecondaryIndex({
+      indexName: "ruleType-timestamp-index",
+      partitionKey: { name: "ruleType", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+    });
+
+    this.listingStatisticsTable = new dynamodb.Table(this, "ListingStatisticsTable", {
+      tableName: "market-data-listing-statistics",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+    });
+
+    this.qualityCheckQueue = new sqs.Queue(this, 'QualityCheckQueue', {
+      queueName: 'market-data-quality-check-queue',
+      visibilityTimeout: cdk.Duration.minutes(15),
+      retentionPeriod: cdk.Duration.days(4),
+      receiveMessageWaitTime: cdk.Duration.seconds(20),
+    });
+
     this.inventoryQueue = new sqs.Queue(this, 'InventoryQueue', {
       queueName: 'market-data-inventory-queue',
       visibilityTimeout: cdk.Duration.minutes(15),
@@ -157,6 +196,7 @@ export class StorageStack extends cdk.Stack {
     const mergerTopic = new sns.Topic(this, 'MarketDataMergerBucketSnsTopic');
     mergerTopic.addSubscription(new subs.SqsSubscription(this.transformerQueue));
     mergerTopic.addSubscription(new subs.SqsSubscription(this.gapQueue));
+    mergerTopic.addSubscription(new subs.SqsSubscription(this.qualityCheckQueue));
     this.mergedBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3notifications.SnsDestination(mergerTopic)

@@ -22,6 +22,8 @@ export interface MonitoringStackProps extends cdk.StackProps {
   transformerQueue: sqs.Queue;
   transformerJobProcessorLambda: lambda.Function;
   inventoryProcessorLambda: lambda.Function;
+  qualityCheckLambda: lambda.Function;
+  qualityCheckQueue: sqs.Queue;
 }
 
 export class MonitoringStack extends cdk.Stack {
@@ -122,6 +124,17 @@ export class MonitoringStack extends cdk.Stack {
         humanReadableName: 'Inventory Processor Lambda',
         alarmFriendlyName: 'InventoryProcessorLambda',
         ...lambdaAlarms,
+      })
+      .monitorLambdaFunction({
+        lambdaFunction: props.qualityCheckLambda,
+        humanReadableName: 'Quality Check Lambda',
+        alarmFriendlyName: 'QualityCheckLambda',
+        ...lambdaAlarms,
+      })
+      .monitorSqsQueue({
+        queue: props.qualityCheckQueue,
+        humanReadableName: 'Quality Check Queue',
+        alarmFriendlyName: 'QualityCheckQueue',
       });
   }
 }
