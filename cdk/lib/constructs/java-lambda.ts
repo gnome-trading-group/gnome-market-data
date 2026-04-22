@@ -49,6 +49,7 @@ export class JavaLambda extends Construct {
       memorySize: props.memorySize ?? 2048,
       timeout: cdk.Duration.minutes(15),
       environment,
+      loggingFormat: lambda.LoggingFormat.JSON,
       logRetention: logs.RetentionDays.ONE_MONTH,
     });
   }
