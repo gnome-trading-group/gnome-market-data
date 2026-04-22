@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import date
+from datetime import date, timedelta
 import boto3
 from utils import lambda_handler
 
@@ -11,7 +11,7 @@ def handler(
     securityId: int,
     startDate: str,
     endDate: str,
-    includeStatistical: bool = False,
+    mode: str = 'all',
     resetStatistics: bool = False,
 ):
     try:
@@ -24,23 +24,27 @@ def handler(
         raise ValueError(f"startDate {startDate} must not be after endDate {endDate}")
 
     function_name = os.environ['QUALITY_BACKFILL_FUNCTION_NAME']
+    client = boto3.client('lambda')
 
-    payload = {
-        'exchangeId': exchangeId,
-        'securityId': securityId,
-        'startDate': startDate,
-        'endDate': endDate,
-        'includeStatistical': includeStatistical,
-        'resetStatistics': resetStatistics,
-    }
-
-    boto3.client('lambda').invoke(
-        FunctionName=function_name,
-        InvocationType='Event',
-        Payload=json.dumps(payload),
-    )
+    current = start
+    days = 0
+    while current <= end:
+        payload = {
+            'exchangeId': exchangeId,
+            'securityId': securityId,
+            'date': current.isoformat(),
+            'mode': mode,
+            'resetStatistics': resetStatistics,
+        }
+        client.invoke(
+            FunctionName=function_name,
+            InvocationType='Event',
+            Payload=json.dumps(payload),
+        )
+        current += timedelta(days=1)
+        days += 1
 
     return {
-        'message': 'Backfill triggered successfully',
-        'payload': payload,
+        'message': f'Backfill triggered for {days} day(s)',
+        'days': days,
     }

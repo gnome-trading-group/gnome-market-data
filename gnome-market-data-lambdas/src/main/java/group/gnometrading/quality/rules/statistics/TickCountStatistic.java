@@ -1,4 +1,4 @@
-package group.gnometrading.quality.statistics;
+package group.gnometrading.quality.rules.statistics;
 
 import group.gnometrading.data.MarketDataEntry;
 import group.gnometrading.quality.model.QualityRuleType;
@@ -7,7 +7,6 @@ import java.util.List;
 
 public final class TickCountStatistic implements QualityStatistic {
 
-    private static final int WARMUP_SAMPLES = 30;
     private static final double ANOMALY_RATIO = 0.10;
 
     @Override
@@ -26,8 +25,8 @@ public final class TickCountStatistic implements QualityStatistic {
     }
 
     @Override
-    public boolean isAnomalous(double currentValue, double mean, double stddev, int sampleCount) {
-        return sampleCount >= WARMUP_SAMPLES && mean > 0 && currentValue < mean * ANOMALY_RATIO;
+    public boolean isAnomalous(double currentValue, double mean, double stddev) {
+        return mean > 0 && currentValue < mean * ANOMALY_RATIO;
     }
 
     @Override

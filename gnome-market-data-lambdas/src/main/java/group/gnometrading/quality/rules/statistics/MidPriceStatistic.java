@@ -1,4 +1,4 @@
-package group.gnometrading.quality.statistics;
+package group.gnometrading.quality.rules.statistics;
 
 import group.gnometrading.data.MarketDataEntry;
 import group.gnometrading.quality.model.QualityRuleType;
@@ -9,8 +9,7 @@ import java.util.List;
 
 public final class MidPriceStatistic implements QualityStatistic {
 
-    private static final int WARMUP_SAMPLES = 30;
-    private static final double ANOMALY_DEVIATION_RATIO = 0.10;
+    private static final double ANOMALY_Z_SCORE = 4.0;
 
     @Override
     public String name() {
@@ -43,17 +42,23 @@ public final class MidPriceStatistic implements QualityStatistic {
     }
 
     @Override
-    public boolean isAnomalous(double currentValue, double mean, double stddev, int sampleCount) {
-        if (sampleCount < WARMUP_SAMPLES || mean == 0) {
+    public boolean isAnomalous(double currentValue, double mean, double stddev) {
+        if (stddev == 0) {
             return false;
         }
-        return Math.abs(currentValue - mean) / mean > ANOMALY_DEVIATION_RATIO;
+        return Math.abs(currentValue - mean) > ANOMALY_Z_SCORE * stddev;
     }
 
     @Override
     public String describeAnomaly(double currentValue, double mean, double stddev) {
-        double pctChange = mean == 0 ? 0 : Math.abs(currentValue - mean) / mean * 100;
+        double zScore = stddev > 0 ? Math.abs(currentValue - mean) / stddev : 0;
         return String.format(
-                "Mid-price %.2f deviates %.1f%% from rolling average of %.2f", currentValue, pctChange, mean);
+                "Mid-price %.2f is %.1fσ from rolling average of %.2f (stddev=%.2f)",
+                currentValue, zScore, mean, stddev);
+    }
+
+    @Override
+    public int lookbackDays() {
+        return 7;
     }
 }

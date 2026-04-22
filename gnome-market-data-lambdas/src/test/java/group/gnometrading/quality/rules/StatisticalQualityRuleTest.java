@@ -5,17 +5,16 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import group.gnometrading.data.MarketDataEntry;
-import group.gnometrading.quality.model.ListingStatistics;
+import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityIssueStatus;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.quality.statistics.MidPriceStatistic;
-import group.gnometrading.quality.statistics.SpreadStatistic;
-import group.gnometrading.quality.statistics.TickCountStatistic;
+import group.gnometrading.quality.rules.statistics.MidPriceStatistic;
+import group.gnometrading.quality.rules.statistics.SpreadStatistic;
+import group.gnometrading.quality.rules.statistics.TickCountStatistic;
 import group.gnometrading.schemas.Mbp10Schema;
 import group.gnometrading.schemas.Schema;
 import group.gnometrading.schemas.SchemaType;
-import group.gnometrading.schemas.Statics;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -23,23 +22,28 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import software.amazon.awssdk.core.pagination.sync.SdkIterable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
-import software.amazon.awssdk.enhanced.dynamodb.Key;
+import software.amazon.awssdk.enhanced.dynamodb.model.PageIterable;
+import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 
 @ExtendWith(MockitoExtension.class)
 class StatisticalQualityRuleTest {
 
     @Mock
-    private DynamoDbTable<ListingStatistics> statisticsTable;
+    private DynamoDbTable<HourlyListingStatistic> statisticsTable;
+
+    @Mock
+    private DynamoDbClient dynamoDbClient;
 
     @Mock
     private Listing listing;
@@ -51,7 +55,9 @@ class StatisticalQualityRuleTest {
     private Security security;
 
     private Clock clock;
+    private final List<HourlyListingStatistic> queryResults = new ArrayList<>();
     private static final LocalDateTime MINUTE = LocalDateTime.of(2024, 1, 15, 10, 30);
+    private static final int ENTRY_HOUR = 10;
     private static final int LISTING_ID = 42;
 
     @BeforeEach
@@ -63,29 +69,31 @@ class StatisticalQualityRuleTest {
         lenient().when(exchange.exchangeId()).thenReturn(1);
         lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
         lenient().when(security.securityId()).thenReturn(2);
+        queryResults.clear();
+        PageIterable<HourlyListingStatistic> mockPages = mock(PageIterable.class);
+        SdkIterable<HourlyListingStatistic> mockItems = mock(SdkIterable.class);
+        lenient().when(mockItems.iterator()).thenAnswer(inv -> queryResults.iterator());
+        lenient().when(mockPages.items()).thenReturn(mockItems);
+        lenient().when(statisticsTable.query(any(QueryConditional.class))).thenReturn(mockPages);
     }
 
     @Test
-    void testNewListingCreatesFreshStatistics() {
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(null);
-        StatisticalQualityRule rule = new StatisticalQualityRule(statisticsTable, List.of(new TickCountStatistic()));
+    void testNewListingEmitsUpdateItem() {
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
         assertTrue(issues.isEmpty());
-        ArgumentCaptor<ListingStatistics> captor = ArgumentCaptor.forClass(ListingStatistics.class);
-        verify(statisticsTable).putItem(captor.capture());
-        ListingStatistics saved = captor.getValue();
-        assertEquals(LISTING_ID, saved.getListingId());
-        assertEquals(1, saved.getSampleCount("tickCount"));
+        verify(dynamoDbClient, times(1)).updateItem(any(UpdateItemRequest.class));
     }
 
     @Test
-    void testWelfordMeanUpdatedCorrectly() {
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(null);
-        StatisticalQualityRule rule = new StatisticalQualityRule(statisticsTable, List.of(new TickCountStatistic()));
+    void testUpdateItemHasCorrectValues() {
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
@@ -94,57 +102,41 @@ class StatisticalQualityRuleTest {
 
         rule.check(entry, records, listing, clock);
 
-        ArgumentCaptor<ListingStatistics> captor = ArgumentCaptor.forClass(ListingStatistics.class);
-        verify(statisticsTable).putItem(captor.capture());
-        ListingStatistics saved = captor.getValue();
-        assertEquals(1, saved.getSampleCount("tickCount"));
-        assertEquals(5.0, saved.getMean("tickCount"), 0.001);
+        ArgumentCaptor<UpdateItemRequest> captor = ArgumentCaptor.forClass(UpdateItemRequest.class);
+        verify(dynamoDbClient).updateItem(captor.capture());
+        UpdateItemRequest req = captor.getValue();
+        assertEquals("5.0", req.expressionAttributeValues().get(":val").n());
+        assertEquals("25.0", req.expressionAttributeValues().get(":sq").n());
     }
 
     @Test
-    void testExistingStatisticsLoadedAndUpdated() {
-        ListingStatistics existing = buildStats("tickCount", 100.0, 5000.0, 10.0);
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(existing);
-        StatisticalQualityRule rule = new StatisticalQualityRule(statisticsTable, List.of(new TickCountStatistic()));
+    void testInsufficientDaysNoAnomaly() {
+        // Only 1 distinct day — below minimumDays=3, so no anomaly even with extreme value
+        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 29.0, 29000.0, 29000000.0));
+
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
-        List<Schema> records = new ArrayList<>();
-        for (int i = 0; i < 120; i++) records.add(new Mbp10Schema());
-
-        rule.check(entry, records, listing, clock);
-
-        ArgumentCaptor<ListingStatistics> captor = ArgumentCaptor.forClass(ListingStatistics.class);
-        verify(statisticsTable).putItem(captor.capture());
-        ListingStatistics saved = captor.getValue();
-        assertEquals(11, saved.getSampleCount("tickCount"));
-        assertTrue(saved.getMean("tickCount") > 100.0);
-    }
-
-    @Test
-    void testNoAnomalyDuringWarmup() {
-        // count=29, below warmup threshold of 30
-        ListingStatistics existing = buildStats("tickCount", 1000.0, 0.0, 29.0);
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(existing);
-        StatisticalQualityRule rule = new StatisticalQualityRule(statisticsTable, List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
-
-        // Zero records — would be anomalous if past warmup
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
         assertTrue(issues.isEmpty());
     }
 
     @Test
-    void testAnomalyDetectedAfterWarmup() {
-        ListingStatistics existing = buildStats("tickCount", 1000.0, 100000.0, 30.0);
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(existing);
-        StatisticalQualityRule rule = new StatisticalQualityRule(statisticsTable, List.of(new TickCountStatistic()));
+    void testAnomalyDetectedAfterMinimumDays() {
+        // 3 distinct recent days, combined mean=1000
+        queryResults.add(buildHourlyStats("2024-01-13", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-15", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
-        // 5 records when mean is 1000 — well below 10% threshold
+        // 5 records when mean=1000 — well below the 10% threshold (100)
         List<Schema> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
@@ -157,39 +149,57 @@ class StatisticalQualityRuleTest {
     }
 
     @Test
-    void testNaNValueSkippedForIncompatibleSchema() {
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(null);
-        // SpreadStatistic returns NaN for non-MBP_10
-        StatisticalQualityRule rule = new StatisticalQualityRule(statisticsTable, List.of(new SpreadStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_1, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+    void testNoAnomalyAfterGap() {
+        // 3 distinct days but all from 10+ days ago — freshness check blocks anomaly detection
+        queryResults.add(buildHourlyStats("2024-01-04", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-05", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-06", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
 
-        List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        // 5 records — would be anomalous against mean=1000 if warmup passed
+        List<Schema> records = new ArrayList<>();
+        for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
+
+        List<QualityIssue> issues = rule.check(entry, records, listing, clock);
 
         assertTrue(issues.isEmpty());
-        ArgumentCaptor<ListingStatistics> captor = ArgumentCaptor.forClass(ListingStatistics.class);
-        verify(statisticsTable).putItem(captor.capture());
-        ListingStatistics saved = captor.getValue();
-        assertTrue(saved.getStatistics() == null || !saved.getStatistics().containsKey("spread"));
     }
 
     @Test
-    void testStatisticsAlwaysWrittenBackAfterCheck() {
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(null);
-        StatisticalQualityRule rule = new StatisticalQualityRule(statisticsTable, List.of(new TickCountStatistic()));
+    void testNaNValueSkippedForIncompatibleSchema() {
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_1, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        rule.check(entry, List.of(), listing, clock);
+
+        verify(dynamoDbClient, never()).updateItem(any(UpdateItemRequest.class));
+    }
+
+    @Test
+    void testUpdateItemAlwaysCalledAfterCheck() {
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
         rule.check(entry, List.of(), listing, clock);
 
-        verify(statisticsTable, times(1)).putItem(any(ListingStatistics.class));
+        verify(dynamoDbClient, times(1)).updateItem(any(UpdateItemRequest.class));
     }
 
     @Test
-    void testMultipleStatisticsAllUpdated() {
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(null);
+    void testMultipleStatisticsEachEmitUpdateItem() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
-                statisticsTable, List.of(new TickCountStatistic(), new SpreadStatistic(), new MidPriceStatistic()));
+                statisticsTable,
+                dynamoDbClient,
+                "test-table",
+                List.of(new TickCountStatistic(), new SpreadStatistic(), new MidPriceStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
@@ -199,22 +209,19 @@ class StatisticalQualityRuleTest {
 
         rule.check(entry, List.of(s), listing, clock);
 
-        ArgumentCaptor<ListingStatistics> captor = ArgumentCaptor.forClass(ListingStatistics.class);
-        verify(statisticsTable).putItem(captor.capture());
-        ListingStatistics saved = captor.getValue();
-        assertEquals(1, saved.getSampleCount("tickCount"));
-        assertEquals(1, saved.getSampleCount("spread"));
-        assertEquals(1, saved.getSampleCount("midPrice"));
-        assertEquals(1.0, saved.getMean("tickCount"), 0.001);
-        assertEquals(2.0 / Statics.PRICE_SCALING_FACTOR, saved.getMean("spread"), 1e-12);
-        assertEquals(101.0 / Statics.PRICE_SCALING_FACTOR, saved.getMean("midPrice"), 1e-12);
+        // tickCount, spread, midPrice — all non-NaN for MBP_10 with data
+        verify(dynamoDbClient, times(3)).updateItem(any(UpdateItemRequest.class));
     }
 
     @Test
     void testIssueContainsCorrectMetadata() {
-        ListingStatistics existing = buildStats("tickCount", 1000.0, 100000.0, 30.0);
-        when(statisticsTable.getItem(any(Key.class))).thenReturn(existing);
-        StatisticalQualityRule rule = new StatisticalQualityRule(statisticsTable, List.of(new TickCountStatistic()));
+        // Need 3 fresh distinct days to trigger anomaly
+        queryResults.add(buildHourlyStats("2024-01-13", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-15", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
@@ -229,16 +236,68 @@ class StatisticalQualityRuleTest {
         assertNotNull(issue.getS3Key());
     }
 
-    private ListingStatistics buildStats(String metricName, double mean, double m2, double count) {
-        ListingStatistics stats = new ListingStatistics();
-        stats.setListingId(LISTING_ID);
-        Map<String, Map<String, Double>> statsMap = new HashMap<>();
-        Map<String, Double> metricMap = new HashMap<>();
-        metricMap.put(ListingStatistics.MEAN_KEY, mean);
-        metricMap.put(ListingStatistics.M2_KEY, m2);
-        metricMap.put(ListingStatistics.COUNT_KEY, count);
-        statsMap.put(metricName, metricMap);
-        stats.setStatistics(statsMap);
-        return stats;
+    @Test
+    void testPerStatisticLookbackFiltering() {
+        // SpreadStatistic has lookbackDays=7; a row from 10 days ago should be excluded
+        queryResults.add(buildHourlyStats("2024-01-05", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
+        queryResults.add(buildHourlyStats("2024-01-06", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
+        queryResults.add(buildHourlyStats("2024-01-07", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
+
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        // SpreadStatistic lookback=7 days. entryDate=2024-01-15, startDate=2024-01-08.
+        // All three rows (Jan 5-7) are outside the 7-day window → filtered out → distinctDays=0 → no anomaly
+        List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
+
+        assertTrue(issues.isEmpty());
+    }
+
+    @Test
+    void testUpdateStatisticsFalseNeverCallsUpdateItem() {
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), true, false);
+        // Flip: updateStatistics=false
+        StatisticalQualityRule noWriteRule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), false, false);
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        noWriteRule.check(entry, List.of(), listing, clock);
+
+        verify(dynamoDbClient, never()).updateItem(any(UpdateItemRequest.class));
+    }
+
+    @Test
+    void testDetectAnomaliesFalseNoIssuesEvenWithAnomaly() {
+        queryResults.add(buildHourlyStats("2024-01-13", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-15", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+
+        StatisticalQualityRule noDetectRule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), false, false);
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        // 5 records when mean=1000 — anomalous, but detectAnomalies=false so no issues
+        List<Schema> records = new ArrayList<>();
+        for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
+
+        List<QualityIssue> issues = noDetectRule.check(entry, records, listing, clock);
+
+        assertTrue(issues.isEmpty());
+    }
+
+    private HourlyListingStatistic buildHourlyStats(
+            String date, int hour, String metric, double count, double sum, double sumOfSquares) {
+        HourlyListingStatistic stat = new HourlyListingStatistic();
+        stat.setListingId(LISTING_ID);
+        stat.setSk(HourlyListingStatistic.buildSk(hour, date, metric));
+        stat.setCount(count);
+        stat.setSum(sum);
+        stat.setSumOfSquares(sumOfSquares);
+        return stat;
     }
 }

@@ -10,7 +10,7 @@ import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.luben.zstd.ZstdOutputStream;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.quality.model.ListingStatistics;
+import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityIssueStatus;
 import group.gnometrading.quality.model.QualityRuleType;
@@ -37,9 +37,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.pagination.sync.SdkIterable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
-import software.amazon.awssdk.enhanced.dynamodb.Key;
+import software.amazon.awssdk.enhanced.dynamodb.model.PageIterable;
+import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 import software.amazon.awssdk.http.AbortableInputStream;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
@@ -58,7 +62,10 @@ class QualityCheckLambdaHandlerTest {
     private DynamoDbTable<QualityIssue> qualityIssuesTable;
 
     @Mock
-    private DynamoDbTable<ListingStatistics> listingStatisticsTable;
+    private DynamoDbTable<HourlyListingStatistic> hourlyStatisticsTable;
+
+    @Mock
+    private DynamoDbClient dynamoDbClient;
 
     @Mock
     private Context context;
@@ -86,6 +93,7 @@ class QualityCheckLambdaHandlerTest {
 
     private List<byte[]> s3MockedDataList;
     private int s3GetObjectCallCount;
+    private final List<HourlyListingStatistic> queryResults = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -99,7 +107,9 @@ class QualityCheckLambdaHandlerTest {
                 qualityIssuesTable,
                 MERGED_BUCKET,
                 clock,
-                listingStatisticsTable);
+                hourlyStatisticsTable,
+                dynamoDbClient,
+                "test-table");
 
         lenient().when(context.getLogger()).thenReturn(logger);
         lenient().when(listing.listingId()).thenReturn(LISTING_ID);
@@ -125,7 +135,12 @@ class QualityCheckLambdaHandlerTest {
                             GetObjectResponse.builder().build(), AbortableInputStream.create(stream));
                 });
 
-        lenient().when(listingStatisticsTable.getItem(any(Key.class))).thenReturn(null);
+        queryResults.clear();
+        PageIterable<HourlyListingStatistic> mockPages = mock(PageIterable.class);
+        SdkIterable<HourlyListingStatistic> mockItems = mock(SdkIterable.class);
+        lenient().when(mockItems.iterator()).thenAnswer(inv -> queryResults.iterator());
+        lenient().when(mockPages.items()).thenReturn(mockItems);
+        lenient().when(hourlyStatisticsTable.query(any(QueryConditional.class))).thenReturn(mockPages);
     }
 
     @Test
@@ -186,7 +201,7 @@ class QualityCheckLambdaHandlerTest {
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         Mbp10Schema s = new Mbp10Schema();
-        s.encoder.timestampEvent(0L); // Far outside the minute window
+        s.encoder.timestampEvent(0L);
         mockS3Data(List.of(s));
 
         handler.handleRequest(event, context);
@@ -207,7 +222,7 @@ class QualityCheckLambdaHandlerTest {
         s1.encoder.sequence(5);
         s1.encoder.timestampEvent(windowStartNanos + 1000);
         Mbp10Schema s2 = new Mbp10Schema();
-        s2.encoder.sequence(3); // decrease
+        s2.encoder.sequence(3);
         s2.encoder.timestampEvent(windowStartNanos + 2000);
         mockS3Data(List.of(s1, s2));
 
@@ -243,9 +258,6 @@ class QualityCheckLambdaHandlerTest {
         String key = "1/2/2024/1/15/10/30/mbp-10.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
-        // No existing stats (cold start)
-        when(listingStatisticsTable.getItem(any(Key.class))).thenReturn(null);
-
         long windowStartNanos = FIXED_TIME.toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.sequence(1);
@@ -254,14 +266,12 @@ class QualityCheckLambdaHandlerTest {
 
         handler.handleRequest(event, context);
 
-        // No statistical anomaly issues during cold start
         verify(qualityIssuesTable, never())
                 .putItem(argThat((QualityIssue i) -> i.getRuleType() == QualityRuleType.TICK_COUNT_ANOMALY
                         || i.getRuleType() == QualityRuleType.SPREAD_ANOMALY
                         || i.getRuleType() == QualityRuleType.MID_PRICE_ANOMALY));
 
-        // Statistics should be written
-        verify(listingStatisticsTable, times(1)).putItem(any(ListingStatistics.class));
+        verify(dynamoDbClient, atLeastOnce()).updateItem(any(UpdateItemRequest.class));
     }
 
     @Test
@@ -269,20 +279,17 @@ class QualityCheckLambdaHandlerTest {
         String key = "1/2/2024/1/15/10/30/mbp-10.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
-        // Pre-load baseline with count=30, mean=1000 for tickCount
-        ListingStatistics existing = new ListingStatistics();
-        existing.setListingId(LISTING_ID);
-        java.util.Map<String, java.util.Map<String, Double>> statsMap = new java.util.HashMap<>();
-        java.util.Map<String, Double> tickStats = new java.util.HashMap<>();
-        tickStats.put(ListingStatistics.MEAN_KEY, 1000.0);
-        tickStats.put(ListingStatistics.M2_KEY, 100000.0);
-        tickStats.put(ListingStatistics.COUNT_KEY, 30.0);
-        statsMap.put("tickCount", tickStats);
-        existing.setStatistics(statsMap);
-        when(listingStatisticsTable.getItem(any(Key.class))).thenReturn(existing);
+        for (String date : List.of("2024-01-13", "2024-01-14", "2024-01-15")) {
+            HourlyListingStatistic baseline = new HourlyListingStatistic();
+            baseline.setListingId(LISTING_ID);
+            baseline.setSk(HourlyListingStatistic.buildSk(10, date, "tickCount"));
+            baseline.setCount(10.0);
+            baseline.setSum(10000.0);
+            baseline.setSumOfSquares(10000000.0);
+            queryResults.add(baseline);
+        }
 
         long windowStartNanos = FIXED_TIME.toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
-        // Only 2 records — well below 10% of mean=1000
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.sequence(1);
         s1.encoder.timestampEvent(windowStartNanos + 1000);
@@ -319,8 +326,8 @@ class QualityCheckLambdaHandlerTest {
 
         handler.handleRequest(event, context);
 
-        // Two entries processed, two stats writes
-        verify(listingStatisticsTable, times(2)).putItem(any(ListingStatistics.class));
+        // two entries × N statistics each emit updateItem calls
+        verify(dynamoDbClient, atLeast(2)).updateItem(any(UpdateItemRequest.class));
     }
 
     @Test
@@ -329,7 +336,7 @@ class QualityCheckLambdaHandlerTest {
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         Mbp10Schema s = new Mbp10Schema();
-        s.encoder.timestampEvent(0L); // misaligned
+        s.encoder.timestampEvent(0L);
         mockS3Data(List.of(s));
 
         handler.handleRequest(event, context);

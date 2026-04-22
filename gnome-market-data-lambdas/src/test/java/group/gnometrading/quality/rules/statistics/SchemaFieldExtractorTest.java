@@ -1,4 +1,4 @@
-package group.gnometrading.quality.statistics;
+package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 

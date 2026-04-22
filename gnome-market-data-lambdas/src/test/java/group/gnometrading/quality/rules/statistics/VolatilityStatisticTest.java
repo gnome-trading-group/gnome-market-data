@@ -1,4 +1,4 @@
-package group.gnometrading.quality.statistics;
+package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -96,22 +96,17 @@ class VolatilityStatisticTest {
 
     @Test
     void testAnomalousWhenVolatility5xAboveAverage() {
-        assertTrue(statistic.isAnomalous(500.0, 100.0, 20.0, 30));
+        assertTrue(statistic.isAnomalous(500.0, 100.0, 20.0));
     }
 
     @Test
     void testNotAnomalousWhenVolatilityBelow5xAverage() {
-        assertFalse(statistic.isAnomalous(400.0, 100.0, 20.0, 30));
-    }
-
-    @Test
-    void testNotAnomalousBeforeWarmup() {
-        assertFalse(statistic.isAnomalous(1000.0, 100.0, 20.0, 29));
+        assertFalse(statistic.isAnomalous(400.0, 100.0, 20.0));
     }
 
     @Test
     void testNotAnomalousWhenMeanIsZero() {
-        assertFalse(statistic.isAnomalous(0.0, 0.0, 0.0, 100));
+        assertFalse(statistic.isAnomalous(0.0, 0.0, 0.0));
     }
 
     @Test

@@ -1,4 +1,4 @@
-package group.gnometrading.quality.statistics;
+package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -78,23 +78,20 @@ class MidPriceStatisticTest {
     }
 
     @Test
-    void testAnomalousWhenPriceDeviates10Percent() {
-        assertTrue(statistic.isAnomalous(115.0, 100.0, 5.0, 30));
+    void testAnomalousWhenPriceExceeds4Sigma() {
+        // |125 - 100| = 25 > 4 * 5 = 20
+        assertTrue(statistic.isAnomalous(125.0, 100.0, 5.0));
     }
 
     @Test
-    void testNotAnomalousWhenPriceWithin10Percent() {
-        assertFalse(statistic.isAnomalous(105.0, 100.0, 5.0, 30));
+    void testNotAnomalousWhenPriceWithin4Sigma() {
+        // |110 - 100| = 10 < 4 * 5 = 20
+        assertFalse(statistic.isAnomalous(110.0, 100.0, 5.0));
     }
 
     @Test
-    void testNotAnomalousBeforeWarmup() {
-        assertFalse(statistic.isAnomalous(500.0, 100.0, 5.0, 29));
-    }
-
-    @Test
-    void testNotAnomalousWhenMeanIsZero() {
-        assertFalse(statistic.isAnomalous(0.0, 0.0, 0.0, 100));
+    void testNotAnomalousWhenStddevIsZero() {
+        assertFalse(statistic.isAnomalous(200.0, 100.0, 0.0));
     }
 
     @Test

@@ -30,7 +30,7 @@ interface BackendStackProps extends cdk.StackProps {
   metadataBucket: s3.IBucket;
   coverageTable: dynamodb.ITable;
   qualityIssuesTable: dynamodb.ITable;
-  listingStatisticsTable: dynamodb.ITable;
+  dailyListingStatisticsTable: dynamodb.ITable;
   qualityBackfillLambda: lambda.IFunction;
 }
 
@@ -331,7 +331,7 @@ export class BackendStack extends cdk.Stack {
     coverageEndpoints.forEach(createMarketDataEndpoint);
     qualityIssuesEndpoints.forEach(createMarketDataEndpoint);
 
-    // Listing statistics endpoint — read-only, only needs listingStatisticsTable
+    // Listing statistics endpoint — read-only, only needs dailyListingStatisticsTable
     const listingStatsLambda = new lambda.Function(this, "GetListingStatisticsFunction", {
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: "index.handler",
@@ -339,10 +339,10 @@ export class BackendStack extends cdk.Stack {
       layers: [commonLayer],
       timeout: cdk.Duration.seconds(30),
       environment: {
-        LISTING_STATISTICS_TABLE_NAME: props.listingStatisticsTable.tableName,
+        LISTING_STATISTICS_TABLE_NAME: props.dailyListingStatisticsTable.tableName,
       },
     });
-    props.listingStatisticsTable.grantReadData(listingStatsLambda);
+    props.dailyListingStatisticsTable.grantReadData(listingStatsLambda);
 
     const listingStatsResource = this.api.root
       .addResource("listing-statistics")
@@ -350,6 +350,23 @@ export class BackendStack extends cdk.Stack {
     listingStatsResource.addMethod(
       "GET",
       new apigateway.LambdaIntegration(listingStatsLambda),
+      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
+    );
+
+    const listingStatsHistoryLambda = new lambda.Function(this, "GetListingStatisticsHistoryFunction", {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("lambda/functions/listing-statistics/history"),
+      layers: [commonLayer],
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        LISTING_STATISTICS_TABLE_NAME: props.dailyListingStatisticsTable.tableName,
+      },
+    });
+    props.dailyListingStatisticsTable.grantReadData(listingStatsHistoryLambda);
+    listingStatsResource.addResource("history").addMethod(
+      "GET",
+      new apigateway.LambdaIntegration(listingStatsHistoryLambda),
       { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
     );
 

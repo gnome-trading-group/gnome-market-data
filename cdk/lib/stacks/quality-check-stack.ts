@@ -11,7 +11,7 @@ import { LAMBDAS_VERSION, MarketDataConfig } from "../config";
 export interface QualityCheckStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
   qualityIssuesTable: dynamodb.ITable;
-  listingStatisticsTable: dynamodb.ITable;
+  dailyListingStatisticsTable: dynamodb.ITable;
   qualityCheckQueue: sqs.IQueue;
   config: MarketDataConfig;
 }
@@ -26,7 +26,7 @@ export class QualityCheckStack extends cdk.Stack {
     const sharedEnv = {
       MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
       QUALITY_ISSUES_TABLE_NAME: props.qualityIssuesTable.tableName,
-      LISTING_STATISTICS_TABLE_NAME: props.listingStatisticsTable.tableName,
+      LISTING_STATISTICS_TABLE_NAME: props.dailyListingStatisticsTable.tableName,
       STAGE: props.config.account.stage,
     };
 
@@ -39,7 +39,7 @@ export class QualityCheckStack extends cdk.Stack {
 
     props.mergedBucket.grantRead(this.qualityCheckLambda);
     props.qualityIssuesTable.grantReadWriteData(this.qualityCheckLambda);
-    props.listingStatisticsTable.grantReadWriteData(this.qualityCheckLambda);
+    props.dailyListingStatisticsTable.grantReadWriteData(this.qualityCheckLambda);
 
     this.qualityCheckLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.qualityCheckQueue, {
       batchSize: 1_000,
@@ -55,6 +55,6 @@ export class QualityCheckStack extends cdk.Stack {
 
     props.mergedBucket.grantRead(this.qualityBackfillLambda);
     props.qualityIssuesTable.grantReadWriteData(this.qualityBackfillLambda);
-    props.listingStatisticsTable.grantReadWriteData(this.qualityBackfillLambda);
+    props.dailyListingStatisticsTable.grantReadWriteData(this.qualityBackfillLambda);
   }
 }

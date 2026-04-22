@@ -26,7 +26,7 @@ export class StorageStack extends cdk.Stack {
   public readonly gapQueue: sqs.Queue;
   public readonly inventoryQueue: sqs.Queue;
   public readonly qualityIssuesTable: dynamodb.Table;
-  public readonly listingStatisticsTable: dynamodb.Table;
+  public readonly dailyListingStatisticsTable: dynamodb.Table;
   public readonly qualityCheckQueue: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: StorageStackProps) {
@@ -164,9 +164,10 @@ export class StorageStack extends cdk.Stack {
       sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
     });
 
-    this.listingStatisticsTable = new dynamodb.Table(this, "ListingStatisticsTable", {
-      tableName: "market-data-listing-statistics",
+    this.dailyListingStatisticsTable = new dynamodb.Table(this, "DailyListingStatisticsTable", {
+      tableName: "market-data-listing-daily-statistics",
       partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       pointInTimeRecovery: true,

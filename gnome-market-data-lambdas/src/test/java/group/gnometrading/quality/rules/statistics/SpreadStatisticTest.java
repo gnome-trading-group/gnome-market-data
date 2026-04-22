@@ -1,4 +1,4 @@
-package group.gnometrading.quality.statistics;
+package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -89,18 +89,13 @@ class SpreadStatisticTest {
     }
 
     @Test
-    void testAnomalousWhenSpread5xAboveAverage() {
-        assertTrue(statistic.isAnomalous(500.0, 100.0, 10.0, 30));
+    void testAnomalousWhenSpread10xAboveAverage() {
+        assertTrue(statistic.isAnomalous(1000.0, 100.0, 10.0));
     }
 
     @Test
-    void testNotAnomalousWhenSpreadNormal() {
-        assertFalse(statistic.isAnomalous(300.0, 100.0, 10.0, 30));
-    }
-
-    @Test
-    void testNotAnomalousBeforeWarmup() {
-        assertFalse(statistic.isAnomalous(1000.0, 100.0, 10.0, 29));
+    void testNotAnomalousWhenSpreadBelow10x() {
+        assertFalse(statistic.isAnomalous(500.0, 100.0, 10.0));
     }
 
     @Test

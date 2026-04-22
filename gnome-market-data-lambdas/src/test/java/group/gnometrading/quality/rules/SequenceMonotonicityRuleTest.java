@@ -68,7 +68,8 @@ class SequenceMonotonicityRuleTest {
     }
 
     @Test
-    void testIssueForDecrease() {
+    void testIssueWhenAllOutOfOrder() {
+        // 1/1 transitions = 100% > 20% threshold
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
@@ -80,7 +81,8 @@ class SequenceMonotonicityRuleTest {
     }
 
     @Test
-    void testIssueDetailsCountsDecreases() {
+    void testIssueDetailsIncludesPercentage() {
+        // [1, 1, 5, 3, 10]: 1 decrease out of 4 transitions = 25% > 20%
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
@@ -88,7 +90,59 @@ class SequenceMonotonicityRuleTest {
 
         assertEquals(1, issues.size());
         assertTrue(issues.get(0).getDetails().contains("1 decrease"));
+        assertTrue(issues.get(0).getDetails().contains("4 transitions"));
         assertTrue(issues.get(0).getDetails().contains("5 records"));
+    }
+
+    @Test
+    void testNoIssueForMinorJitter() {
+        // 1 decrease out of 10 transitions = 10% — under the 20% threshold
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        var issues = rule.check(
+                entry,
+                List.of(
+                        schema(1),
+                        schema(2),
+                        schema(3),
+                        schema(4),
+                        schema(5),
+                        schema(6),
+                        schema(5),
+                        schema(8),
+                        schema(9),
+                        schema(10),
+                        schema(11)),
+                listing,
+                clock);
+
+        assertTrue(issues.isEmpty());
+    }
+
+    @Test
+    void testIssueAtBoundary() {
+        // 2 decreases out of 9 transitions = 22.2% — just over the 20% threshold
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        var issues = rule.check(
+                entry,
+                List.of(
+                        schema(1),
+                        schema(2),
+                        schema(1),
+                        schema(4),
+                        schema(5),
+                        schema(6),
+                        schema(5),
+                        schema(8),
+                        schema(9),
+                        schema(10)),
+                listing,
+                clock);
+
+        assertEquals(1, issues.size());
     }
 
     @Test

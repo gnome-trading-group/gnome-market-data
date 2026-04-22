@@ -1,4 +1,4 @@
-package group.gnometrading.quality.statistics;
+package group.gnometrading.quality.rules.statistics;
 
 import group.gnometrading.data.MarketDataEntry;
 import group.gnometrading.quality.model.QualityRuleType;
@@ -20,10 +20,24 @@ public interface QualityStatistic {
 
     /**
      * Returns true if the current value is anomalous relative to the rolling baseline.
-     * Implementations should return false when sampleCount is below a warmup threshold
-     * to avoid false positives on cold starts.
+     * Warmup and freshness checks are handled by StatisticalQualityRule before calling this.
      */
-    boolean isAnomalous(double currentValue, double mean, double stddev, int sampleCount);
+    boolean isAnomalous(double currentValue, double mean, double stddev);
 
     String describeAnomaly(double currentValue, double mean, double stddev);
+
+    /** How many days of history to include in the baseline. */
+    default int lookbackDays() {
+        return 14;
+    }
+
+    /**
+     * Minimum number of distinct days of historical data required before anomaly detection
+     * activates. Also used as the gap-freshness threshold — if the most recent historical data
+     * point for this metric+hour is older than minimumDays days, detection is suppressed to
+     * force re-warm after a data gap.
+     */
+    default int minimumDays() {
+        return 3;
+    }
 }

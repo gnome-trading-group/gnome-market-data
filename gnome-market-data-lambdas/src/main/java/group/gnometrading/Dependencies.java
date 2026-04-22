@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.constants.Stage;
 import group.gnometrading.coverage.CoverageRecord;
 import group.gnometrading.gap.Gap;
-import group.gnometrading.quality.model.ListingStatistics;
+import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.resources.Properties;
 import group.gnometrading.transformer.TransformationJob;
@@ -34,7 +34,7 @@ public class Dependencies {
     private final DynamoDbTable<Gap> gapsTable;
     private final DynamoDbTable<CoverageRecord> coverageTable;
     private final DynamoDbTable<QualityIssue> qualityIssuesTable;
-    private final DynamoDbTable<ListingStatistics> listingStatisticsTable;
+    private final DynamoDbTable<HourlyListingStatistic> hourlyListingStatisticsTable;
     private final SecurityMaster securityMaster;
 
     private final String rawBucketName;
@@ -95,10 +95,10 @@ public class Dependencies {
             this.qualityIssuesTable = null;
         }
         if (listingStatisticsTableName != null) {
-            this.listingStatisticsTable = dynamoDbEnhancedClient.table(
-                    listingStatisticsTableName, TableSchema.fromBean(ListingStatistics.class));
+            this.hourlyListingStatisticsTable = dynamoDbEnhancedClient.table(
+                    listingStatisticsTableName, TableSchema.fromBean(HourlyListingStatistic.class));
         } else {
-            this.listingStatisticsTable = null;
+            this.hourlyListingStatisticsTable = null;
         }
     }
 
@@ -191,8 +191,8 @@ public class Dependencies {
         return qualityIssuesTableName;
     }
 
-    public DynamoDbTable<ListingStatistics> getListingStatisticsTable() {
-        return listingStatisticsTable;
+    public DynamoDbTable<HourlyListingStatistic> getHourlyListingStatisticsTable() {
+        return hourlyListingStatisticsTable;
     }
 
     public String getListingStatisticsTableName() {

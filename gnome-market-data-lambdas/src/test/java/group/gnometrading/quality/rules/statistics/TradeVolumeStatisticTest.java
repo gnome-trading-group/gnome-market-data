@@ -1,4 +1,4 @@
-package group.gnometrading.quality.statistics;
+package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -90,22 +90,17 @@ class TradeVolumeStatisticTest {
 
     @Test
     void testAnomalousWhenVolumeDrops90Percent() {
-        assertTrue(statistic.isAnomalous(50.0, 1000.0, 100.0, 30));
+        assertTrue(statistic.isAnomalous(50.0, 1000.0, 100.0));
     }
 
     @Test
     void testNotAnomalousWhenVolumeDropsLessThan90Percent() {
-        assertFalse(statistic.isAnomalous(200.0, 1000.0, 100.0, 30));
-    }
-
-    @Test
-    void testNotAnomalousBeforeWarmup() {
-        assertFalse(statistic.isAnomalous(1.0, 1000.0, 100.0, 29));
+        assertFalse(statistic.isAnomalous(200.0, 1000.0, 100.0));
     }
 
     @Test
     void testNotAnomalousWhenMeanIsZero() {
-        assertFalse(statistic.isAnomalous(0.0, 0.0, 0.0, 100));
+        assertFalse(statistic.isAnomalous(0.0, 0.0, 0.0));
     }
 
     @Test

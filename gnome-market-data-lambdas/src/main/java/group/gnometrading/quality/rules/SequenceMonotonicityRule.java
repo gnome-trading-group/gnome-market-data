@@ -14,6 +14,8 @@ import java.util.List;
 
 public final class SequenceMonotonicityRule implements QualityRule {
 
+    private static final double ANOMALY_RATIO = 0.20;
+
     @Override
     public List<QualityIssue> check(MarketDataEntry entry, List<Schema> records, Listing listing, Clock clock) {
         List<QualityIssue> issues = new ArrayList<>();
@@ -32,10 +34,12 @@ public final class SequenceMonotonicityRule implements QualityRule {
             previous = current;
         }
 
-        if (decreases > 0) {
+        int transitions = records.size() - 1;
+        if ((double) decreases / transitions > ANOMALY_RATIO) {
             QualityIssue issue = buildIssue(entry, listing, clock);
-            issue.setDetails(
-                    String.format("%d decrease(s) in sequence numbers across %d records", decreases, records.size()));
+            issue.setDetails(String.format(
+                    "%d decrease(s) out of %d transitions (%.1f%%) in %d records",
+                    decreases, transitions, (double) decreases / transitions * 100, records.size()));
             issues.add(issue);
         }
 
