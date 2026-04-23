@@ -164,17 +164,6 @@ export class StorageStack extends cdk.Stack {
       sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
     });
 
-    const oldListingStatisticsTable = new dynamodb.Table(this, "ListingStatisticsTable", {
-      tableName: "market-data-listing-statistics",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-    // Preserve existing CloudFormation exports until dependent stacks drop their ImportValue references
-    this.exportValue(oldListingStatisticsTable.tableArn);
-    this.exportValue(oldListingStatisticsTable.tableName);
-
     this.dailyListingStatisticsTable = new dynamodb.Table(this, "DailyListingStatisticsTable", {
       tableName: "market-data-listing-daily-statistics",
       partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
