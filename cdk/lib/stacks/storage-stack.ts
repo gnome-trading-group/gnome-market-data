@@ -171,8 +171,9 @@ export class StorageStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       pointInTimeRecovery: true,
     });
-    // Preserve the existing CloudFormation export until dependent stacks drop their ImportValue references
+    // Preserve existing CloudFormation exports until dependent stacks drop their ImportValue references
     this.exportValue(oldListingStatisticsTable.tableArn);
+    this.exportValue(oldListingStatisticsTable.tableName);
 
     this.dailyListingStatisticsTable = new dynamodb.Table(this, "DailyListingStatisticsTable", {
       tableName: "market-data-listing-daily-statistics",
