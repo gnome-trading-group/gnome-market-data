@@ -19,6 +19,7 @@ export interface QualityCheckStackProps extends cdk.StackProps {
 export class QualityCheckStack extends cdk.Stack {
   public readonly qualityCheckLambda: lambda.Function;
   public readonly qualityBackfillLambda: lambda.Function;
+  public readonly qualityInvestigationLambda: lambda.Function;
 
   constructor(scope: Construct, id: string, props: QualityCheckStackProps) {
     super(scope, id, props);
@@ -56,5 +57,16 @@ export class QualityCheckStack extends cdk.Stack {
     props.mergedBucket.grantRead(this.qualityBackfillLambda);
     props.qualityIssuesTable.grantReadWriteData(this.qualityBackfillLambda);
     props.dailyListingStatisticsTable.grantReadWriteData(this.qualityBackfillLambda);
+
+    const qualityInvestigationLambda = new JavaLambda(this, `QualityInvestigationLambda-${LAMBDAS_VERSION}`, {
+      name: `QualityInvestigation-${LAMBDAS_VERSION}`,
+      classPath: 'group.gnometrading.quality.MinuteInvestigationLambdaHandler',
+      environment: sharedEnv,
+    });
+    this.qualityInvestigationLambda = qualityInvestigationLambda.lambdaFunction;
+
+    props.mergedBucket.grantRead(this.qualityInvestigationLambda);
+    props.qualityIssuesTable.grantReadData(this.qualityInvestigationLambda);
+    props.dailyListingStatisticsTable.grantReadData(this.qualityInvestigationLambda);
   }
 }

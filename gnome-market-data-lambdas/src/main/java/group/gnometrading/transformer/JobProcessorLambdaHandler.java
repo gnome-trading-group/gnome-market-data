@@ -129,8 +129,11 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
     }
 
     private void processJob(TransformationJob job) throws Exception {
-        logger.info("Processing job: listingId={}, schemaType={}, timestamp={}",
-                job.getListingId(), job.getSchemaType(), job.getTimestamp());
+        logger.info(
+                "Processing job: listingId={}, schemaType={}, timestamp={}",
+                job.getListingId(),
+                job.getSchemaType(),
+                job.getTimestamp());
 
         Window window = calculateWindow(job);
         Listing listing = securityMaster.getListing(job.getListingId());
@@ -164,8 +167,11 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
 
         handleJobSuccess(job);
 
-        logger.info("Successfully processed job: listingId={}, schemaType={}, output={}",
-                job.getListingId(), job.getSchemaType(), outputEntry.getKey());
+        logger.info(
+                "Successfully processed job: listingId={}, schemaType={}, output={}",
+                job.getListingId(),
+                job.getSchemaType(),
+                outputEntry.getKey());
     }
 
     private List<Schema> downloadSafely(MarketDataEntry entry) {
@@ -206,7 +212,10 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
 
         transformJobsTable.updateItem(job);
 
-        logger.error("Job marked as FAILED: listingId={}, schemaType={}, error={}",
-                job.getListingId(), job.getSchemaType(), errorMessage);
+        logger.error(
+                "Job marked as FAILED: listingId={}, schemaType={}, error={}",
+                job.getListingId(),
+                job.getSchemaType(),
+                errorMessage);
     }
 }

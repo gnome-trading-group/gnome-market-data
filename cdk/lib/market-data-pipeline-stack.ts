@@ -85,6 +85,7 @@ class AppStage extends cdk.Stage {
       qualityIssuesTable: storageStack.qualityIssuesTable,
       dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
       qualityBackfillLambda: qualityCheckStack.qualityBackfillLambda,
+      qualityInvestigationLambda: qualityCheckStack.qualityInvestigationLambda,
     });
 
     const transformerStack = new TransformerStack(this, "MarketDataTransformerStack", {

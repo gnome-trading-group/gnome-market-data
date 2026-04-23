@@ -105,11 +105,17 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
                             .expression("attribute_not_exists(jobId) AND attribute_not_exists(#ts)")
                             .putExpressionName("#ts", "timestamp")
                             .build()));
-            logger.info("Created transformation job: listingId={}, schemaType={}, timestamp={}",
-                    listingId, schemaType.getIdentifier(), entry.getTimestamp());
+            logger.info(
+                    "Created transformation job: listingId={}, schemaType={}, timestamp={}",
+                    listingId,
+                    schemaType.getIdentifier(),
+                    entry.getTimestamp());
         } catch (ConditionalCheckFailedException e) {
-            logger.info("Job already exists for listingId={}, schemaType={}, timestamp={}",
-                    listingId, schemaType.getIdentifier(), entry.getTimestamp());
+            logger.info(
+                    "Job already exists for listingId={}, schemaType={}, timestamp={}",
+                    listingId,
+                    schemaType.getIdentifier(),
+                    entry.getTimestamp());
         }
     }
 }

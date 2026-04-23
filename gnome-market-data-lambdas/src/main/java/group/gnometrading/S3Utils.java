@@ -17,15 +17,16 @@ public class S3Utils {
     private S3Utils() {}
 
     public static Set<MarketDataEntry> extractKeysFromS3Event(SQSEvent event, ObjectMapper objectMapper) {
-        logger.info("Extracting keys from SQS event with {} messages", event.getRecords().size());
+        logger.info(
+                "Extracting keys from SQS event with {} messages",
+                event.getRecords().size());
         return event.getRecords().stream()
                 .map(message -> extractKeysFromS3Event(message, objectMapper))
                 .flatMap(Set::stream)
                 .collect(Collectors.toSet());
     }
 
-    private static Set<MarketDataEntry> extractKeysFromS3Event(
-            SQSEvent.SQSMessage message, ObjectMapper objectMapper) {
+    private static Set<MarketDataEntry> extractKeysFromS3Event(SQSEvent.SQSMessage message, ObjectMapper objectMapper) {
         JsonNode sqsBody;
         try {
             sqsBody = objectMapper.readTree(message.getBody());

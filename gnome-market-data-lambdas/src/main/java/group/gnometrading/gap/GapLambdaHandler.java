@@ -131,8 +131,12 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
                 storeGap(gap);
             }
 
-            logger.info("Detected {} gap(s) for listing {} between {} and {}",
-                    gaps.size(), listing.listingId(), mostRecentMinute, currentTimestamp);
+            logger.info(
+                    "Detected {} gap(s) for listing {} between {} and {}",
+                    gaps.size(),
+                    listing.listingId(),
+                    mostRecentMinute,
+                    currentTimestamp);
         }
     }
 

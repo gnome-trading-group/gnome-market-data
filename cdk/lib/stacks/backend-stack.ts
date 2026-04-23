@@ -32,6 +32,7 @@ interface BackendStackProps extends cdk.StackProps {
   qualityIssuesTable: dynamodb.ITable;
   dailyListingStatisticsTable: dynamodb.ITable;
   qualityBackfillLambda: lambda.IFunction;
+  qualityInvestigationLambda: lambda.IFunction;
 }
 
 interface EndpointConfig {
@@ -389,6 +390,29 @@ export class BackendStack extends cdk.Stack {
     backfillResource.addMethod(
       "POST",
       new apigateway.LambdaIntegration(qualityBackfillTriggerLambda),
+      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
+    );
+
+    // Quality issue minute investigation — synchronous invocation of the Java investigation Lambda
+    const qualityInvestigateLambda = new lambda.Function(this, "InvestigateQualityIssueFunction", {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("lambda/functions/quality-issues/investigate"),
+      layers: [commonLayer],
+      timeout: cdk.Duration.seconds(60),
+      environment: {
+        INVESTIGATION_FUNCTION_NAME: props.qualityInvestigationLambda.functionName,
+      },
+    });
+    props.qualityInvestigationLambda.grantInvoke(qualityInvestigateLambda);
+
+    const investigateResource = this.api.root
+      .getResource("quality-issues")!
+      .addResource("investigate")
+      .addResource("{listingId}");
+    investigateResource.addMethod(
+      "GET",
+      new apigateway.LambdaIntegration(qualityInvestigateLambda),
       { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
     );
 

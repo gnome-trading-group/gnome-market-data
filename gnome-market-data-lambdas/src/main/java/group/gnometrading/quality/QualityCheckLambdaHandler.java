@@ -104,8 +104,11 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
             totalIssues += issues.size();
         }
 
-        logger.info("Quality check complete for {}: {} issue(s) found across {} records",
-                entry, totalIssues, records.size());
+        logger.info(
+                "Quality check complete for {}: {} issue(s) found across {} records",
+                entry,
+                totalIssues,
+                records.size());
     }
 
     private void storeIssue(QualityIssue issue) {
