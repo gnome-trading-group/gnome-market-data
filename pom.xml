@@ -9,7 +9,7 @@
     </parent>
 
     <artifactId>gnome-market-data</artifactId>
-    <version>1.2.7-SNAPSHOT</version>
+    <version>1.2.7</version>
     <packaging>pom</packaging>
 
     <modules>
@@ -20,7 +20,7 @@
     <scm>
         <connection>scm:git:git@github.com:gnome-trading-group/gnome-market-data.git</connection>
         <developerConnection>scm:git:git@github.com:gnome-trading-group/gnome-market-data.git</developerConnection>
-        <tag>HEAD</tag>
+        <tag>gnome-market-data-1.2.7</tag>
     </scm>
 
     <repositories>
