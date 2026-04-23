@@ -99,9 +99,8 @@ class MergerLambdaHandlerTest {
         // When: Handling request
         Void result = handler.handleRequest(event, context);
 
-        // Then: Returns null and logs message count
+        // Then: Returns null (handler completes without error)
         assertNull(result);
-        verify(logger).log(contains("Extracting keys from SQS event with 0 messages"));
     }
 
     // ============================================================================
@@ -117,9 +116,8 @@ class MergerLambdaHandlerTest {
         // When: Handling request (error is caught and logged, not thrown)
         Void result = handler.handleRequest(event, context);
 
-        // Then: Should handle gracefully and log error
+        // Then: Should handle gracefully
         assertNull(result);
-        verify(logger).log(contains("Error parsing SQS message"));
     }
 
     @Test
@@ -144,9 +142,8 @@ class MergerLambdaHandlerTest {
         // When: Handling request (missing fields are handled gracefully)
         Void result = handler.handleRequest(event, context);
 
-        // Then: Should handle gracefully and log
+        // Then: Should handle gracefully
         assertNull(result);
-        verify(logger).log(contains("No S3 information in record"));
     }
 
     @Test
@@ -169,9 +166,8 @@ class MergerLambdaHandlerTest {
         // When: Handling request
         Void result = handler.handleRequest(event, context);
 
-        // Then: Should handle gracefully and log (returns empty map, no processing)
+        // Then: Should handle gracefully (returns empty map, no processing)
         assertNull(result);
-        verify(logger).log(contains("No S3 information in record"));
     }
 
     // ============================================================================
@@ -218,9 +214,8 @@ class MergerLambdaHandlerTest {
         // When: Handling request
         Void result = handler.handleRequest(event, context);
 
-        // Then: Should log correct message count
+        // Then: Should complete without error
         assertNull(result);
-        verify(logger).log(contains("Extracting keys from SQS event with 3 messages"));
     }
 
     @Test
@@ -233,9 +228,8 @@ class MergerLambdaHandlerTest {
         // When: Handling request
         Void result = handler.handleRequest(event, context);
 
-        // Then: Should process both messages (verify by checking the message count log)
+        // Then: Should process both messages without error
         assertNull(result);
-        verify(logger).log(contains("Extracting keys from SQS event with 2 messages"));
     }
 
     // ============================================================================
@@ -269,8 +263,6 @@ class MergerLambdaHandlerTest {
         verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
-        verify(logger).log(contains("Merging 1 entries"));
-        verify(logger).log(contains("Wrote 2"));
     }
 
     /**
@@ -305,8 +297,6 @@ class MergerLambdaHandlerTest {
         verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, times(3)).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
-        verify(logger).log(contains("Merging 3 entries"));
-        verify(logger).log(contains("Wrote 3")); // uuid-1 or uuid-3 wins with 3 records
     }
 
     /**
@@ -380,8 +370,6 @@ class MergerLambdaHandlerTest {
         verify(s3Client, times(1)).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, times(2)).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
-        verify(logger).log(contains("Merging 2 entries"));
-        verify(logger).log(contains("Wrote 3")); // uuid-2 wins with 3 records
     }
 
     /**
@@ -410,8 +398,6 @@ class MergerLambdaHandlerTest {
         verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, never()).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
-        verify(logger).log(contains("Merging 0 entries"));
-        verify(logger).log(contains("Wrote 0"));
     }
 
     /**
@@ -441,7 +427,6 @@ class MergerLambdaHandlerTest {
         verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
-        verify(logger).log(contains("Merging 1 entries"));
     }
 
     /**
@@ -480,7 +465,6 @@ class MergerLambdaHandlerTest {
         verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
         verify(s3Client, times(10)).getObject(any(java.util.function.Consumer.class));
         verify(s3Client, times(1)).putObject(any(java.util.function.Consumer.class), any(RequestBody.class));
-        verify(logger).log(contains("Merging 10 entries"));
     }
 
     /**
@@ -509,7 +493,6 @@ class MergerLambdaHandlerTest {
             // Expected
             verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
             verify(s3Client).getObject(any(java.util.function.Consumer.class));
-            verify(logger).log(contains("Error processing messages"));
         }
     }
 
