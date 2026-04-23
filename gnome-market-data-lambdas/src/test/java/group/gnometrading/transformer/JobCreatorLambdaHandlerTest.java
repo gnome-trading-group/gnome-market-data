@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.SecurityMaster;
@@ -49,9 +48,6 @@ class JobCreatorLambdaHandlerTest {
     private Context context;
 
     @Mock
-    private LambdaLogger logger;
-
-    @Mock
     private Listing listing;
 
     private Clock clock;
@@ -69,9 +65,6 @@ class JobCreatorLambdaHandlerTest {
 
         // Initialize handler with mocks
         handler = new JobCreatorLambdaHandler(securityMaster, objectMapper, transformJobsTable, clock);
-
-        // Setup context to return logger
-        lenient().when(context.getLogger()).thenReturn(logger);
 
         // Setup default listing mock
         lenient().when(listing.listingId()).thenReturn(123);

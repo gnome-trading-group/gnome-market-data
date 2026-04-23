@@ -16,6 +16,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.services.s3.S3Client;
 
 /**
@@ -23,6 +25,8 @@ import software.amazon.awssdk.services.s3.S3Client;
  * This handler receives S3 event notifications via SQS and processes raw market data files.
  */
 public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
+
+    private static final Logger logger = LogManager.getLogger(MergerLambdaHandler.class);
 
     private final ObjectMapper objectMapper;
     private final S3Client s3Client;
@@ -47,24 +51,24 @@ public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void>
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         try {
-            Set<MarketDataEntry> rawKeys = S3Utils.extractKeysFromS3Event(event, context, objectMapper);
-            context.getLogger().log("Found " + rawKeys.size() + " raw keys in S3 event");
+            Set<MarketDataEntry> rawKeys = S3Utils.extractKeysFromS3Event(event, objectMapper);
+            logger.info("Found {} raw keys in S3 event", rawKeys.size());
 
-            Map<MarketDataEntry, Set<MarketDataEntry>> allKeys = aggregateRawKeys(rawKeys, context);
+            Map<MarketDataEntry, Set<MarketDataEntry>> allKeys = aggregateRawKeys(rawKeys);
 
             allKeys.entrySet().parallelStream().forEach(entry -> {
-                mergeEntries(entry.getKey(), entry.getValue(), context);
+                mergeEntries(entry.getKey(), entry.getValue());
             });
         } catch (Exception e) {
-            context.getLogger().log("Error processing messages: " + e.getMessage());
+            logger.error("Error processing messages: {}", e.getMessage());
             throw new RuntimeException("Failed to process messages", e);
         }
 
         return null;
     }
 
-    private void mergeEntries(MarketDataEntry mergedEntry, Set<MarketDataEntry> rawEntries, Context context) {
-        context.getLogger().log("Merging " + rawEntries.size() + " entries into " + mergedEntry);
+    private void mergeEntries(MarketDataEntry mergedEntry, Set<MarketDataEntry> rawEntries) {
+        logger.info("Merging {} entries into {}", rawEntries.size(), mergedEntry);
 
         Map<String, List<Schema>> entries = new LinkedHashMap<>();
         for (MarketDataEntry entry : rawEntries) {
@@ -73,17 +77,15 @@ public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void>
 
         int totalRecords = entries.values().stream().mapToInt(List::size).sum();
         SchemaMergeStrategy strategy = getMergeStrategy(mergedEntry.getSchemaType());
-        var outputEntries = strategy.mergeRecords(context.getLogger(), entries);
+        var outputEntries = strategy.mergeRecords(entries);
 
         try {
             mergedEntry.saveToS3(s3Client, outputBucket, outputEntries);
         } catch (IOException e) {
-            context.getLogger().log("Error trying to write merged key: " + e.getMessage());
+            logger.error("Error trying to write merged key: {}", e.getMessage());
             throw new RuntimeException(e);
         }
-        context.getLogger()
-                .log("Wrote " + outputEntries.size() + " (out of " + totalRecords + ") records to merged key "
-                        + mergedEntry);
+        logger.info("Wrote {} (out of {}) records to merged key {}", outputEntries.size(), totalRecords, mergedEntry);
     }
 
     private SchemaMergeStrategy getMergeStrategy(SchemaType schemaType) {
@@ -93,7 +95,7 @@ public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void>
         };
     }
 
-    private Map<MarketDataEntry, Set<MarketDataEntry>> aggregateRawKeys(Set<MarketDataEntry> rawKeys, Context context) {
+    private Map<MarketDataEntry, Set<MarketDataEntry>> aggregateRawKeys(Set<MarketDataEntry> rawKeys) {
         Set<MarketDataEntry> aggregatedKeys = new HashSet<>();
         for (MarketDataEntry entry : rawKeys) {
             assert entry.getEntryType() == MarketDataEntry.EntryType.RAW

@@ -1,10 +1,11 @@
 package group.gnometrading.merger;
 
-import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import group.gnometrading.schemas.Schema;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Merge strategy for MBP10 schema type.
@@ -12,10 +13,12 @@ import java.util.Map;
  */
 public final class Mbp10MergeStrategy implements SchemaMergeStrategy {
 
+    private static final Logger logger = LogManager.getLogger(Mbp10MergeStrategy.class);
+
     @Override
-    public List<Schema> mergeRecords(LambdaLogger logger, Map<String, List<Schema>> entries) {
+    public List<Schema> mergeRecords(Map<String, List<Schema>> entries) {
         if (entries.isEmpty()) {
-            logger.log("No records to process");
+            logger.info("No records to process");
             return List.of();
         }
 
@@ -34,7 +37,7 @@ public final class Mbp10MergeStrategy implements SchemaMergeStrategy {
             if (!entry.getKey().equals(winningCollector)) {
                 int missing = maxRecords - entry.getValue().size();
                 if (missing > 0) {
-                    logger.log(String.format(
+                    logger.warn(String.format(
                             "Collector %s has %d fewer records than %s (%d vs %d)",
                             entry.getKey(),
                             missing,

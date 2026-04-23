@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.luben.zstd.ZstdOutputStream;
@@ -71,9 +70,6 @@ class QualityCheckLambdaHandlerTest {
     private Context context;
 
     @Mock
-    private LambdaLogger logger;
-
-    @Mock
     private Listing listing;
 
     @Mock
@@ -111,7 +107,6 @@ class QualityCheckLambdaHandlerTest {
                 dynamoDbClient,
                 "test-table");
 
-        lenient().when(context.getLogger()).thenReturn(logger);
         lenient().when(listing.listingId()).thenReturn(LISTING_ID);
         lenient().when(listing.security()).thenReturn(security);
         lenient().when(listing.exchange()).thenReturn(exchange);

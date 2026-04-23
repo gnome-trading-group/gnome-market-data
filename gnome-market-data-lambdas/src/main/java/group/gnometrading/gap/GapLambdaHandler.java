@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -31,6 +33,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
  */
 public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
 
+    private static final Logger logger = LogManager.getLogger(GapLambdaHandler.class);
     private static final int TWO_DAYS_IN_MINUTES = Math.toIntExact(TimeUnit.DAYS.toMinutes(2));
 
     private final ObjectMapper objectMapper;
@@ -88,25 +91,25 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         try {
-            Set<MarketDataEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, context, objectMapper);
-            context.getLogger().log("Found " + mergedEntries.size() + " merged entries in S3 event");
+            Set<MarketDataEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, objectMapper);
+            logger.info("Found {} merged entries in S3 event", mergedEntries.size());
 
             for (MarketDataEntry entry : mergedEntries) {
-                processEntry(entry, context);
+                processEntry(entry);
             }
         } catch (Exception e) {
-            context.getLogger().log("Error processing messages: " + e.getMessage());
+            logger.error("Error processing messages: {}", e.getMessage());
             throw new RuntimeException("Failed to process messages", e);
         }
         return null;
     }
 
-    private void processEntry(MarketDataEntry entry, Context context) {
-        context.getLogger().log("Processing entry: " + entry);
+    private void processEntry(MarketDataEntry entry) {
+        logger.info("Processing entry: {}", entry);
 
         Listing listing = securityMaster.getListing(entry.getExchangeId(), entry.getSecurityId());
         if (listing == null) {
-            context.getLogger().log("Listing not found for entry: " + entry);
+            logger.warn("Listing not found for entry: {}", entry);
             return;
         }
 
@@ -114,40 +117,37 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
 
         LocalDateTime previousMinute = currentTimestamp.minusMinutes(1);
 
-        if (hasGap(listing, previousMinute, context)) {
-            LocalDateTime mostRecentMinute = findMostRecentMinute(listing, previousMinute, context);
+        if (hasGap(listing, previousMinute)) {
+            LocalDateTime mostRecentMinute = findMostRecentMinute(listing, previousMinute);
 
             if (mostRecentMinute == null) {
-                context.getLogger()
-                        .log("No recent data found within 2 days for listing " + listing + ", treating as first entry");
+                logger.info("No recent data found within 2 days for listing {}, treating as first entry", listing);
                 return;
             }
 
-            List<Gap> gaps = createGapRecords(listing, mostRecentMinute, currentTimestamp, context);
+            List<Gap> gaps = createGapRecords(listing, mostRecentMinute, currentTimestamp);
 
             for (Gap gap : gaps) {
-                storeGap(gap, context);
+                storeGap(gap);
             }
 
-            context.getLogger()
-                    .log(String.format(
-                            "Detected %d gap(s) for listing %d between %s and %s",
-                            gaps.size(), listing.listingId(), mostRecentMinute, currentTimestamp));
+            logger.info("Detected {} gap(s) for listing {} between {} and {}",
+                    gaps.size(), listing.listingId(), mostRecentMinute, currentTimestamp);
         }
     }
 
-    private boolean hasGap(Listing listing, LocalDateTime previousMinute, Context context) {
+    private boolean hasGap(Listing listing, LocalDateTime previousMinute) {
         if (transformationJobExists(listing, previousMinute)) {
-            context.getLogger().log("Previous minute exists in transformation jobs: " + previousMinute);
+            logger.debug("Previous minute exists in transformation jobs: {}", previousMinute);
             return false;
         }
 
         if (s3ObjectExists(listing, previousMinute)) {
-            context.getLogger().log("Previous minute exists in S3: " + previousMinute);
+            logger.debug("Previous minute exists in S3: {}", previousMinute);
             return false;
         }
 
-        context.getLogger().log("Gap detected: previous minute " + previousMinute + " not found");
+        logger.info("Gap detected: previous minute {} not found", previousMinute);
         return true;
     }
 
@@ -176,30 +176,30 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         }
     }
 
-    private LocalDateTime findMostRecentMinute(Listing listing, LocalDateTime startingFrom, Context context) {
+    private LocalDateTime findMostRecentMinute(Listing listing, LocalDateTime startingFrom) {
         LocalDateTime checkTimestamp = startingFrom;
         LocalDateTime twoDaysAgo = startingFrom.minusMinutes(TWO_DAYS_IN_MINUTES);
 
         while (checkTimestamp.isAfter(twoDaysAgo)) {
             if (transformationJobExists(listing, checkTimestamp)) {
-                context.getLogger().log("Found most recent minute in transformation jobs: " + checkTimestamp);
+                logger.debug("Found most recent minute in transformation jobs: {}", checkTimestamp);
                 return checkTimestamp;
             }
 
             if (s3ObjectExists(listing, checkTimestamp)) {
-                context.getLogger().log("Found most recent minute in S3: " + checkTimestamp);
+                logger.debug("Found most recent minute in S3: {}", checkTimestamp);
                 return checkTimestamp;
             }
 
             checkTimestamp = checkTimestamp.minusMinutes(1);
         }
 
-        context.getLogger().log("No data found within 2 days before " + startingFrom);
+        logger.warn("No data found within 2 days before {}", startingFrom);
         return null;
     }
 
     private List<Gap> createGapRecords(
-            Listing listing, LocalDateTime mostRecentMinute, LocalDateTime currentTimestamp, Context context) {
+            Listing listing, LocalDateTime mostRecentMinute, LocalDateTime currentTimestamp) {
         List<Gap> gaps = new ArrayList<>();
         LocalDateTime gapStart = mostRecentMinute.plusMinutes(1);
 
@@ -220,14 +220,12 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         return gaps;
     }
 
-    private void storeGap(Gap gap, Context context) {
+    private void storeGap(Gap gap) {
         try {
             gapsTable.putItem(gap);
-            context.getLogger()
-                    .log(String.format(
-                            "Stored gap: listingId=%d, timestamp=%s", gap.getListingId(), gap.getTimestamp()));
+            logger.info("Stored gap: listingId={}, timestamp={}", gap.getListingId(), gap.getTimestamp());
         } catch (Exception e) {
-            context.getLogger().log("Error storing gap: " + e.getMessage());
+            logger.error("Error storing gap: {}", e.getMessage());
         }
     }
 }

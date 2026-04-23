@@ -17,6 +17,8 @@ import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
@@ -25,6 +27,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 
 public final class QualityBackfillLambdaHandler implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
+    private static final Logger logger = LogManager.getLogger(QualityBackfillLambdaHandler.class);
     private static final long TIMEOUT_SAFETY_MARGIN_MS = 30_000;
 
     public enum Mode {
@@ -90,33 +93,30 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
         List<QualityRule> rules = buildRules(mode);
 
         if (resetStatistics && mode != Mode.ISSUES) {
-            resetDateStatistics(listing.listingId(), date, context);
+            resetDateStatistics(listing.listingId(), date);
         }
 
         List<MarketDataEntry> entries =
                 MarketDataEntry.getKeysForListingByDay(s3Client, mergedBucketName, listing, date.atStartOfDay());
-        context.getLogger().log("Processing " + entries.size() + " entries for " + date + " mode=" + mode);
+        logger.info("Processing {} entries for {} mode={}", entries.size(), date, mode);
 
         int entriesProcessed = 0;
         int issuesFound = 0;
 
         for (MarketDataEntry entry : entries) {
             if (context.getRemainingTimeInMillis() < TIMEOUT_SAFETY_MARGIN_MS) {
-                context.getLogger().log("Approaching timeout, stopping");
+                logger.warn("Approaching timeout, stopping");
                 break;
             }
 
-            int entryIssues = processEntry(entry, rules, listing, context);
+            int entryIssues = processEntry(entry, rules, listing);
             if (entryIssues >= 0) {
                 issuesFound += entryIssues;
                 entriesProcessed++;
             }
         }
 
-        context.getLogger()
-                .log(String.format(
-                        "Backfill done: date=%s mode=%s processed=%d issues=%d",
-                        date, mode, entriesProcessed, issuesFound));
+        logger.info("Backfill done: date={} mode={} processed={} issues={}", date, mode, entriesProcessed, issuesFound);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("date", date.toString());
@@ -126,7 +126,7 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
         return result;
     }
 
-    private int processEntry(MarketDataEntry entry, List<QualityRule> rules, Listing listing, Context context) {
+    private int processEntry(MarketDataEntry entry, List<QualityRule> rules, Listing listing) {
         try {
             List<Schema> records = entry.loadFromS3(s3Client, mergedBucketName);
             int issuesFound = 0;
@@ -134,18 +134,18 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
                 List<QualityIssue> issues = rule.check(entry, records, listing, clock);
                 for (QualityIssue issue : issues) {
                     issue.setRecordCount(records.size());
-                    storeIssue(issue, context);
+                    storeIssue(issue);
                     issuesFound++;
                 }
             }
             return issuesFound;
         } catch (Exception e) {
-            context.getLogger().log("Error processing entry " + entry + ": " + e.getMessage());
+            logger.error("Error processing entry {}: {}", entry, e.getMessage());
             return -1;
         }
     }
 
-    private void resetDateStatistics(int listingId, LocalDate date, Context context) {
+    private void resetDateStatistics(int listingId, LocalDate date) {
         String dateStr = date.toString();
         QueryConditional all = QueryConditional.keyEqualTo(
                 Key.builder().partitionValue(listingId).build());
@@ -157,7 +157,7 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
                         .build());
             }
         }
-        context.getLogger().log("Reset statistics for listingId=" + listingId + " date=" + dateStr);
+        logger.info("Reset statistics for listingId={} date={}", listingId, dateStr);
     }
 
     private List<QualityRule> buildRules(Mode mode) {
@@ -170,11 +170,11 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
         };
     }
 
-    private void storeIssue(QualityIssue issue, Context context) {
+    private void storeIssue(QualityIssue issue) {
         try {
             qualityIssuesTable.putItem(issue);
         } catch (Exception e) {
-            context.getLogger().log("Error storing quality issue: " + e.getMessage());
+            logger.error("Error storing quality issue: {}", e.getMessage());
         }
     }
 

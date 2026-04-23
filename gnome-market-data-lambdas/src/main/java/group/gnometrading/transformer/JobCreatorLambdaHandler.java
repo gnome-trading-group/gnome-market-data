@@ -13,6 +13,8 @@ import group.gnometrading.schemas.converters.SchemaConversionRegistry;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Set;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
@@ -23,6 +25,8 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  * Creates job entries in DynamoDB to be processed by JobProcessorLambdaHandler.
  */
 public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, Void> {
+
+    private static final Logger logger = LogManager.getLogger(JobCreatorLambdaHandler.class);
 
     private final SecurityMaster securityMaster;
     private final ObjectMapper objectMapper;
@@ -51,24 +55,24 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         try {
-            Set<MarketDataEntry> mergedKeys = S3Utils.extractKeysFromS3Event(event, context, objectMapper);
-            context.getLogger().log("Found " + mergedKeys.size() + " merged keys in S3 event");
+            Set<MarketDataEntry> mergedKeys = S3Utils.extractKeysFromS3Event(event, objectMapper);
+            logger.info("Found {} merged keys in S3 event", mergedKeys.size());
 
             for (MarketDataEntry entry : mergedKeys) {
-                createTransformJobsForEntry(entry, context);
+                createTransformJobsForEntry(entry);
             }
         } catch (Exception e) {
-            context.getLogger().log("Error processing messages: " + e.getMessage());
+            logger.error("Error processing messages: {}", e.getMessage());
             throw new RuntimeException("Failed to process messages", e);
         }
         return null;
     }
 
-    private void createTransformJobsForEntry(MarketDataEntry entry, Context context) {
+    private void createTransformJobsForEntry(MarketDataEntry entry) {
         for (SchemaType schemaType : SchemaType.values()) {
             if (SchemaConversionRegistry.hasBulkConverter(entry.getSchemaType(), schemaType)) {
                 if (shouldCreateTransformJob(entry, schemaType)) {
-                    createTransformJob(entry, schemaType, context);
+                    createTransformJob(entry, schemaType);
                 }
             }
         }
@@ -82,7 +86,7 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
         };
     }
 
-    private void createTransformJob(MarketDataEntry entry, SchemaType schemaType, Context context) {
+    private void createTransformJob(MarketDataEntry entry, SchemaType schemaType) {
         int listingId = this.securityMaster
                 .getListing(entry.getExchangeId(), entry.getSecurityId())
                 .listingId();
@@ -101,15 +105,11 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
                             .expression("attribute_not_exists(jobId) AND attribute_not_exists(#ts)")
                             .putExpressionName("#ts", "timestamp")
                             .build()));
-            context.getLogger()
-                    .log("Created transformation job: listingId=" + listingId + ", schemaType="
-                            + schemaType.getIdentifier() + ", timestamp="
-                            + entry.getTimestamp());
+            logger.info("Created transformation job: listingId={}, schemaType={}, timestamp={}",
+                    listingId, schemaType.getIdentifier(), entry.getTimestamp());
         } catch (ConditionalCheckFailedException e) {
-            context.getLogger()
-                    .log("Job already exists for listingId=" + listingId + ", schemaType="
-                            + schemaType.getIdentifier() + ", timestamp="
-                            + entry.getTimestamp());
+            logger.info("Job already exists for listingId={}, schemaType={}, timestamp={}",
+                    listingId, schemaType.getIdentifier(), entry.getTimestamp());
         }
     }
 }

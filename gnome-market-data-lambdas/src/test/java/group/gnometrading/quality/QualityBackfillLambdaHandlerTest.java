@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.github.luben.zstd.ZstdOutputStream;
 import group.gnometrading.SecurityMaster;
 import group.gnometrading.quality.model.HourlyListingStatistic;
@@ -72,9 +71,6 @@ class QualityBackfillLambdaHandlerTest {
     private Context context;
 
     @Mock
-    private LambdaLogger logger;
-
-    @Mock
     private Listing listing;
 
     @Mock
@@ -110,7 +106,6 @@ class QualityBackfillLambdaHandlerTest {
                 MERGED_BUCKET,
                 clock);
 
-        lenient().when(context.getLogger()).thenReturn(logger);
         lenient().when(context.getRemainingTimeInMillis()).thenReturn(900_000);
         lenient().when(listing.listingId()).thenReturn(LISTING_ID);
         lenient().when(listing.security()).thenReturn(security);

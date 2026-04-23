@@ -16,6 +16,8 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.core.pagination.sync.SdkIterable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
@@ -33,6 +35,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
  */
 public final class JobProcessorLambdaHandler implements RequestHandler<Map<String, Object>, Void> {
 
+    private static final Logger logger = LogManager.getLogger(JobProcessorLambdaHandler.class);
     private static final int MAX_JOBS_PER_INVOCATION = 10_000;
 
     private final S3Client s3Client;
@@ -76,23 +79,23 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
         }
 
         SchemaType schemaType = SchemaType.findById(rawSchemaType);
-        context.getLogger().log("Processing jobs for schemaType: " + rawSchemaType);
-        processPendingJobs(schemaType, context);
+        logger.info("Processing jobs for schemaType: {}", rawSchemaType);
+        processPendingJobs(schemaType);
 
         return null;
     }
 
-    private void processPendingJobs(SchemaType schemaType, Context context) {
+    private void processPendingJobs(SchemaType schemaType) {
         List<TransformationJob> jobs = getPendingJobs(schemaType);
 
-        context.getLogger().log(String.format("Found %d pending jobs", jobs.size()));
+        logger.info("Found {} pending jobs", jobs.size());
 
         for (TransformationJob job : jobs) {
             try {
-                processJob(job, context);
+                processJob(job);
             } catch (Exception e) {
-                context.getLogger().log("Error processing job: " + e.getMessage());
-                handleJobFailure(job, e.getMessage(), context);
+                logger.error("Error processing job: {}", e.getMessage());
+                handleJobFailure(job, e.getMessage());
             }
         }
     }
@@ -125,11 +128,9 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
         return jobs;
     }
 
-    private void processJob(TransformationJob job, Context context) throws Exception {
-        context.getLogger()
-                .log(String.format(
-                        "Processing job: listingId=%s, schemaType=%s, timestamp=%s",
-                        job.getListingId(), job.getSchemaType(), job.getTimestamp()));
+    private void processJob(TransformationJob job) throws Exception {
+        logger.info("Processing job: listingId={}, schemaType={}, timestamp={}",
+                job.getListingId(), job.getSchemaType(), job.getTimestamp());
 
         Window window = calculateWindow(job);
         Listing listing = securityMaster.getListing(job.getListingId());
@@ -139,12 +140,12 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
                 !timestamp.isAfter(window.end());
                 timestamp = timestamp.plusMinutes(1)) {
             MarketDataEntry entry = new MarketDataEntry(listing, timestamp, MarketDataEntry.EntryType.AGGREGATED);
-            allSchemas.addAll(downloadSafely(entry, context));
+            allSchemas.addAll(downloadSafely(entry));
         }
 
         if (allSchemas.isEmpty()) {
-            context.getLogger().log("No schemas available to convert for job: " + job.getJobId());
-            handleJobSuccess(job, context);
+            logger.warn("No schemas available to convert for job: {}", job.getJobId());
+            handleJobSuccess(job);
             return;
         }
 
@@ -161,19 +162,17 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
                 MarketDataEntry.EntryType.AGGREGATED);
         outputEntry.saveToS3(s3Client, finalBucketName, convertedSchemas);
 
-        handleJobSuccess(job, context);
+        handleJobSuccess(job);
 
-        context.getLogger()
-                .log(String.format(
-                        "Successfully processed job: listingId=%s, schemaType=%s, output=%s",
-                        job.getListingId(), job.getSchemaType(), outputEntry.getKey()));
+        logger.info("Successfully processed job: listingId={}, schemaType={}, output={}",
+                job.getListingId(), job.getSchemaType(), outputEntry.getKey());
     }
 
-    private List<Schema> downloadSafely(MarketDataEntry entry, Context context) {
+    private List<Schema> downloadSafely(MarketDataEntry entry) {
         try {
             return entry.loadFromS3(s3Client, mergedBucketName);
         } catch (NoSuchKeyException e) {
-            context.getLogger().log("No S3 key found for " + entry);
+            logger.warn("No S3 key found for {}", entry);
             return List.of();
         }
     }
@@ -189,20 +188,17 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
         };
     }
 
-    private void handleJobSuccess(TransformationJob job, Context context) {
+    private void handleJobSuccess(TransformationJob job) {
         job.setStatus(TransformationStatus.COMPLETE);
         job.setProcessedAt(LocalDateTime.now(clock));
         job.setExpiresAt(LocalDateTime.now(clock).plusWeeks(1).toEpochSecond(ZoneOffset.UTC));
 
         transformJobsTable.updateItem(job);
 
-        context.getLogger()
-                .log(String.format(
-                        "Job marked as COMPLETE: listingId=%s, schemaType=%s",
-                        job.getListingId(), job.getSchemaType()));
+        logger.info("Job marked as COMPLETE: listingId={}, schemaType={}", job.getListingId(), job.getSchemaType());
     }
 
-    private void handleJobFailure(TransformationJob job, String errorMessage, Context context) {
+    private void handleJobFailure(TransformationJob job, String errorMessage) {
         job.setStatus(TransformationStatus.FAILED);
         job.setErrorMessage(errorMessage);
         job.setProcessedAt(LocalDateTime.now(clock));
@@ -210,9 +206,7 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
 
         transformJobsTable.updateItem(job);
 
-        context.getLogger()
-                .log(String.format(
-                        "Job marked as FAILED: listingId=%s, schemaType=%s, error=%s",
-                        job.getListingId(), job.getSchemaType(), errorMessage));
+        logger.error("Job marked as FAILED: listingId={}, schemaType={}, error={}",
+                job.getListingId(), job.getSchemaType(), errorMessage);
     }
 }

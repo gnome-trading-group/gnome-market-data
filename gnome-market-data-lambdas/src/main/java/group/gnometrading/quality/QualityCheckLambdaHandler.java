@@ -17,11 +17,15 @@ import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.util.List;
 import java.util.Set;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
 public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent, Void> {
+
+    private static final Logger logger = LogManager.getLogger(QualityCheckLambdaHandler.class);
 
     private final ObjectMapper objectMapper;
     private final S3Client s3Client;
@@ -66,25 +70,25 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         try {
-            Set<MarketDataEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, context, objectMapper);
-            context.getLogger().log("Found " + mergedEntries.size() + " merged entries in S3 event");
+            Set<MarketDataEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, objectMapper);
+            logger.info("Found {} merged entries in S3 event", mergedEntries.size());
 
             for (MarketDataEntry entry : mergedEntries) {
-                processEntry(entry, context);
+                processEntry(entry);
             }
         } catch (Exception e) {
-            context.getLogger().log("Error processing messages: " + e.getMessage());
+            logger.error("Error processing messages: {}", e.getMessage());
             throw new RuntimeException("Failed to process messages", e);
         }
         return null;
     }
 
-    private void processEntry(MarketDataEntry entry, Context context) {
-        context.getLogger().log("Running quality checks on entry: " + entry);
+    private void processEntry(MarketDataEntry entry) {
+        logger.info("Running quality checks on entry: {}", entry);
 
         Listing listing = securityMaster.getListing(entry.getExchangeId(), entry.getSecurityId());
         if (listing == null) {
-            context.getLogger().log("Listing not found for entry: " + entry);
+            logger.warn("Listing not found for entry: {}", entry);
             return;
         }
 
@@ -95,26 +99,21 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
             List<QualityIssue> issues = rule.check(entry, records, listing, clock);
             for (QualityIssue issue : issues) {
                 issue.setRecordCount(records.size());
-                storeIssue(issue, context);
+                storeIssue(issue);
             }
             totalIssues += issues.size();
         }
 
-        context.getLogger()
-                .log(String.format(
-                        "Quality check complete for %s: %d issue(s) found across %d records",
-                        entry, totalIssues, records.size()));
+        logger.info("Quality check complete for {}: {} issue(s) found across {} records",
+                entry, totalIssues, records.size());
     }
 
-    private void storeIssue(QualityIssue issue, Context context) {
+    private void storeIssue(QualityIssue issue) {
         try {
             qualityIssuesTable.putItem(issue);
-            context.getLogger()
-                    .log(String.format(
-                            "Stored quality issue: listingId=%d, issueId=%s",
-                            issue.getListingId(), issue.getIssueId()));
+            logger.info("Stored quality issue: listingId={}, issueId={}", issue.getListingId(), issue.getIssueId());
         } catch (Exception e) {
-            context.getLogger().log("Error storing quality issue: " + e.getMessage());
+            logger.error("Error storing quality issue: {}", e.getMessage());
         }
     }
 }

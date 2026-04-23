@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.luben.zstd.ZstdOutputStream;
@@ -52,9 +51,6 @@ class MergerLambdaHandlerTest {
     @Mock
     private Context context;
 
-    @Mock
-    private LambdaLogger logger;
-
     private MergerLambdaHandler handler;
 
     private static final String INPUT_BUCKET = "test-raw-bucket";
@@ -71,9 +67,6 @@ class MergerLambdaHandlerTest {
 
         // Initialize handler with real ObjectMapper and mocked S3Client
         handler = new MergerLambdaHandler(objectMapper, s3Client, INPUT_BUCKET, OUTPUT_BUCKET);
-
-        // Setup context to return logger
-        lenient().when(context.getLogger()).thenReturn(logger);
 
         // Initialize S3 mocked data list and counter
         s3MockedDataList = new ArrayList<>();

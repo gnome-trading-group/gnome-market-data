@@ -1,10 +1,7 @@
 package group.gnometrading.merger;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
-import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import group.gnometrading.schemas.Mbp10Schema;
 import group.gnometrading.schemas.Schema;
 import group.gnometrading.schemas.SchemaType;
@@ -12,19 +9,11 @@ import java.util.*;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
-@ExtendWith(MockitoExtension.class)
 class Mbp10MergeStrategyTest {
-
-    @Mock
-    private LambdaLogger logger;
 
     private Mbp10MergeStrategy strategy;
 
@@ -264,29 +253,17 @@ class Mbp10MergeStrategyTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("mergeTestCases")
     void testMergeStrategy(String description, String input, String expectedOutput, boolean expectDifferenceLogs) {
-        // Given: Parsed input
         Map<String, List<Schema>> collectors = parseCollectors(input);
         long[] expected = parseExpectedOutput(expectedOutput);
 
-        // When: Merging
-        List<Schema> result = strategy.mergeRecords(logger, collectors);
+        List<Schema> result = strategy.mergeRecords(collectors);
 
-        // Then: Verify output size and sequence numbers
         assertEquals(expected.length, result.size(), "Output size mismatch for: " + description);
         for (int i = 0; i < expected.length; i++) {
             assertEquals(
                     expected[i],
                     result.get(i).getSequenceNumber(),
                     "Sequence mismatch at index " + i + " for: " + description);
-        }
-
-        // Verify logging behavior - check that at least one "fewer records" log was made
-        if (expectDifferenceLogs) {
-            ArgumentCaptor<String> formatCaptor = ArgumentCaptor.forClass(String.class);
-            verify(logger, atLeastOnce()).log(formatCaptor.capture());
-            boolean foundDifferenceLog =
-                    formatCaptor.getAllValues().stream().anyMatch(f -> f.contains("fewer records"));
-            assertTrue(foundDifferenceLog, "Expected difference log for: " + description);
         }
     }
 
@@ -295,17 +272,16 @@ class Mbp10MergeStrategyTest {
     // ============================================================================
 
     @Test
-    void testEmptyRecordsLogsDebugMessage() {
+    void testEmptyRecordsReturnsEmptyList() {
         Map<String, List<Schema>> records = new HashMap<>();
-        strategy.mergeRecords(logger, records);
-        verify(logger).log("No records to process");
+        List<Schema> result = strategy.mergeRecords(records);
+        assertTrue(result.isEmpty());
     }
 
     @Test
-    void testNoDifferenceLogsWhenAllCollectorsEqual() {
+    void testNoDifferenceWhenAllCollectorsEqual() {
         Map<String, List<Schema>> input = collectors("collector-1", 100L, 100L, "collector-2", 100L, 100L);
-        strategy.mergeRecords(logger, input);
-        // Verify no "fewer records" logs
-        verify(logger, never()).log(contains("fewer records"));
+        List<Schema> result = strategy.mergeRecords(input);
+        assertEquals(2, result.size());
     }
 }

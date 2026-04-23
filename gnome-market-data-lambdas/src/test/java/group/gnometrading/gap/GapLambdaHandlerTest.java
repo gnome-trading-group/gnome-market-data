@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.SecurityMaster;
@@ -58,9 +57,6 @@ class GapLambdaHandlerTest {
     private Context context;
 
     @Mock
-    private LambdaLogger logger;
-
-    @Mock
     private Listing listing;
 
     @Mock
@@ -89,9 +85,6 @@ class GapLambdaHandlerTest {
         // Initialize handler with mocks
         handler = new GapLambdaHandler(
                 s3Client, securityMaster, objectMapper, transformJobsTable, gapsTable, MERGED_BUCKET, clock);
-
-        // Setup context to return logger
-        lenient().when(context.getLogger()).thenReturn(logger);
 
         // Setup listing mock chain
         lenient().when(listing.listingId()).thenReturn(LISTING_ID);
