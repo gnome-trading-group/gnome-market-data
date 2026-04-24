@@ -21,10 +21,13 @@ import group.gnometrading.sm.Listing;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
@@ -80,7 +83,6 @@ public final class MinuteInvestigationLambdaHandler
     public Map<String, Object> handleRequest(Map<String, Object> event, Context context) {
         int listingId = requireInt(event, "listingId");
         long centerTimestamp = requireLong(event, "timestamp");
-        String schemaTypeStr = requireString(event, "schemaType");
         int windowMinutes = optionalInt(event, "windowMinutes", DEFAULT_WINDOW_MINUTES);
 
         Listing listing = securityMaster.getListing(listingId);
@@ -88,7 +90,7 @@ public final class MinuteInvestigationLambdaHandler
             throw new IllegalArgumentException("Listing not found for listingId=" + listingId);
         }
 
-        SchemaType schemaType = SchemaType.findById(schemaTypeStr);
+        SchemaType schemaType = listing.exchange().schemaType();
 
         LocalDateTime center = LocalDateTime.ofEpochSecond(centerTimestamp, 0, ZoneOffset.UTC);
         LocalDateTime windowStart = center.minusMinutes(windowMinutes);
@@ -100,7 +102,7 @@ public final class MinuteInvestigationLambdaHandler
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("listingId", listingId);
-        result.put("schemaType", schemaTypeStr);
+        result.put("schemaType", schemaType.getIdentifier());
         result.put("centerTimestamp", centerTimestamp);
         result.put("windowMinutes", windowMinutes);
         result.put("minutes", minutes);
@@ -111,13 +113,11 @@ public final class MinuteInvestigationLambdaHandler
 
     private List<Map<String, Object>> buildMinuteData(
             Listing listing, SchemaType schemaType, LocalDateTime windowStart, LocalDateTime windowEnd) {
-        List<Map<String, Object>> result = new ArrayList<>();
-        LocalDateTime current = windowStart;
-        while (!current.isAfter(windowEnd)) {
-            result.add(processMinute(listing, schemaType, current));
-            current = current.plusMinutes(1);
-        }
-        return result;
+        int totalMinutes = (int) ChronoUnit.MINUTES.between(windowStart, windowEnd);
+        return IntStream.rangeClosed(0, totalMinutes)
+                .parallel()
+                .mapToObj(offset -> processMinute(listing, schemaType, windowStart.plusMinutes(offset)))
+                .collect(Collectors.toList());
     }
 
     private Map<String, Object> processMinute(Listing listing, SchemaType schemaType, LocalDateTime timestamp) {
@@ -237,14 +237,6 @@ public final class MinuteInvestigationLambdaHandler
             return num.longValue();
         }
         throw new IllegalArgumentException("Field " + key + " must be a number, got: " + value.getClass());
-    }
-
-    private static String requireString(Map<String, Object> event, String key) {
-        Object value = event.get(key);
-        if (value == null) {
-            throw new IllegalArgumentException("Missing required field: " + key);
-        }
-        return value.toString();
     }
 
     private static int optionalInt(Map<String, Object> event, String key, int defaultValue) {

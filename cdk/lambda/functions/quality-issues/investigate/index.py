@@ -5,14 +5,13 @@ from utils import lambda_handler
 
 
 @lambda_handler
-def handler(listingId: int, timestamp: int, schemaType: str, windowMinutes: int = 30):
+def handler(listingId: int, timestamp: int, windowMinutes: int = 30):
     function_name = os.environ['INVESTIGATION_FUNCTION_NAME']
     client = boto3.client('lambda')
 
     payload = {
         'listingId': listingId,
         'timestamp': timestamp,
-        'schemaType': schemaType,
         'windowMinutes': windowMinutes,
     }
 
