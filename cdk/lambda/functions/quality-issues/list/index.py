@@ -1,6 +1,7 @@
 import os
 import boto3
 import json
+from decimal import Decimal
 from boto3.dynamodb.conditions import Key
 from utils import lambda_handler, CustomEncoder
 
@@ -14,7 +15,7 @@ def handler(status: str = None, ruleType: str = None, limit: int = 100, lastEval
 
     last_key = None
     if lastEvaluatedKey:
-        last_key = json.loads(lastEvaluatedKey)
+        last_key = json.loads(lastEvaluatedKey, parse_float=Decimal)
 
     if ruleType:
         query_kwargs = {

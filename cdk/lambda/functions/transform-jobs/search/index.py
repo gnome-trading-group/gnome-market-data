@@ -1,6 +1,7 @@
 import os
 import boto3
 import json
+from decimal import Decimal
 from utils import lambda_handler, CustomEncoder
 from boto3.dynamodb.conditions import Key
 
@@ -28,7 +29,7 @@ def handler(listingId: int, schemaType: str = None, limit: int = 100, lastEvalua
 
     last_key = None
     if lastEvaluatedKey:
-        last_key = json.loads(lastEvaluatedKey)
+        last_key = json.loads(lastEvaluatedKey, parse_float=Decimal)
 
     query_kwargs = {
         'IndexName': 'listingId-schemaType-index',
