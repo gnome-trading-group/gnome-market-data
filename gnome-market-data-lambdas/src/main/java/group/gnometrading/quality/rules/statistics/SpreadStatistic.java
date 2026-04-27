@@ -9,8 +9,6 @@ import java.util.List;
 
 public final class SpreadStatistic implements QualityStatistic {
 
-    private static final double ANOMALY_MULTIPLIER = 10.0;
-
     @Override
     public String name() {
         return "spread";
@@ -19,6 +17,26 @@ public final class SpreadStatistic implements QualityStatistic {
     @Override
     public QualityRuleType ruleType() {
         return QualityRuleType.SPREAD_ANOMALY;
+    }
+
+    @Override
+    public AnomalyDirection anomalyDirection() {
+        return AnomalyDirection.HIGH;
+    }
+
+    @Override
+    public double zThreshold() {
+        return 4.0;
+    }
+
+    @Override
+    public double fallbackThreshold() {
+        return 10.0;
+    }
+
+    @Override
+    public int lookbackDays() {
+        return 21;
     }
 
     @Override
@@ -39,20 +57,5 @@ public final class SpreadStatistic implements QualityStatistic {
         }
 
         return validCount == 0 ? Double.NaN : (double) totalSpread / validCount / Statics.PRICE_SCALING_FACTOR;
-    }
-
-    @Override
-    public boolean isAnomalous(double currentValue, double mean, double stddev) {
-        return mean > 0 && currentValue >= mean * ANOMALY_MULTIPLIER;
-    }
-
-    @Override
-    public String describeAnomaly(double currentValue, double mean, double stddev) {
-        return String.format("Average spread %.2f is 10x+ above rolling average of %.2f", currentValue, mean);
-    }
-
-    @Override
-    public int lookbackDays() {
-        return 7;
     }
 }

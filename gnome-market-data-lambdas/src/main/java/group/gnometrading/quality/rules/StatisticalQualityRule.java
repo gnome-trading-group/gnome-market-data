@@ -9,12 +9,17 @@ import group.gnometrading.quality.rules.statistics.QualityStatistic;
 import group.gnometrading.schemas.Schema;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
@@ -68,8 +73,9 @@ public final class StatisticalQualityRule implements QualityRule {
         LocalDate entryDate = entry.getTimestamp().toLocalDate();
         int entryHour = entry.getTimestamp().getHour();
         String dateStr = entryDate.toString();
+        DayOfWeek entryDow = entryDate.getDayOfWeek();
 
-        List<HourlyListingStatistic> historicalRows = queryRecentHourRows(listing.listingId(), entryDate, entryHour);
+        Map<Integer, List<HourlyListingStatistic>> hourCache = new HashMap<>();
 
         for (QualityStatistic statistic : statistics) {
             double value = statistic.compute(entry, records);
@@ -77,15 +83,20 @@ public final class StatisticalQualityRule implements QualityRule {
                 continue;
             }
 
-            List<HourlyListingStatistic> filteredRows =
-                    filterByLookback(historicalRows, entryDate.minusDays(statistic.lookbackDays()));
+            // Build conditional distribution: P(metric | listing, day_type, hour_window)
+            List<HourlyListingStatistic> windowRows =
+                    queryHourWindow(hourCache, listing.listingId(), entryDate, entryHour, statistic.hourWindow());
+            List<HourlyListingStatistic> filtered =
+                    filterByLookback(windowRows, entryDate.minusDays(statistic.lookbackDays()));
+            filtered = filterByDayType(filtered, entryDow);
+
             HourlyStatisticsAggregator.AggregatedStats baseline =
-                    HourlyStatisticsAggregator.aggregate(filteredRows, statistic.name());
-            Warmup warmup = computeWarmup(filteredRows, statistic.name());
+                    HourlyStatisticsAggregator.aggregate(filtered, statistic.name());
+            Warmup warmup = computeWarmup(filtered, statistic.name());
 
             if (detectAnomalies) {
                 boolean fresh = warmup.latestDate() != null
-                        && !warmup.latestDate().isBefore(entryDate.minusDays(statistic.minimumDays()));
+                        && !warmup.latestDate().isBefore(entryDate.minusDays(statistic.freshnessDays()));
 
                 if (warmup.distinctDays() >= statistic.minimumDays()
                         && fresh
@@ -110,6 +121,24 @@ public final class StatisticalQualityRule implements QualityRule {
         return issues;
     }
 
+    private List<HourlyListingStatistic> queryHourWindow(
+            Map<Integer, List<HourlyListingStatistic>> cache,
+            int listingId,
+            LocalDate entryDate,
+            int entryHour,
+            int window) {
+        Map<String, HourlyListingStatistic> deduplicated = new LinkedHashMap<>();
+        for (int offset = -window; offset <= window; offset++) {
+            int hour = Math.floorMod(entryHour + offset, 24);
+            List<HourlyListingStatistic> hourRows =
+                    cache.computeIfAbsent(hour, h -> queryRecentHourRows(listingId, entryDate, h));
+            for (HourlyListingStatistic row : hourRows) {
+                deduplicated.putIfAbsent(row.getSk(), row);
+            }
+        }
+        return new ArrayList<>(deduplicated.values());
+    }
+
     private List<HourlyListingStatistic> filterByLookback(List<HourlyListingStatistic> rows, LocalDate statisticStart) {
         List<HourlyListingStatistic> filtered = new ArrayList<>();
         for (HourlyListingStatistic row : rows) {
@@ -120,19 +149,30 @@ public final class StatisticalQualityRule implements QualityRule {
         return filtered;
     }
 
+    private List<HourlyListingStatistic> filterByDayType(List<HourlyListingStatistic> rows, DayOfWeek entryDow) {
+        boolean entryIsWeekend = HourlyListingStatistic.isWeekend(entryDow);
+        List<HourlyListingStatistic> filtered = new ArrayList<>();
+        for (HourlyListingStatistic row : rows) {
+            if (HourlyListingStatistic.isWeekend(row.getDayOfWeek()) == entryIsWeekend) {
+                filtered.add(row);
+            }
+        }
+        return filtered;
+    }
+
     private Warmup computeWarmup(List<HourlyListingStatistic> filteredRows, String metric) {
-        int distinctDays = 0;
+        Set<LocalDate> distinctDates = new HashSet<>();
         LocalDate latestDate = null;
         for (HourlyListingStatistic row : filteredRows) {
             if (metric.equals(row.getMetric())) {
-                distinctDays++;
                 LocalDate rowDate = LocalDate.parse(row.getDate());
+                distinctDates.add(rowDate);
                 if (latestDate == null || rowDate.isAfter(latestDate)) {
                     latestDate = rowDate;
                 }
             }
         }
-        return new Warmup(distinctDays, latestDate);
+        return new Warmup(distinctDates.size(), latestDate);
     }
 
     private List<HourlyListingStatistic> queryRecentHourRows(int listingId, LocalDate entryDate, int hour) {

@@ -95,21 +95,6 @@ class VolatilityStatisticTest {
     }
 
     @Test
-    void testAnomalousWhenVolatility5xAboveAverage() {
-        assertTrue(statistic.isAnomalous(500.0, 100.0, 20.0));
-    }
-
-    @Test
-    void testNotAnomalousWhenVolatilityBelow5xAverage() {
-        assertFalse(statistic.isAnomalous(400.0, 100.0, 20.0));
-    }
-
-    @Test
-    void testNotAnomalousWhenMeanIsZero() {
-        assertFalse(statistic.isAnomalous(0.0, 0.0, 0.0));
-    }
-
-    @Test
     void testSkipsNullPriceRecords() {
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);

@@ -274,7 +274,7 @@ class QualityCheckLambdaHandlerTest {
         String key = "1/2/2024/1/15/10/30/mbp-10.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
-        for (String date : List.of("2024-01-13", "2024-01-14", "2024-01-15")) {
+        for (String date : List.of("2024-01-10", "2024-01-11", "2024-01-12")) {
             HourlyListingStatistic baseline = new HourlyListingStatistic();
             baseline.setListingId(LISTING_ID);
             baseline.setSk(HourlyListingStatistic.buildSk(10, date, "tickCount"));

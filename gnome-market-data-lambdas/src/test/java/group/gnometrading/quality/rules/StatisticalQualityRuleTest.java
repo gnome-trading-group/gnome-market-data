@@ -56,6 +56,7 @@ class StatisticalQualityRuleTest {
 
     private Clock clock;
     private final List<HourlyListingStatistic> queryResults = new ArrayList<>();
+    // 2024-01-15 is a Monday
     private static final LocalDateTime MINUTE = LocalDateTime.of(2024, 1, 15, 10, 30);
     private static final int ENTRY_HOUR = 10;
     private static final int LISTING_ID = 42;
@@ -111,8 +112,9 @@ class StatisticalQualityRuleTest {
 
     @Test
     void testInsufficientDaysNoAnomaly() {
-        // Only 1 distinct day — below minimumDays=3, so no anomaly even with extreme value
-        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 29.0, 29000.0, 29000000.0));
+        // Only 1 distinct weekday — below minimumDays=3, so no anomaly even with extreme value
+        // 2024-01-12 is a Friday (weekday, matches Monday entry's day type)
+        queryResults.add(buildHourlyStats("2024-01-12", ENTRY_HOUR, "tickCount", 29.0, 29000.0, 29000000.0));
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
@@ -126,17 +128,18 @@ class StatisticalQualityRuleTest {
 
     @Test
     void testAnomalyDetectedAfterMinimumDays() {
-        // 3 distinct recent days, combined mean=1000
-        queryResults.add(buildHourlyStats("2024-01-13", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
-        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
-        queryResults.add(buildHourlyStats("2024-01-15", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        // 3 distinct weekday days (Wed/Thu/Fri), combined mean=1000, stddev=0
+        // 2024-01-10=Wed, 2024-01-11=Thu, 2024-01-12=Fri
+        queryResults.add(buildHourlyStats("2024-01-10", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-11", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-12", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
-        // 5 records when mean=1000 — well below the 10% threshold (100)
+        // 5 records when mean=1000, stddev=0 — fallback: 5 < 100 → anomalous
         List<Schema> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
@@ -150,17 +153,18 @@ class StatisticalQualityRuleTest {
 
     @Test
     void testNoAnomalyAfterGap() {
-        // 3 distinct days but all from 10+ days ago — freshness check blocks anomaly detection
-        queryResults.add(buildHourlyStats("2024-01-04", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
-        queryResults.add(buildHourlyStats("2024-01-05", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
-        queryResults.add(buildHourlyStats("2024-01-06", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        // 3 weekday rows older than freshnessDays=9 — freshness check suppresses detection
+        // 2023-12-18=Mon, 2023-12-19=Tue, 2023-12-20=Wed (26-28 days before 2024-01-15)
+        queryResults.add(buildHourlyStats("2023-12-18", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2023-12-19", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2023-12-20", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
-        // 5 records — would be anomalous against mean=1000 if warmup passed
+        // 5 records — would be anomalous against mean=1000 if freshness passed
         List<Schema> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
@@ -215,10 +219,10 @@ class StatisticalQualityRuleTest {
 
     @Test
     void testIssueContainsCorrectMetadata() {
-        // Need 3 fresh distinct days to trigger anomaly
-        queryResults.add(buildHourlyStats("2024-01-13", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
-        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
-        queryResults.add(buildHourlyStats("2024-01-15", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        // 3 fresh weekday days to trigger anomaly (Wed/Thu/Fri before Monday entry)
+        queryResults.add(buildHourlyStats("2024-01-10", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-11", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-12", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
@@ -238,18 +242,19 @@ class StatisticalQualityRuleTest {
 
     @Test
     void testPerStatisticLookbackFiltering() {
-        // SpreadStatistic has lookbackDays=7; a row from 10 days ago should be excluded
-        queryResults.add(buildHourlyStats("2024-01-05", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
-        queryResults.add(buildHourlyStats("2024-01-06", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
-        queryResults.add(buildHourlyStats("2024-01-07", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
+        // SpreadStatistic has lookbackDays=21; rows from 26+ days ago should be excluded
+        // 2023-12-16=Mon, 2023-12-17=Tue, 2023-12-18=Wed (26-30 days before 2024-01-15)
+        queryResults.add(buildHourlyStats("2023-12-16", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
+        queryResults.add(buildHourlyStats("2023-12-17", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
+        queryResults.add(buildHourlyStats("2023-12-18", ENTRY_HOUR, "spread", 3.0, 30.0, 300.0));
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
-        // SpreadStatistic lookback=7 days. entryDate=2024-01-15, startDate=2024-01-08.
-        // All three rows (Jan 5-7) are outside the 7-day window → filtered out → distinctDays=0 → no anomaly
+        // SpreadStatistic lookback=21 days. entryDate=2024-01-15, startDate=2023-12-25.
+        // All three rows (Dec 16-18) are outside the 21-day window → filtered out → distinctDays=0 → no anomaly
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
         assertTrue(issues.isEmpty());
@@ -257,9 +262,6 @@ class StatisticalQualityRuleTest {
 
     @Test
     void testUpdateStatisticsFalseNeverCallsUpdateItem() {
-        StatisticalQualityRule rule = new StatisticalQualityRule(
-                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), true, false);
-        // Flip: updateStatistics=false
         StatisticalQualityRule noWriteRule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), false, false);
         MarketDataEntry entry =
@@ -272,22 +274,103 @@ class StatisticalQualityRuleTest {
 
     @Test
     void testDetectAnomaliesFalseNoIssuesEvenWithAnomaly() {
-        queryResults.add(buildHourlyStats("2024-01-13", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
-        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
-        queryResults.add(buildHourlyStats("2024-01-15", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        // 3 fresh weekday days — would trigger anomaly if detection were enabled
+        queryResults.add(buildHourlyStats("2024-01-10", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-11", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-12", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0));
 
         StatisticalQualityRule noDetectRule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), false, false);
         MarketDataEntry entry =
                 new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
 
-        // 5 records when mean=1000 — anomalous, but detectAnomalies=false so no issues
         List<Schema> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
         List<QualityIssue> issues = noDetectRule.check(entry, records, listing, clock);
 
         assertTrue(issues.isEmpty());
+    }
+
+    @Test
+    void testWeekdayEntryExcludesWeekendRows() {
+        // Monday entry. 3 weekend rows + 2 weekday rows. After day-type filter, only 2 weekday
+        // rows remain → distinctDays=2 < minimumDays=3 → no anomaly despite extreme value.
+        queryResults.add(buildHourlyStats("2024-01-13", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Sat
+        queryResults.add(buildHourlyStats("2024-01-14", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Sun
+        queryResults.add(buildHourlyStats("2024-01-06", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Sat
+        queryResults.add(buildHourlyStats("2024-01-11", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Thu
+        queryResults.add(buildHourlyStats("2024-01-12", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Fri
+
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        List<Schema> records = new ArrayList<>();
+        for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
+
+        List<QualityIssue> issues = rule.check(entry, records, listing, clock);
+
+        assertTrue(issues.isEmpty());
+    }
+
+    @Test
+    void testWeekendEntryUsesWeekendBaseline() {
+        // Saturday entry. 3 weekend rows → warmup passes and anomaly is detected using
+        // weekend-only baseline (weekday rows are excluded).
+        // 2024-01-13=Sat (entry), 2024-01-07=Sun, 2024-01-06=Sat, 2024-01-14=Sun
+        queryResults.add(buildHourlyStats("2024-01-06", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Sat
+        queryResults.add(buildHourlyStats("2024-01-07", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Sun
+        queryResults.add(buildHourlyStats("2024-01-13", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Sat
+        // Weekday rows that would inflate baseline if not filtered:
+        queryResults.add(buildHourlyStats("2024-01-08", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Mon
+        queryResults.add(buildHourlyStats("2024-01-09", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Tue
+        queryResults.add(buildHourlyStats("2024-01-10", ENTRY_HOUR, "tickCount", 10.0, 10000.0, 10000000.0)); // Wed
+
+        LocalDateTime saturdayMinute = LocalDateTime.of(2024, 1, 13, 10, 30); // Saturday
+        Clock satClock = Clock.fixed(saturdayMinute.atZone(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC"));
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, saturdayMinute, MarketDataEntry.EntryType.AGGREGATED);
+
+        // 5 records against weekend mean=1000, stddev=0 → fallback: 5 < 100 → anomalous
+        List<Schema> records = new ArrayList<>();
+        for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
+
+        List<QualityIssue> issues = rule.check(entry, records, listing, satClock);
+
+        assertEquals(1, issues.size());
+        assertEquals(QualityRuleType.TICK_COUNT_ANOMALY, issues.get(0).getRuleType());
+    }
+
+    @Test
+    void testHourWindowWrapsAtDayBoundary() {
+        // MidPriceStatistic uses hourWindow=0; verify a TickCountStatistic at hour=0 queries
+        // hours 23, 0, 1. The mock returns the same data for all three queries but SK dedup
+        // ensures rows are not counted multiple times.
+        LocalDateTime midnightMinute = LocalDateTime.of(2024, 1, 15, 0, 30); // Monday midnight
+        Clock midnightClock =
+                Clock.fixed(midnightMinute.atZone(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC"));
+
+        // 3 rows with hour=0 in SK (dedup by SK keeps 1 copy each regardless of 3-hour query)
+        queryResults.add(buildHourlyStats("2024-01-10", 0, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-11", 0, "tickCount", 10.0, 10000.0, 10000000.0));
+        queryResults.add(buildHourlyStats("2024-01-12", 0, "tickCount", 10.0, 10000.0, 10000000.0));
+
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, midnightMinute, MarketDataEntry.EntryType.AGGREGATED);
+
+        List<Schema> records = new ArrayList<>();
+        for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
+
+        // Should detect anomaly (3 distinct weekday days, mean=1000, value=5 < 100 fallback)
+        List<QualityIssue> issues = rule.check(entry, records, listing, midnightClock);
+
+        assertEquals(1, issues.size());
     }
 
     private HourlyListingStatistic buildHourlyStats(

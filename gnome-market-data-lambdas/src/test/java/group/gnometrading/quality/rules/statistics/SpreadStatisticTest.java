@@ -89,16 +89,6 @@ class SpreadStatisticTest {
     }
 
     @Test
-    void testAnomalousWhenSpread10xAboveAverage() {
-        assertTrue(statistic.isAnomalous(1000.0, 100.0, 10.0));
-    }
-
-    @Test
-    void testNotAnomalousWhenSpreadBelow10x() {
-        assertFalse(statistic.isAnomalous(500.0, 100.0, 10.0));
-    }
-
-    @Test
     void testNameAndRuleType() {
         assertEquals("spread", statistic.name());
         assertEquals(QualityRuleType.SPREAD_ANOMALY, statistic.ruleType());

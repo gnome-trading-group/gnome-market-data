@@ -9,8 +9,6 @@ import java.util.List;
 
 public final class VolatilityStatistic implements QualityStatistic {
 
-    private static final double ANOMALY_MULTIPLIER = 5.0;
-
     @Override
     public String name() {
         return "volatility";
@@ -19,6 +17,26 @@ public final class VolatilityStatistic implements QualityStatistic {
     @Override
     public QualityRuleType ruleType() {
         return QualityRuleType.VOLATILITY_ANOMALY;
+    }
+
+    @Override
+    public AnomalyDirection anomalyDirection() {
+        return AnomalyDirection.HIGH;
+    }
+
+    @Override
+    public double zThreshold() {
+        return 4.0;
+    }
+
+    @Override
+    public double fallbackThreshold() {
+        return 5.0;
+    }
+
+    @Override
+    public int lookbackDays() {
+        return 21;
     }
 
     @Override
@@ -46,21 +64,5 @@ public final class VolatilityStatistic implements QualityStatistic {
         }
 
         return count < 2 ? Double.NaN : Math.sqrt(m2 / count);
-    }
-
-    @Override
-    public boolean isAnomalous(double currentValue, double mean, double stddev) {
-        return mean > 0 && currentValue >= mean * ANOMALY_MULTIPLIER;
-    }
-
-    @Override
-    public String describeAnomaly(double currentValue, double mean, double stddev) {
-        return String.format(
-                "Intra-minute price volatility %.2f is 5x+ above rolling average of %.2f", currentValue, mean);
-    }
-
-    @Override
-    public int lookbackDays() {
-        return 7;
     }
 }

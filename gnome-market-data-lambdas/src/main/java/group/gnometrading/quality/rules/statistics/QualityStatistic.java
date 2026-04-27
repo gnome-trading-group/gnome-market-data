@@ -18,26 +18,81 @@ public interface QualityStatistic {
      */
     double compute(MarketDataEntry entry, List<Schema> records);
 
+    AnomalyDirection anomalyDirection();
+
+    /** Z-score threshold above which the observation is flagged as anomalous. */
+    double zThreshold();
+
     /**
-     * Returns true if the current value is anomalous relative to the rolling baseline.
-     * Warmup and freshness checks are handled by StatisticalQualityRule before calling this.
+     * Fallback threshold used when stddev=0 (perfectly stable baseline).
+     * For LOW: flags when value < mean * fallback.
+     * For HIGH: flags when value >= mean * fallback.
+     * For BOTH: ignored — stddev=0 always returns false.
      */
-    boolean isAnomalous(double currentValue, double mean, double stddev);
+    double fallbackThreshold();
 
-    String describeAnomaly(double currentValue, double mean, double stddev);
+    /** Hours +/- around the entry hour to include in the conditioning window. 0 = exact hour only. */
+    default int hourWindow() {
+        return 1;
+    }
 
-    /** How many days of history to include in the baseline. */
+    /** Calendar days of history to include in the baseline. */
     default int lookbackDays() {
         return 14;
     }
 
     /**
-     * Minimum number of distinct days of historical data required before anomaly detection
-     * activates. Also used as the gap-freshness threshold — if the most recent historical data
-     * point for this metric+hour is older than minimumDays days, detection is suppressed to
-     * force re-warm after a data gap.
+     * Minimum number of distinct same-day-type days of historical data required before
+     * anomaly detection activates.
      */
     default int minimumDays() {
         return 3;
+    }
+
+    /**
+     * Maximum calendar days since the most recent same-day-type observation before detection
+     * is suppressed to force re-warm after a data gap. Defaults to 3x minimumDays to allow
+     * for the 7-day gap between same-type weekend days.
+     */
+    default int freshnessDays() {
+        return minimumDays() * 3;
+    }
+
+    default boolean isAnomalous(double currentValue, double mean, double stddev) {
+        if (mean <= 0) {
+            return false;
+        }
+        if (stddev > 0) {
+            double zScore =
+                    switch (anomalyDirection()) {
+                        case LOW -> (mean - currentValue) / stddev;
+                        case HIGH -> (currentValue - mean) / stddev;
+                        case BOTH -> Math.abs(currentValue - mean) / stddev;
+                    };
+            return zScore > zThreshold();
+        }
+        return switch (anomalyDirection()) {
+            case LOW -> currentValue < mean * fallbackThreshold();
+            case HIGH -> currentValue >= mean * fallbackThreshold();
+            case BOTH -> false;
+        };
+    }
+
+    default String describeAnomaly(double currentValue, double mean, double stddev) {
+        String direction =
+                switch (anomalyDirection()) {
+                    case LOW -> "below";
+                    case HIGH -> "above";
+                    case BOTH -> currentValue >= mean ? "above" : "below";
+                };
+        if (stddev > 0) {
+            double zScore = Math.abs(currentValue - mean) / stddev;
+            return String.format(
+                    "%s %.4g is %.1fσ %s conditional mean of %.4g (σ=%.4g)",
+                    name(), currentValue, zScore, direction, mean, stddev);
+        }
+        return String.format(
+                "%s %.4g is anomalously %s conditional mean of %.4g (zero variance baseline)",
+                name(), currentValue, direction, mean);
     }
 }

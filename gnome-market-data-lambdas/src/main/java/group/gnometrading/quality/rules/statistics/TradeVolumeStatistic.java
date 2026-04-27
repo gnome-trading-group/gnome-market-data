@@ -10,8 +10,6 @@ import java.util.List;
 
 public final class TradeVolumeStatistic implements QualityStatistic {
 
-    private static final double ANOMALY_RATIO = 0.10;
-
     @Override
     public String name() {
         return "tradeVolume";
@@ -20,6 +18,26 @@ public final class TradeVolumeStatistic implements QualityStatistic {
     @Override
     public QualityRuleType ruleType() {
         return QualityRuleType.TRADE_VOLUME_ANOMALY;
+    }
+
+    @Override
+    public AnomalyDirection anomalyDirection() {
+        return AnomalyDirection.LOW;
+    }
+
+    @Override
+    public double zThreshold() {
+        return 3.0;
+    }
+
+    @Override
+    public double fallbackThreshold() {
+        return 0.10;
+    }
+
+    @Override
+    public int lookbackDays() {
+        return 28;
     }
 
     @Override
@@ -37,15 +55,5 @@ public final class TradeVolumeStatistic implements QualityStatistic {
             }
         }
         return (double) totalVolume / Statics.SIZE_SCALING_FACTOR;
-    }
-
-    @Override
-    public boolean isAnomalous(double currentValue, double mean, double stddev) {
-        return mean > 0 && currentValue < mean * ANOMALY_RATIO;
-    }
-
-    @Override
-    public String describeAnomaly(double currentValue, double mean, double stddev) {
-        return String.format("Trade volume %.0f is 90%%+ below rolling average of %.1f", currentValue, mean);
     }
 }

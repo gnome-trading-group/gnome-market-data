@@ -1,5 +1,7 @@
 package group.gnometrading.quality.model;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbAttribute;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbBean;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbPartitionKey;
@@ -81,6 +83,14 @@ public final class HourlyListingStatistic {
         int firstHash = sk.indexOf('#');
         int lastHash = sk.lastIndexOf('#');
         return sk.substring(firstHash + 1, lastHash);
+    }
+
+    public DayOfWeek getDayOfWeek() {
+        return LocalDate.parse(getDate()).getDayOfWeek();
+    }
+
+    public static boolean isWeekend(DayOfWeek dow) {
+        return dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY;
     }
 
     public static String buildSk(int hour, String date, String metric) {

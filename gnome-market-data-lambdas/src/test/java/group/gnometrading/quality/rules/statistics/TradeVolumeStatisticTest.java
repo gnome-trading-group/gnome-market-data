@@ -89,21 +89,6 @@ class TradeVolumeStatisticTest {
     }
 
     @Test
-    void testAnomalousWhenVolumeDrops90Percent() {
-        assertTrue(statistic.isAnomalous(50.0, 1000.0, 100.0));
-    }
-
-    @Test
-    void testNotAnomalousWhenVolumeDropsLessThan90Percent() {
-        assertFalse(statistic.isAnomalous(200.0, 1000.0, 100.0));
-    }
-
-    @Test
-    void testNotAnomalousWhenMeanIsZero() {
-        assertFalse(statistic.isAnomalous(0.0, 0.0, 0.0));
-    }
-
-    @Test
     void testNameAndRuleType() {
         assertEquals("tradeVolume", statistic.name());
         assertEquals(QualityRuleType.TRADE_VOLUME_ANOMALY, statistic.ruleType());

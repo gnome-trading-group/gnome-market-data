@@ -7,8 +7,6 @@ import java.util.List;
 
 public final class TickCountStatistic implements QualityStatistic {
 
-    private static final double ANOMALY_RATIO = 0.10;
-
     @Override
     public String name() {
         return "tickCount";
@@ -20,17 +18,27 @@ public final class TickCountStatistic implements QualityStatistic {
     }
 
     @Override
+    public AnomalyDirection anomalyDirection() {
+        return AnomalyDirection.LOW;
+    }
+
+    @Override
+    public double zThreshold() {
+        return 3.0;
+    }
+
+    @Override
+    public double fallbackThreshold() {
+        return 0.10;
+    }
+
+    @Override
+    public int lookbackDays() {
+        return 28;
+    }
+
+    @Override
     public double compute(MarketDataEntry entry, List<Schema> records) {
         return records.size();
-    }
-
-    @Override
-    public boolean isAnomalous(double currentValue, double mean, double stddev) {
-        return mean > 0 && currentValue < mean * ANOMALY_RATIO;
-    }
-
-    @Override
-    public String describeAnomaly(double currentValue, double mean, double stddev) {
-        return String.format("Tick count %.0f is 90%%+ below rolling average of %.1f", currentValue, mean);
     }
 }

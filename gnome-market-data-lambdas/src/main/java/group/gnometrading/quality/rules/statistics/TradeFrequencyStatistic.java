@@ -9,8 +9,6 @@ import java.util.List;
 
 public final class TradeFrequencyStatistic implements QualityStatistic {
 
-    private static final double ANOMALY_RATIO = 0.10;
-
     @Override
     public String name() {
         return "tradeFrequency";
@@ -19,6 +17,26 @@ public final class TradeFrequencyStatistic implements QualityStatistic {
     @Override
     public QualityRuleType ruleType() {
         return QualityRuleType.TRADE_FREQUENCY_ANOMALY;
+    }
+
+    @Override
+    public AnomalyDirection anomalyDirection() {
+        return AnomalyDirection.LOW;
+    }
+
+    @Override
+    public double zThreshold() {
+        return 3.0;
+    }
+
+    @Override
+    public double fallbackThreshold() {
+        return 0.10;
+    }
+
+    @Override
+    public int lookbackDays() {
+        return 28;
     }
 
     @Override
@@ -36,15 +54,5 @@ public final class TradeFrequencyStatistic implements QualityStatistic {
             }
         }
         return tradeCount;
-    }
-
-    @Override
-    public boolean isAnomalous(double currentValue, double mean, double stddev) {
-        return mean > 0 && currentValue < mean * ANOMALY_RATIO;
-    }
-
-    @Override
-    public String describeAnomaly(double currentValue, double mean, double stddev) {
-        return String.format("Trade frequency %.0f is 90%%+ below rolling average of %.1f", currentValue, mean);
     }
 }

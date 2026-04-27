@@ -86,21 +86,6 @@ class TradeFrequencyStatisticTest {
     }
 
     @Test
-    void testAnomalousWhenFrequencyDrops90Percent() {
-        assertTrue(statistic.isAnomalous(50.0, 1000.0, 100.0));
-    }
-
-    @Test
-    void testNotAnomalousWhenFrequencyDropsLessThan90Percent() {
-        assertFalse(statistic.isAnomalous(200.0, 1000.0, 100.0));
-    }
-
-    @Test
-    void testNotAnomalousWhenMeanIsZero() {
-        assertFalse(statistic.isAnomalous(0.0, 0.0, 0.0));
-    }
-
-    @Test
     void testNameAndRuleType() {
         assertEquals("tradeFrequency", statistic.name());
         assertEquals(QualityRuleType.TRADE_FREQUENCY_ANOMALY, statistic.ruleType());
