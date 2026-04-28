@@ -95,6 +95,11 @@ class MidPriceStatisticTest {
     }
 
     @Test
+    void testDetectionEnabled() {
+        assertFalse(statistic.detectionEnabled());
+    }
+
+    @Test
     void testNameAndRuleType() {
         assertEquals("midPrice", statistic.name());
         assertEquals(QualityRuleType.MID_PRICE_ANOMALY, statistic.ruleType());

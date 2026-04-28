@@ -38,6 +38,11 @@ public final class TickCountStatistic implements QualityStatistic {
     }
 
     @Override
+    public boolean detectionEnabled() {
+        return true;
+    }
+
+    @Override
     public double compute(MarketDataEntry entry, List<Schema> records) {
         return records.size();
     }

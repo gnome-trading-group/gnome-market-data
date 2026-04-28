@@ -94,7 +94,7 @@ public final class StatisticalQualityRule implements QualityRule {
                     HourlyStatisticsAggregator.aggregate(filtered, statistic.name());
             Warmup warmup = computeWarmup(filtered, statistic.name());
 
-            if (detectAnomalies) {
+            if (detectAnomalies && statistic.detectionEnabled()) {
                 boolean fresh = warmup.latestDate() != null
                         && !warmup.latestDate().isBefore(entryDate.minusDays(statistic.freshnessDays()));
 

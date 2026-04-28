@@ -293,6 +293,30 @@ class StatisticalQualityRuleTest {
     }
 
     @Test
+    void testDetectionDisabledStatisticUpdatesBaselineButNoIssues() {
+        // SpreadStatistic has detectionEnabled()=false; even with anomalous conditions no issue
+        // is created, but the baseline is still updated.
+        // 3 rows: mean=1e-8, stddev=0; HIGH fallback triggers when spread >= 1e-8 * 10 = 1e-7
+        queryResults.add(buildHourlyStats("2024-01-10", ENTRY_HOUR, "spread", 1.0, 1e-8, 1e-16));
+        queryResults.add(buildHourlyStats("2024-01-11", ENTRY_HOUR, "spread", 1.0, 1e-8, 1e-16));
+        queryResults.add(buildHourlyStats("2024-01-12", ENTRY_HOUR, "spread", 1.0, 1e-8, 1e-16));
+
+        StatisticalQualityRule rule = new StatisticalQualityRule(
+                statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        Mbp10Schema record = new Mbp10Schema();
+        record.encoder.bidPrice0(100);
+        record.encoder.askPrice0(200); // spread = 100/PRICE_SCALING_FACTOR = 1e-7 >= 1e-7
+
+        List<QualityIssue> issues = rule.check(entry, List.of(record), listing, clock);
+
+        assertTrue(issues.isEmpty());
+        verify(dynamoDbClient, times(1)).updateItem(any(UpdateItemRequest.class));
+    }
+
+    @Test
     void testWeekdayEntryExcludesWeekendRows() {
         // Monday entry. 3 weekend rows + 2 weekday rows. After day-type filter, only 2 weekday
         // rows remain → distinctDays=2 < minimumDays=3 → no anomaly despite extreme value.

@@ -58,6 +58,10 @@ public interface QualityStatistic {
         return minimumDays() * 3;
     }
 
+    default boolean detectionEnabled() {
+        return false;
+    }
+
     default boolean isAnomalous(double currentValue, double mean, double stddev) {
         if (mean <= 0) {
             return false;

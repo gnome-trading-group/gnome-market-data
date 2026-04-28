@@ -44,6 +44,14 @@ class QualityStatisticDefaultsTest {
         };
     }
 
+    // --- detectionEnabled default ---
+
+    @Test
+    void testDetectionEnabledDefaultsFalse() {
+        QualityStatistic s = makeStatistic(AnomalyDirection.LOW, 3.0, 0.10);
+        assertFalse(s.detectionEnabled());
+    }
+
     // --- LOW direction ---
 
     @Test

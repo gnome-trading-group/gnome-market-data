@@ -27,6 +27,11 @@ class TickCountStatisticTest {
     }
 
     @Test
+    void testDetectionEnabled() {
+        assertTrue(statistic.detectionEnabled());
+    }
+
+    @Test
     void testNameAndRuleType() {
         assertEquals("tickCount", statistic.name());
         assertEquals(QualityRuleType.TICK_COUNT_ANOMALY, statistic.ruleType());

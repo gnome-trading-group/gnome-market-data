@@ -89,6 +89,11 @@ class SpreadStatisticTest {
     }
 
     @Test
+    void testDetectionEnabled() {
+        assertFalse(statistic.detectionEnabled());
+    }
+
+    @Test
     void testNameAndRuleType() {
         assertEquals("spread", statistic.name());
         assertEquals(QualityRuleType.SPREAD_ANOMALY, statistic.ruleType());

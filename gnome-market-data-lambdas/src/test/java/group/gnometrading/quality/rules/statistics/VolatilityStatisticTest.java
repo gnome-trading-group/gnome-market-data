@@ -126,6 +126,11 @@ class VolatilityStatisticTest {
     }
 
     @Test
+    void testDetectionEnabled() {
+        assertFalse(statistic.detectionEnabled());
+    }
+
+    @Test
     void testNameAndRuleType() {
         assertEquals("volatility", statistic.name());
         assertEquals(QualityRuleType.VOLATILITY_ANOMALY, statistic.ruleType());

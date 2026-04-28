@@ -89,6 +89,11 @@ class TradeVolumeStatisticTest {
     }
 
     @Test
+    void testDetectionEnabled() {
+        assertFalse(statistic.detectionEnabled());
+    }
+
+    @Test
     void testNameAndRuleType() {
         assertEquals("tradeVolume", statistic.name());
         assertEquals(QualityRuleType.TRADE_VOLUME_ANOMALY, statistic.ruleType());

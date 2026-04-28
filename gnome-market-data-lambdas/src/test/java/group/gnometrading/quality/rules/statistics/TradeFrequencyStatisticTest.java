@@ -86,6 +86,11 @@ class TradeFrequencyStatisticTest {
     }
 
     @Test
+    void testDetectionEnabled() {
+        assertFalse(statistic.detectionEnabled());
+    }
+
+    @Test
     void testNameAndRuleType() {
         assertEquals("tradeFrequency", statistic.name());
         assertEquals(QualityRuleType.TRADE_FREQUENCY_ANOMALY, statistic.ruleType());
