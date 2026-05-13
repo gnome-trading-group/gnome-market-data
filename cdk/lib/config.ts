@@ -10,7 +10,7 @@ export interface MarketDataConfig {
 }
 
 const defaultConfig = {
-  collectorOrchestratorVersion: "1.1.29",
+  collectorOrchestratorVersion: "1.2.0",
 }
 
 export const CONFIGS: { [stage in Stage]?:  MarketDataConfig } = {
