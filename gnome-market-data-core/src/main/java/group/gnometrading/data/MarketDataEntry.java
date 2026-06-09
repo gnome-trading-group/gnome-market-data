@@ -11,7 +11,6 @@ import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -102,12 +101,17 @@ public final class MarketDataEntry {
             zstdStream.transferTo(buffer);
             byte[] decompressedData = buffer.toByteArray();
 
+            if (decompressedData.length == 0) {
+                return schemas;
+            }
+
+            decompressedData = this.schemaType.getInstance().migrateIfNeeded(decompressedData);
+
             assert decompressedData.length % expectedSize == 0
                     : "Left over bytes in key %s: %d".formatted(this.getKey(), decompressedData.length % expectedSize);
             for (int idx = 0; idx < decompressedData.length; idx += expectedSize) {
-                byte[] recordData = Arrays.copyOfRange(decompressedData, idx, idx + expectedSize);
                 Schema schema = this.schemaType.newInstance();
-                schema.buffer.putBytes(0, recordData, 0, recordData.length);
+                schema.buffer.putBytes(0, decompressedData, idx, expectedSize);
                 schemas.add(schema);
             }
             return schemas;

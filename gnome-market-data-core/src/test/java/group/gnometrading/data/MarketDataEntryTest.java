@@ -498,10 +498,10 @@ class MarketDataEntryTest {
         MarketDataEntry entry = entry(532, 151, timestamp, MarketDataEntry.EntryType.RAW, SchemaType.MBP_10);
         String bucket = "test-bucket";
 
-        // Create test schema data
+        // Create test schema data using proper serialization so the SBE header is intact
         Schema testSchema = SchemaType.MBP_10.newInstance();
         byte[] schemaBytes = new byte[testSchema.totalMessageSize()];
-        Arrays.fill(schemaBytes, (byte) 42);
+        testSchema.buffer.getBytes(0, schemaBytes, 0, schemaBytes.length);
 
         // Compress the data
         ByteArrayOutputStream compressedOutput = new ByteArrayOutputStream();
@@ -530,9 +530,10 @@ class MarketDataEntryTest {
                 entryWithUuid(532, 151, timestamp, MarketDataEntry.EntryType.RAW, SchemaType.MBP_10, "abc12345");
         String bucket = "test-bucket";
 
-        // Create minimal compressed data
+        // Create minimal compressed data using proper serialization so the SBE header is intact
         Schema testSchema = SchemaType.MBP_10.newInstance();
         byte[] schemaBytes = new byte[testSchema.totalMessageSize()];
+        testSchema.buffer.getBytes(0, schemaBytes, 0, schemaBytes.length);
         ByteArrayOutputStream compressedOutput = new ByteArrayOutputStream();
         try (ZstdOutputStream zstdStream = new ZstdOutputStream(compressedOutput)) {
             zstdStream.write(schemaBytes);
@@ -592,14 +593,13 @@ class MarketDataEntryTest {
         Schema schema2 = SchemaType.MBP_10.newInstance();
         Schema schema3 = SchemaType.MBP_10.newInstance();
 
+        // Serialize via the schema buffer to preserve the SBE message header
         byte[] schema1Bytes = new byte[schema1.totalMessageSize()];
         byte[] schema2Bytes = new byte[schema2.totalMessageSize()];
         byte[] schema3Bytes = new byte[schema3.totalMessageSize()];
-
-        // Fill with different patterns to distinguish them
-        Arrays.fill(schema1Bytes, (byte) 11);
-        Arrays.fill(schema2Bytes, (byte) 22);
-        Arrays.fill(schema3Bytes, (byte) 33);
+        schema1.buffer.getBytes(0, schema1Bytes, 0, schema1Bytes.length);
+        schema2.buffer.getBytes(0, schema2Bytes, 0, schema2Bytes.length);
+        schema3.buffer.getBytes(0, schema3Bytes, 0, schema3Bytes.length);
 
         // Compress all schemas together
         ByteArrayOutputStream compressedOutput = new ByteArrayOutputStream();
