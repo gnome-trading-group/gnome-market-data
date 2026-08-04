@@ -18,41 +18,51 @@ class DynamoDBClient:
         response = self.table.get_item(Key={'listingId': listing_id})
         return response.get('Item')
 
-    def put_item(self, listing_id: int, serviceArn: str, deploymentVersion: str, region: str) -> Dict:
+    def put_item(self, listing_id: int, serviceArn: str, deploymentVersion: str, region: str,
+                 listing_ids: List[int] = None, cpu: str = None, memory: str = None) -> Dict:
         """Create or update a collector with service-based deployment info"""
         existing_item = self.get_item(listing_id)
 
         if existing_item:
-            return self.update_service(listing_id, serviceArn, deploymentVersion, region, Status.PENDING)
+            return self.update_service(listing_id, serviceArn, deploymentVersion, region, Status.PENDING,
+                                       listing_ids=listing_ids, cpu=cpu, memory=memory)
         else:
             return self.table.put_item(
                 Item={
                     'listingId': listing_id,
+                    'listingIds': listing_ids if listing_ids is not None else [listing_id],
+                    'cpu': cpu,
+                    'memory': memory,
                     'status': Status.PENDING.value,
                     'serviceArn': serviceArn,
                     'deploymentVersion': deploymentVersion,
                     'region': region,
-                    'taskArns': [],  # Will be populated by ECS monitor
+                    'taskArns': [],
                     'lastStatusChange': int(time.time()),
                     'failureReason': None,
                 }
             )
 
-    def update_service(self, listing_id: int, serviceArn: str, deploymentVersion: str, region: str, status: Status) -> Dict:
-        """Update service ARN, deployment version, and region"""
+    def update_service(self, listing_id: int, serviceArn: str, deploymentVersion: str, region: str, status: Status,
+                       listing_ids: List[int] = None, cpu: str = None, memory: str = None) -> Dict:
+        """Update service ARN, deployment version, region, and optional sizing"""
         return self.table.update_item(
             Key={'listingId': listing_id},
-            UpdateExpression='SET serviceArn = :serviceArn, deploymentVersion = :version, #r = :region, #s = :status, lastStatusChange = :now',
+            UpdateExpression='SET serviceArn = :serviceArn, deploymentVersion = :version, #r = :region, #s = :status, lastStatusChange = :now, listingIds = :listingIds, cpu = :cpu, #m = :memory',
             ExpressionAttributeValues={
                 ':serviceArn': serviceArn,
                 ':version': deploymentVersion,
                 ':region': region,
                 ':status': status.value,
-                ':now': int(time.time())
+                ':now': int(time.time()),
+                ':listingIds': listing_ids if listing_ids is not None else [listing_id],
+                ':cpu': cpu,
+                ':memory': memory,
             },
             ExpressionAttributeNames={
                 '#s': 'status',
-                '#r': 'region'
+                '#r': 'region',
+                '#m': 'memory',
             }
         )
 

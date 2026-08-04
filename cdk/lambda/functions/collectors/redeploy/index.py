@@ -70,26 +70,24 @@ def handler(listingId: int = None):
             base_task_def_response = ecs.describe_task_definition(taskDefinition=base_task_definition)
             base_task_def = base_task_def_response['taskDefinition']
 
-            # Create a new task definition for this specific collector with LISTING env var
+            listing_ids = collector['listingIds']
+            task_cpu = collector.get('cpu') or base_task_def['cpu']
+            task_memory = collector.get('memory') or base_task_def['memory']
+
             container_def = base_task_def['containerDefinitions'][0].copy()
 
-            # Add LISTING to environment variables
             if 'environment' not in container_def:
                 container_def['environment'] = []
 
-            # Remove existing LISTING if present
             container_def['environment'] = [
                 env for env in container_def['environment']
-                if env['name'] != 'LISTING'
+                if env['name'] != 'LISTINGS'
             ]
-
-            # Add the LISTING for this collector
             container_def['environment'].append({
-                'name': 'LISTING',
-                'value': str(listing_id)
+                'name': 'LISTINGS',
+                'value': ','.join(str(lid) for lid in listing_ids)
             })
 
-            # Register a new task definition for this collector
             collector_task_def_response = ecs.register_task_definition(
                 family=f'collector-{listing_id}',
                 taskRoleArn=base_task_def['taskRoleArn'],
@@ -97,8 +95,8 @@ def handler(listingId: int = None):
                 networkMode=base_task_def['networkMode'],
                 containerDefinitions=[container_def],
                 requiresCompatibilities=base_task_def['requiresCompatibilities'],
-                cpu=base_task_def['cpu'],
-                memory=base_task_def['memory']
+                cpu=task_cpu,
+                memory=task_memory
             )
 
             collector_task_definition = collector_task_def_response['taskDefinition']['taskDefinitionArn']

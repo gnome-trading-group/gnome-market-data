@@ -4,7 +4,10 @@ from db import DynamoDBClient
 from utils import lambda_handler, get_region_config, get_available_regions
 
 @lambda_handler
-def handler(listingId: int, region: str = None):
+def handler(listingIds: list, region: str = None, cpu: str = None, memory: str = None):
+    if not listingIds:
+        raise ValueError('listingIds is required and must be non-empty')
+
     available_regions = get_available_regions()
     if not region:
         raise ValueError(f'region is required. Available regions: {available_regions}')
@@ -18,10 +21,11 @@ def handler(listingId: int, region: str = None):
     subnet_ids = region_config['subnetIds']
     deployment_version = os.environ.get('COLLECTOR_DEPLOYMENT_VERSION', 'unknown')
 
+    listing_ids = [int(lid) for lid in listingIds]
+    first_listing_id = listing_ids[0]
+    service_name = f'collector-{first_listing_id}'
+
     ecs = boto3.client('ecs', region_name=region)
-
-    service_name = f'collector-{listingId}'
-
     db = DynamoDBClient()
 
     base_task_def_response = ecs.describe_task_definition(taskDefinition=base_task_definition)
@@ -32,19 +36,22 @@ def handler(listingId: int, region: str = None):
     if 'environment' not in container_def:
         container_def['environment'] = []
     container_def['environment'].append({
-        'name': 'LISTING',
-        'value': str(listingId)
+        'name': 'LISTINGS',
+        'value': ','.join(str(lid) for lid in listing_ids)
     })
 
+    task_cpu = cpu or base_task_def['cpu']
+    task_memory = memory or base_task_def['memory']
+
     collector_task_def_response = ecs.register_task_definition(
-        family=f'collector-{listingId}',
+        family=f'collector-{first_listing_id}',
         taskRoleArn=base_task_def['taskRoleArn'],
         executionRoleArn=base_task_def['executionRoleArn'],
         networkMode=base_task_def['networkMode'],
         containerDefinitions=[container_def],
         requiresCompatibilities=base_task_def['requiresCompatibilities'],
-        cpu=base_task_def['cpu'],
-        memory=base_task_def['memory']
+        cpu=task_cpu,
+        memory=task_memory
     )
 
     collector_task_definition = collector_task_def_response['taskDefinition']['taskDefinitionArn']
@@ -101,7 +108,7 @@ def handler(listingId: int, region: str = None):
             enableExecuteCommand=True,
             propagateTags='SERVICE',
             tags=[
-                {'key': 'ListingId', 'value': str(listingId)},
+                {'key': 'ListingId', 'value': str(first_listing_id)},
                 {'key': 'DeploymentVersion', 'value': deployment_version},
                 {'key': 'Region', 'value': region}
             ]
@@ -110,13 +117,17 @@ def handler(listingId: int, region: str = None):
 
     service_arn = response['service']['serviceArn']
 
-    db.put_item(listingId, service_arn, deployment_version, region)
+    db.put_item(first_listing_id, service_arn, deployment_version, region,
+                listing_ids=listing_ids, cpu=task_cpu, memory=task_memory)
 
     return {
         'message': message,
         'serviceArn': service_arn,
         'serviceName': service_name,
         'region': region,
+        'listingIds': listing_ids,
+        'cpu': task_cpu,
+        'memory': task_memory,
         'desiredCount': 2,
         'deploymentVersion': deployment_version,
         'updated': service_exists
