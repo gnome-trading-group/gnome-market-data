@@ -23,7 +23,9 @@ Polymarket currently publishes no supported order-book sequence. Its SBE sequenc
 
 ## Next acceptance test
 
-Select a small related set—normally both outcomes of one binary event—and set the stack's `ListingIds` parameter to their comma-separated IDs. Keep `ListingId` only as the backwards-compatible single-listing parameter.
+Select a small related set—normally both outcomes of one binary event—and set the stack's `ListingIds` parameter to their comma-separated IDs. Keep `ListingId` only as the backwards-compatible single-listing parameter. Numeric registry IDs are mutable operational references, not permanent market identity; immediately before deployment, re-query every listing and require its security, condition, token, active state, and listing spec to match the frozen cohort.
+
+The current candidate is frozen in [`lck-2026-calibration-cohort.yaml`](./lck-2026-calibration-cohort.yaml). It remains `PENDING_REVIEW`: its three outcomes are pairwise mutually exclusive but are not a collectively exhaustive set, and live CLOB verification must pass before deployment.
 
 After an approved deployment, start a fresh window after ECS reaches one healthy task and the rollout is complete. Run:
 

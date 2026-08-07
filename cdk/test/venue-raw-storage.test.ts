@@ -69,7 +69,6 @@ describe('venue-raw storage', () => {
       rawBucketName: 'gnome-market-data-raw-dev',
       venueRawBucketName,
       registryApiKeyId: 'test-registry-key-id',
-      registryApiKeyArn: 'arn:aws:apigateway:us-east-1::/apikeys/test-registry-key-id',
       primaryEventBus,
     });
     const template = Template.fromStack(stack);

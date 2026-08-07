@@ -1,0 +1,144 @@
+schema_version: 1
+status: PENDING_REVIEW
+checked_at_utc: "2026-08-07T18:16:00Z"
+purpose: "Candidate three-listing calibration cohort for concurrent graph capture."
+
+selection:
+  requested_event: "Worlds 2026 Winning Region"
+  requested_event_status: BLOCKED
+  requested_event_reason: >-
+    The current production registry did not contain a Worlds event, and the
+    previously deployed numeric listing ID now resolves to a different market.
+    Reusing that ID would not be deployment-safe.
+  fallback_reason: >-
+    These are three active, liquid candidates within one LCK winner event. Their
+    win outcomes are pairwise mutually exclusive, which makes them useful for a
+    first relationship-graph calibration. The three-listing set is not exhaustive.
+  selection_evidence:
+    polymarket_url: "https://polymarket.com/event/lol-lck-2026-season-winner"
+    observed_page_summary: >-
+      Polymarket displayed Gen.G, Hanwha Life, and T1 among the leading outcomes,
+      with aggregate event volume around USD 3.44 million when checked.
+    evidence_checked_at_utc: "2026-08-07T18:16:00Z"
+    caveat: "Displayed odds, liquidity, and volume are time-varying and must be rechecked before capture."
+
+event:
+  exchange: Polymarket
+  title: "LCK 2026 Season Winner"
+  canonical_event_id: 595
+  exchange_event_id: 596
+  native_event_id: "lol-lck-2026-season-winner"
+  url: "https://polymarket.com/event/lol-lck-2026-season-winner"
+  registry_expiry_utc: "2026-12-31T00:00:00.000Z"
+  registry_status: ACTIVE_UNRESOLVED
+  classification: "multi-market event containing binary team-win conditions"
+  complete_outcome_set_captured: false
+
+collector_configuration:
+  listing_ids_csv: "4116,4117,4120"
+  environment:
+    LISTINGS: "4116,4117,4120"
+  cloudformation_parameters:
+    ListingIds: "4116,4117,4120"
+  subscribed_listing_count: 3
+  concurrent_task_count: 1
+
+listings:
+  - candidate: "Gen.G"
+    canonical_security_id: 3938
+    canonical_listing_id: 4116
+    exchange_symbol: "LCK 2026 Season Winner -- Gen.G Esports"
+    condition_id: "0x36668e37b463d0762bf6e4c053a44682f89fec1198ec07c279812067bb732604"
+    token_asset_id: "26056443051368572156232251022146787932941548529678528769955355279151846684456"
+    token_outcome_label: UNKNOWN
+    active: true
+    contract_type: 8
+    asset_class: PREDICTION
+    settlement_currency: USDC
+    registry_expiry_utc: "2026-12-31T00:00:00.000Z"
+    listing_spec:
+      price_tick: 10000000
+      quantity_lot: 1000000
+      minimum_notional: 0
+      multiplier: 1000000000
+      recorded_at_utc: "2026-08-07T01:06:07.541Z"
+
+  - candidate: "Hanwha Life"
+    canonical_security_id: 3939
+    canonical_listing_id: 4117
+    exchange_symbol: "LCK 2026 Season Winner -- Hanwha Life Esports"
+    condition_id: "0x77cf58896c74c5380af70c734e11eb5dd5daeaabc5da47ec000ae6880284bdb8"
+    token_asset_id: "83224701539825492597746423742799045654222114848088872408339985144134292756767"
+    token_outcome_label: UNKNOWN
+    active: true
+    contract_type: 8
+    asset_class: PREDICTION
+    settlement_currency: USDC
+    registry_expiry_utc: "2026-12-31T00:00:00.000Z"
+    listing_spec:
+      price_tick: 10000000
+      quantity_lot: 1000000
+      minimum_notional: 0
+      multiplier: 1000000000
+      recorded_at_utc: "2026-08-07T01:06:07.541Z"
+
+  - candidate: "T1"
+    canonical_security_id: 3942
+    canonical_listing_id: 4120
+    exchange_symbol: "LCK 2026 Season Winner -- T1"
+    condition_id: "0x7b147310a79af60523698cf0bd2a91fbd18db3bd26aac843b25d6cd88788a3dc"
+    token_asset_id: "62804911907489111334697890737104070700453790356573302135692733287860846700139"
+    token_outcome_label: UNKNOWN
+    active: true
+    contract_type: 8
+    asset_class: PREDICTION
+    settlement_currency: USDC
+    registry_expiry_utc: "2026-12-31T00:00:00.000Z"
+    listing_spec:
+      price_tick: 10000000
+      quantity_lot: 1000000
+      minimum_notional: 0
+      multiplier: 1000000000
+      recorded_at_utc: "2026-08-07T01:06:07.541Z"
+
+relationships:
+  source: "production Gnome registry"
+  graph_warning: >-
+    The registry contains duplicate and placeholder relationships outside this
+    cohort. Freeze only the edges below for this calibration after manual review.
+  candidates:
+    - securities: [3938, 3939]
+      relationship_type: MUTUALLY_EXCLUSIVE
+      forward_relationship_id: 90594
+      reverse_relationship_id: 90626
+      review_status: PENDING_REVIEW
+      manually_verified: false
+    - securities: [3938, 3942]
+      relationship_type: MUTUALLY_EXCLUSIVE
+      forward_relationship_id: 90597
+      reverse_relationship_id: 90678
+      review_status: PENDING_REVIEW
+      manually_verified: false
+    - securities: [3939, 3942]
+      relationship_type: MUTUALLY_EXCLUSIVE
+      forward_relationship_id: 90628
+      reverse_relationship_id: 90679
+      review_status: PENDING_REVIEW
+      manually_verified: false
+
+predeployment_gate:
+  status: PENDING
+  required_checks:
+    - "Re-query listing 4116 and match security, condition, token, active state, and listing spec exactly."
+    - "Re-query listing 4117 and match security, condition, token, active state, and listing spec exactly."
+    - "Re-query listing 4120 and match security, condition, token, active state, and listing spec exactly."
+    - "Verify each token has a live CLOB book and record current tick size, minimum order size, spread, and depth."
+    - "Verify the exact outcome represented by each subscribed token."
+    - "Manually verify the three pairwise MUTUALLY_EXCLUSIVE relationships against current market rules."
+    - "Confirm the ECS task contract metadata contains only the intended frozen relationship edges."
+  blocked_checks:
+    - check: "Direct Gamma/CLOB API verification"
+      result: PENDING
+      reason: "Polymarket endpoints returned HTTP 503 during preparation."
+  deployment_approved: false
+  deployment_performed: false
