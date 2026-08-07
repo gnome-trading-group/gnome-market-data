@@ -7,16 +7,23 @@ export interface MarketDataConfig {
 
   // Collector settings
   collectorOrchestratorVersion: string;
+  registryApiKeyId: string;
 }
 
 const defaultConfig = {
   collectorOrchestratorVersion: "1.2.1",
 }
 
+const REGISTRY_API_KEY_IDS: { [stage in Stage]?: string } = {
+  [Stage.DEV]: 'rb0pbivke8',
+  [Stage.PROD]: 'mj0thnxe96',
+};
+
 export const CONFIGS: { [stage in Stage]?:  MarketDataConfig } = {
   [Stage.DEV]: {
     ...defaultConfig,
     account: GnomeAccount.InfraDev,
+    registryApiKeyId: REGISTRY_API_KEY_IDS[Stage.DEV]!,
   },
   // [Stage.STAGING]: {
   //   ...defaultConfig,
@@ -28,6 +35,7 @@ export const CONFIGS: { [stage in Stage]?:  MarketDataConfig } = {
   [Stage.PROD]: {
     ...defaultConfig,
     account: GnomeAccount.InfraProd,
+    registryApiKeyId: REGISTRY_API_KEY_IDS[Stage.PROD]!,
   },
 }
 

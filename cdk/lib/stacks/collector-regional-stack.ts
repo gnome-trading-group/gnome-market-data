@@ -25,7 +25,6 @@ export interface CollectorRegionalStackProps extends cdk.StackProps {
   venueRawBucketName: string;
   primaryEventBus: events.EventBus;
   registryApiKeyId: string;
-  registryApiKeyArn: string;
 }
 
 export class CollectorRegionalStack extends cdk.Stack {
@@ -83,7 +82,7 @@ export class CollectorRegionalStack extends cdk.Stack {
     rawBucket.grantReadWrite(taskRole);
     taskRole.addToPolicy(new iam.PolicyStatement({
       actions: ['apigateway:GET'],
-      resources: [props.registryApiKeyArn],
+      resources: [`arn:aws:apigateway:us-east-1::/apikeys/${props.registryApiKeyId}`],
     }));
     const venueRawBucket = s3.Bucket.fromBucketName(this, 'VenueRawBucket', props.venueRawBucketName);
     venueRawBucket.grantPut(taskRole);
