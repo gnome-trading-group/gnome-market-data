@@ -1,0 +1,66 @@
+{
+  "listingId": 7,
+  "tokenId": "token-yes",
+  "baseReceiveTimestampNanos": 1782753357300000000,
+  "records": [
+    {
+      "receiveOffsetNanos": 0,
+      "payload": [
+        {
+          "market": "condition-replay",
+          "asset_id": "token-yes",
+          "timestamp": "1782753357257",
+          "bids": [
+            {"price": "0.07", "size": "4"},
+            {"price": "0.08", "size": "3"}
+          ],
+          "asks": [
+            {"price": "0.11", "size": "7"},
+            {"price": "0.10", "size": "6"}
+          ],
+          "event_type": "book",
+          "last_trade_price": "0.09"
+        }
+      ]
+    },
+    {
+      "receiveOffsetNanos": 100000000,
+      "payload": "PONG"
+    },
+    {
+      "receiveOffsetNanos": 1000000000,
+      "payload": {
+        "market": "condition-replay",
+        "price_changes": [
+          {"asset_id": "token-yes", "price": "0.08", "size": "0", "side": "BUY"},
+          {"asset_id": "token-yes", "price": "0.09", "size": "5", "side": "BUY"},
+          {"asset_id": "other-token", "price": "0.12", "size": "999", "side": "SELL"}
+        ],
+        "timestamp": "1782753358257",
+        "event_type": "price_change"
+      }
+    },
+    {
+      "receiveOffsetNanos": 2000000000,
+      "payload": {
+        "market": "condition-replay",
+        "asset_id": "token-yes",
+        "price": "0.09",
+        "size": "2.5",
+        "side": "SELL",
+        "timestamp": "1782753359257",
+        "event_type": "last_trade_price"
+      }
+    }
+  ],
+  "expectedRawSha256": "4a8244418b60468e2f9bfd7dd66ae7f8f4ff01b34b38041de64f26659241c60f",
+  "expected": {
+    "messageCount": 3,
+    "actions": ["Modify", "Modify", "Trade"],
+    "eventTimestamps": [1782753357257000000, 1782753358257000000, 1782753359257000000],
+    "receiveTimestamps": [1782753357300000000, 1782753358300000000, 1782753359300000000],
+    "bestBids": [80000000, 90000000, 90000000],
+    "bestAsks": [100000000, 100000000, 100000000],
+    "outputSha256": "0acdd28fa4be8b808917da0e99f75f95e650f1a9b9d047937ea5cf1d8cde6a9c"
+  }
+}

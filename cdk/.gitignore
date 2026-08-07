@@ -10,4 +10,8 @@ cdk.out
 # Ignore Dockerfiles produced dynamically
 /*/**/Dockerfile
 
+# The sandbox release image is maintained source, not a generated Dockerfile.
+!docker/sandbox-collector/Dockerfile
+docker/sandbox-collector/app.jar
+
 lambda-jars/

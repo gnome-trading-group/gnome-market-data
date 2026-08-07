@@ -22,6 +22,7 @@ export interface CollectorRegionalStackProps extends cdk.StackProps {
   config: MarketDataConfig;
   deploymentRegion: string;
   rawBucketName: string;
+  venueRawBucketName: string;
   primaryEventBus: events.EventBus;
   registryApiKeyId: string;
   registryApiKeyArn: string;
@@ -84,6 +85,8 @@ export class CollectorRegionalStack extends cdk.Stack {
       actions: ['apigateway:GET'],
       resources: [props.registryApiKeyArn],
     }));
+    const venueRawBucket = s3.Bucket.fromBucketName(this, 'VenueRawBucket', props.venueRawBucketName);
+    venueRawBucket.grantPut(taskRole);
 
     this.cluster = new ecs.Cluster(this, 'CollectorEcsCluster', { 
       clusterName: `CollectorCluster-${props.deploymentRegion}`,
@@ -114,6 +117,7 @@ export class CollectorRegionalStack extends cdk.Stack {
       environment: {
         MAIN_CLASS: 'group.gnometrading.collectors.DelegatingCollectorOrchestrator',
         OUTPUT_BUCKET: props.rawBucketName,
+        VENUE_RAW_BUCKET: props.venueRawBucketName,
         STAGE: props.config.account.stage,
         REGISTRY_API_KEY_ID: props.registryApiKeyId,
       },
@@ -191,4 +195,3 @@ CMD ["./start.sh"]
     return dockerDir;
   }
 }
-

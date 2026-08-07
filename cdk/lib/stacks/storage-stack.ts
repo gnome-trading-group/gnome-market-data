@@ -18,6 +18,7 @@ export class StorageStack extends cdk.Stack {
   public readonly gapsTable: dynamodb.Table;
   public readonly coverageTable: dynamodb.Table;
   public readonly rawBucket: s3.Bucket;
+  public readonly venueRawBucket: s3.Bucket;
   public readonly mergedBucket: s3.Bucket;
   public readonly finalBucket: s3.Bucket;
   public readonly metadataBucket: s3.Bucket;
@@ -34,6 +35,14 @@ export class StorageStack extends cdk.Stack {
 
     this.rawBucket = new s3.Bucket(this, 'CollectorRawBucket', {
       bucketName: `gnome-market-data-raw-${props.config.account.stage}`,
+    });
+    // Lossless venue frames are deliberately isolated from the normalized SBE
+    // bucket because every object in rawBucket is sent to the merger queue.
+    this.venueRawBucket = new s3.Bucket(this, 'CollectorVenueRawBucket', {
+      bucketName: `gnome-market-data-venue-raw-${props.config.account.stage}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
     });
     this.mergedBucket = new s3.Bucket(this, 'CollectorArchiveBucket', {
       bucketName: `gnome-market-data-merged-${props.config.account.stage}`,
