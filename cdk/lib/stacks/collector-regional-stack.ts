@@ -24,7 +24,6 @@ export interface CollectorRegionalStackProps extends cdk.StackProps {
   rawBucketName: string;
   primaryEventBus: events.EventBus;
   registryApiKeyId: string;
-  registryApiKeyArn: string;
 }
 
 export class CollectorRegionalStack extends cdk.Stack {
@@ -82,7 +81,7 @@ export class CollectorRegionalStack extends cdk.Stack {
     rawBucket.grantReadWrite(taskRole);
     taskRole.addToPolicy(new iam.PolicyStatement({
       actions: ['apigateway:GET'],
-      resources: [props.registryApiKeyArn],
+      resources: [`arn:aws:apigateway:us-east-1::/apikeys/${props.registryApiKeyId}`],
     }));
 
     this.cluster = new ecs.Cluster(this, 'CollectorEcsCluster', { 

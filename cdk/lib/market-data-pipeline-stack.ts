@@ -33,9 +33,6 @@ class AppStage extends cdk.Stage {
 
     const eventBusStack = new EventBusStack(this, "MarketDataEventBusStack");
 
-    const registryApiKeyId = cdk.Fn.importValue('RegistryApiKeyId');
-    const registryApiKeyArn = cdk.Fn.importValue('RegistryApiKeyArn');
-
     // Regional collector stacks (VPC, ECS, task definition) - one per region
     const collectorRegionalStacks: Record<string, CollectorRegionalStack> = {};
     for (const region of COLLECTOR_REGIONS) {
@@ -49,8 +46,7 @@ class AppStage extends cdk.Stage {
         deploymentRegion: region,
         rawBucketName: storageStack.rawBucket.bucketName,
         primaryEventBus: eventBusStack.collectorEventBus,
-        registryApiKeyId,
-        registryApiKeyArn,
+        registryApiKeyId: config.registryApiKeyId,
       });
       collectorRegionalStacks[region] = regionalStack;
     }
