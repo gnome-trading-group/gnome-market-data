@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -30,6 +31,7 @@ export class GapDetectorStack extends cdk.Stack {
         GAPS_TABLE_NAME: props.gapsTable.tableName,
         TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
         STAGE: props.config.account.stage,
+        REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
       },
     });
     this.gapLambda = gapLambda.lambdaFunction;
@@ -37,6 +39,10 @@ export class GapDetectorStack extends cdk.Stack {
     props.mergedBucket.grantRead(this.gapLambda);
     props.gapsTable.grantReadWriteData(this.gapLambda);
     props.transformJobsTable.grantReadData(this.gapLambda);
+    this.gapLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['apigateway:GET'],
+      resources: [cdk.Fn.importValue('RegistryApiKeyArn')],
+    }));
 
     this.gapLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.gapQueue, {
       batchSize: 1_000,

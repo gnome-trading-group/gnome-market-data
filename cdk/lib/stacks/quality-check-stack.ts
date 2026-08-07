@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -24,11 +25,18 @@ export class QualityCheckStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: QualityCheckStackProps) {
     super(scope, id, props);
 
+    const registryKeyArn = cdk.Fn.importValue('RegistryApiKeyArn');
+    const registryKeyPolicy = new iam.PolicyStatement({
+      actions: ['apigateway:GET'],
+      resources: [registryKeyArn],
+    });
+
     const sharedEnv = {
       MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
       QUALITY_ISSUES_TABLE_NAME: props.qualityIssuesTable.tableName,
       LISTING_STATISTICS_TABLE_NAME: props.dailyListingStatisticsTable.tableName,
       STAGE: props.config.account.stage,
+      REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
     };
 
     const qualityCheckLambda = new JavaLambda(this, `QualityCheckLambda-${LAMBDAS_VERSION}`, {
@@ -41,6 +49,7 @@ export class QualityCheckStack extends cdk.Stack {
     props.mergedBucket.grantRead(this.qualityCheckLambda);
     props.qualityIssuesTable.grantReadWriteData(this.qualityCheckLambda);
     props.dailyListingStatisticsTable.grantReadWriteData(this.qualityCheckLambda);
+    this.qualityCheckLambda.addToRolePolicy(registryKeyPolicy);
 
     this.qualityCheckLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.qualityCheckQueue, {
       batchSize: 1_000,
@@ -57,6 +66,7 @@ export class QualityCheckStack extends cdk.Stack {
     props.mergedBucket.grantRead(this.qualityBackfillLambda);
     props.qualityIssuesTable.grantReadWriteData(this.qualityBackfillLambda);
     props.dailyListingStatisticsTable.grantReadWriteData(this.qualityBackfillLambda);
+    this.qualityBackfillLambda.addToRolePolicy(registryKeyPolicy);
 
     const qualityInvestigationLambda = new JavaLambda(this, `QualityInvestigationLambda-${LAMBDAS_VERSION}`, {
       name: `QualityInvestigation-${LAMBDAS_VERSION}`,
@@ -68,5 +78,6 @@ export class QualityCheckStack extends cdk.Stack {
     props.mergedBucket.grantRead(this.qualityInvestigationLambda);
     props.qualityIssuesTable.grantReadData(this.qualityInvestigationLambda);
     props.dailyListingStatisticsTable.grantReadData(this.qualityInvestigationLambda);
+    this.qualityInvestigationLambda.addToRolePolicy(registryKeyPolicy);
   }
 }

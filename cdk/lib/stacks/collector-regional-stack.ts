@@ -23,6 +23,8 @@ export interface CollectorRegionalStackProps extends cdk.StackProps {
   deploymentRegion: string;
   rawBucketName: string;
   primaryEventBus: events.EventBus;
+  registryApiKeyId: string;
+  registryApiKeyArn: string;
 }
 
 export class CollectorRegionalStack extends cdk.Stack {
@@ -78,6 +80,10 @@ export class CollectorRegionalStack extends cdk.Stack {
 
     const rawBucket = s3.Bucket.fromBucketName(this, 'RawBucket', props.rawBucketName);
     rawBucket.grantReadWrite(taskRole);
+    taskRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['apigateway:GET'],
+      resources: [props.registryApiKeyArn],
+    }));
 
     this.cluster = new ecs.Cluster(this, 'CollectorEcsCluster', { 
       clusterName: `CollectorCluster-${props.deploymentRegion}`,
@@ -109,6 +115,7 @@ export class CollectorRegionalStack extends cdk.Stack {
         MAIN_CLASS: 'group.gnometrading.collectors.DelegatingCollectorOrchestrator',
         OUTPUT_BUCKET: props.rawBucketName,
         STAGE: props.config.account.stage,
+        REGISTRY_API_KEY_ID: props.registryApiKeyId,
       },
       healthCheck: {
         command: ['CMD-SHELL', 'wget --spider --quiet http://localhost:8080/health || exit 1'],

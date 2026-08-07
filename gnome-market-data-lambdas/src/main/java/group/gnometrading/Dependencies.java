@@ -12,6 +12,7 @@ import java.time.Clock;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
@@ -209,7 +210,15 @@ public class Dependencies {
 
     private SecurityMaster createSecurityMaster() {
         final String url = this.properties.getStringProperty("registry.url");
-        final String apiKey = this.properties.getStringProperty("registry.api_key");
+        final String keyId = this.properties.getStringProperty("registry.api.key.id");
+        final String apiKey;
+        if (!keyId.isEmpty()) {
+            try (ApiGatewayClient client = ApiGatewayClient.create()) {
+                apiKey = client.getApiKey(r -> r.apiKey(keyId).includeValue(true)).value();
+            }
+        } else {
+            apiKey = "";
+        }
         return new SecurityMaster(new RegistryConnection(url, apiKey));
     }
 }

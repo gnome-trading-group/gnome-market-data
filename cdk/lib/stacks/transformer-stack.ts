@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -26,6 +27,8 @@ export class TransformerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: TransformerStackProps) {
     super(scope, id, props);
 
+    const registryKeyArn = cdk.Fn.importValue('RegistryApiKeyArn');
+
     const transformerJobCreatorLambda = new JavaLambda(this, `TransformerJobCreatorLambda-${LAMBDAS_VERSION}`, {
       name: `TransformerJobCreator-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.transformer.JobCreatorLambdaHandler',
@@ -33,12 +36,17 @@ export class TransformerStack extends cdk.Stack {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
         TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
         STAGE: props.config.account.stage,
+        REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
       },
     });
     this.transformerJobCreatorLambda = transformerJobCreatorLambda.lambdaFunction;
 
     props.mergedBucket.grantRead(this.transformerJobCreatorLambda);
     props.transformJobsTable.grantReadWriteData(this.transformerJobCreatorLambda);
+    this.transformerJobCreatorLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['apigateway:GET'],
+      resources: [registryKeyArn],
+    }));
 
     this.transformerJobCreatorLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.transformerQueue, {
       batchSize: 1_000,
@@ -53,6 +61,7 @@ export class TransformerStack extends cdk.Stack {
         FINAL_BUCKET_NAME: props.finalBucket.bucketName,
         TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
         STAGE: props.config.account.stage,
+        REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
       },
     });
     this.transformerJobProcessorLambda = transformerJobProcessorLambda.lambdaFunction;
@@ -60,6 +69,10 @@ export class TransformerStack extends cdk.Stack {
     props.mergedBucket.grantRead(this.transformerJobProcessorLambda);
     props.finalBucket.grantReadWrite(this.transformerJobProcessorLambda);
     props.transformJobsTable.grantReadWriteData(this.transformerJobProcessorLambda);
+    this.transformerJobProcessorLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['apigateway:GET'],
+      resources: [registryKeyArn],
+    }));
 
     for (const schemaType of Object.values(SchemaType)) {
       const schemaDuration = this.getSchemaDuration(schemaType);
