@@ -11,7 +11,7 @@ export interface MarketDataConfig {
 }
 
 const defaultConfig = {
-  collectorOrchestratorVersion: "1.2.1",
+  collectorOrchestratorVersion: "1.4.3",
 }
 
 const REGISTRY_API_KEY_IDS: { [stage in Stage]?: string } = {

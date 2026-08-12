@@ -18,7 +18,7 @@ import { InventoryProcessorStack } from "./stacks/inventory-processor-stack";
 import { QualityCheckStack } from "./stacks/quality-check-stack";
 
 /** Regions where collectors can be deployed */
-export const COLLECTOR_REGIONS = ["us-east-1", "ap-northeast-1"];
+export const COLLECTOR_REGIONS = ["us-east-1", "ap-northeast-1", "eu-west-1"];
 
 class AppStage extends cdk.Stage {
   constructor(scope: Construct, id: string, config: MarketDataConfig) {
