@@ -214,7 +214,8 @@ public class Dependencies {
         final String keyId = this.properties.getStringProperty("registry.api.key.id");
         final String apiKey;
         if (!keyId.isEmpty()) {
-            try (ApiGatewayClient client = ApiGatewayClient.builder().region(Region.US_EAST_1).build()) {
+            try (ApiGatewayClient client =
+                    ApiGatewayClient.builder().region(Region.US_EAST_1).build()) {
                 apiKey = client.getApiKey(r -> r.apiKey(keyId).includeValue(true))
                         .value();
             }
