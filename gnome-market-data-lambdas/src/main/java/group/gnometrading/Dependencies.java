@@ -12,6 +12,7 @@ import java.time.Clock;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -213,7 +214,7 @@ public class Dependencies {
         final String keyId = this.properties.getStringProperty("registry.api.key.id");
         final String apiKey;
         if (!keyId.isEmpty()) {
-            try (ApiGatewayClient client = ApiGatewayClient.create()) {
+            try (ApiGatewayClient client = ApiGatewayClient.builder().region(Region.US_EAST_1).build()) {
                 apiKey = client.getApiKey(r -> r.apiKey(keyId).includeValue(true))
                         .value();
             }
