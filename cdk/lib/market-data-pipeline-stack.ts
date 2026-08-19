@@ -108,6 +108,7 @@ class AppStage extends cdk.Stage {
       mergedBucket: storageStack.mergedBucket,
       gapsTable: storageStack.gapsTable,
       transformJobsTable: storageStack.transformJobsTable,
+      dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
       gapQueue: storageStack.gapQueue,
       config,
     });

@@ -12,6 +12,7 @@ import group.gnometrading.sm.Listing;
 import group.gnometrading.transformer.JobId;
 import group.gnometrading.transformer.TransformationJob;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -43,6 +44,7 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
     private final DynamoDbTable<Gap> gapsTable;
     private final String mergedBucketName;
     private final Clock clock;
+    private final GapToleranceCalculator toleranceCalculator;
 
     /**
      * No-argument constructor for Lambda runtime.
@@ -56,7 +58,8 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
                 Dependencies.getInstance().getTransformJobsTable(),
                 Dependencies.getInstance().getGapsTable(),
                 Dependencies.getInstance().getMergedBucketName(),
-                Dependencies.getInstance().getClock());
+                Dependencies.getInstance().getClock(),
+                Dependencies.getInstance().getGapToleranceCalculator());
     }
 
     /**
@@ -78,7 +81,8 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
             DynamoDbTable<TransformationJob> transformJobsTable,
             DynamoDbTable<Gap> gapsTable,
             String mergedBucketName,
-            Clock clock) {
+            Clock clock,
+            GapToleranceCalculator toleranceCalculator) {
         this.s3Client = s3Client;
         this.securityMaster = securityMaster;
         this.objectMapper = objectMapper;
@@ -86,6 +90,7 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         this.gapsTable = gapsTable;
         this.mergedBucketName = mergedBucketName;
         this.clock = clock;
+        this.toleranceCalculator = toleranceCalculator;
     }
 
     @Override
@@ -122,6 +127,20 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
 
             if (mostRecentMinute == null) {
                 logger.info("No recent data found within 2 days for listing {}, treating as first entry", listing);
+                return;
+            }
+
+            long gapMinutes =
+                    Duration.between(mostRecentMinute, currentTimestamp).toMinutes() - 1;
+            int toleranceMinutes = toleranceCalculator.computeToleranceMinutes(
+                    listing.listingId(), currentTimestamp.getHour(), currentTimestamp.toLocalDate());
+
+            if (gapMinutes < toleranceMinutes) {
+                logger.info(
+                        "Gap of {} min for listing {} is within tolerance of {} min, skipping",
+                        gapMinutes,
+                        listing.listingId(),
+                        toleranceMinutes);
                 return;
             }
 

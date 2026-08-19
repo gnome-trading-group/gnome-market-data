@@ -8,6 +8,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.schemas.SchemaType;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
@@ -25,8 +26,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import software.amazon.awssdk.core.pagination.sync.SdkIterable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
+import software.amazon.awssdk.enhanced.dynamodb.model.PageIterable;
+import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -65,8 +69,12 @@ class GapLambdaHandlerTest {
     @Mock
     private Exchange exchange;
 
+    @Mock
+    private DynamoDbTable<HourlyListingStatistic> statisticsTable;
+
     private Clock clock;
     private GapLambdaHandler handler;
+    private final List<HourlyListingStatistic> statisticsQueryResults = new ArrayList<>();
 
     private static final String MERGED_BUCKET = "test-merged-bucket";
     private static final LocalDateTime FIXED_TIME = LocalDateTime.of(2024, 1, 15, 10, 30);
@@ -76,17 +84,26 @@ class GapLambdaHandlerTest {
 
     @BeforeEach
     void setUp() {
-        // Use a real ObjectMapper for JSON parsing
         objectMapper = new ObjectMapper();
-
-        // Fixed clock for deterministic createdAt timestamps
         clock = Clock.fixed(FIXED_TIME.atZone(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC"));
 
-        // Initialize handler with mocks
-        handler = new GapLambdaHandler(
-                s3Client, securityMaster, objectMapper, transformJobsTable, gapsTable, MERGED_BUCKET, clock);
+        statisticsQueryResults.clear();
+        PageIterable<HourlyListingStatistic> mockPages = mock(PageIterable.class);
+        SdkIterable<HourlyListingStatistic> mockItems = mock(SdkIterable.class);
+        lenient().when(mockItems.iterator()).thenAnswer(inv -> statisticsQueryResults.iterator());
+        lenient().when(mockPages.items()).thenReturn(mockItems);
+        lenient().when(statisticsTable.query(any(QueryConditional.class))).thenReturn(mockPages);
 
-        // Setup listing mock chain
+        handler = new GapLambdaHandler(
+                s3Client,
+                securityMaster,
+                objectMapper,
+                transformJobsTable,
+                gapsTable,
+                MERGED_BUCKET,
+                clock,
+                new GapToleranceCalculator(statisticsTable));
+
         lenient().when(listing.listingId()).thenReturn(LISTING_ID);
         lenient().when(listing.security()).thenReturn(security);
         lenient().when(listing.exchange()).thenReturn(exchange);
@@ -486,8 +503,125 @@ class GapLambdaHandlerTest {
     }
 
     // ============================================================================
+    // TOLERANCE TESTS
+    // ============================================================================
+
+    @Test
+    void testGapWithinToleranceIsSkipped() throws Exception {
+        // Listing with mean=0.5 ticks/min → tolerance=6 min
+        // 5-minute gap should be skipped
+        addStatisticsRows(3, 0.5, 0.25);
+
+        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
+
+        LocalDateTime minute30 = LocalDateTime.of(2024, 1, 15, 10, 30);
+        LocalDateTime minute25 = LocalDateTime.of(2024, 1, 15, 10, 25);
+
+        // minutes 29-26 missing, 25 exists (5-minute gap, within tolerance of 6)
+        when(transformJobsTable.getItem(any(Key.class))).thenAnswer(invocation -> {
+            Key k = invocation.getArgument(0);
+            long ts = Long.parseLong(k.sortKeyValue().get().n());
+            LocalDateTime t = LocalDateTime.ofEpochSecond(ts, 0, ZoneOffset.UTC);
+            return t.equals(minute25) ? new TransformationJob() : null;
+        });
+        when(s3Client.headObject(any(HeadObjectRequest.class)))
+                .thenThrow(NoSuchKeyException.builder().message("Not found").build());
+
+        handler.handleRequest(event, context);
+
+        verify(gapsTable, never()).putItem(any(Gap.class));
+    }
+
+    @Test
+    void testGapExceedingToleranceCreatesRecords() throws Exception {
+        // Listing with mean=0.5 ticks/min → tolerance=6 min
+        // 10-minute gap should create 10 gap records
+        addStatisticsRows(3, 0.5, 0.25);
+
+        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
+
+        LocalDateTime minute20 = LocalDateTime.of(2024, 1, 15, 10, 20);
+
+        when(transformJobsTable.getItem(any(Key.class))).thenAnswer(invocation -> {
+            Key k = invocation.getArgument(0);
+            long ts = Long.parseLong(k.sortKeyValue().get().n());
+            LocalDateTime t = LocalDateTime.ofEpochSecond(ts, 0, ZoneOffset.UTC);
+            return t.equals(minute20) ? new TransformationJob() : null;
+        });
+        when(s3Client.headObject(any(HeadObjectRequest.class)))
+                .thenThrow(NoSuchKeyException.builder().message("Not found").build());
+
+        handler.handleRequest(event, context);
+
+        verify(gapsTable, times(9)).putItem(any(Gap.class));
+    }
+
+    @Test
+    void testHighFrequencyListingPreservesOneMinuteBehavior() throws Exception {
+        // Listing with mean=500 ticks/min → tolerance=1 min
+        // 2-minute gap should create 2 gap records
+        addStatisticsRows(3, 500.0, 250000.0);
+
+        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
+
+        LocalDateTime minute27 = LocalDateTime.of(2024, 1, 15, 10, 27);
+
+        when(transformJobsTable.getItem(any(Key.class))).thenAnswer(invocation -> {
+            Key k = invocation.getArgument(0);
+            long ts = Long.parseLong(k.sortKeyValue().get().n());
+            LocalDateTime t = LocalDateTime.ofEpochSecond(ts, 0, ZoneOffset.UTC);
+            return t.equals(minute27) ? new TransformationJob() : null;
+        });
+        when(s3Client.headObject(any(HeadObjectRequest.class)))
+                .thenThrow(NoSuchKeyException.builder().message("Not found").build());
+
+        handler.handleRequest(event, context);
+
+        verify(gapsTable, times(2)).putItem(any(Gap.class));
+    }
+
+    @Test
+    void testColdStartNoBaselinePreservesOneMinuteBehavior() throws Exception {
+        // No statistics rows → cold start → tolerance=1 min
+        // 2-minute gap creates 2 gap records (current behavior)
+        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
+
+        LocalDateTime minute27 = LocalDateTime.of(2024, 1, 15, 10, 27);
+
+        when(transformJobsTable.getItem(any(Key.class))).thenAnswer(invocation -> {
+            Key k = invocation.getArgument(0);
+            long ts = Long.parseLong(k.sortKeyValue().get().n());
+            LocalDateTime t = LocalDateTime.ofEpochSecond(ts, 0, ZoneOffset.UTC);
+            return t.equals(minute27) ? new TransformationJob() : null;
+        });
+        when(s3Client.headObject(any(HeadObjectRequest.class)))
+                .thenThrow(NoSuchKeyException.builder().message("Not found").build());
+
+        handler.handleRequest(event, context);
+
+        verify(gapsTable, times(2)).putItem(any(Gap.class));
+    }
+
+    // ============================================================================
     // HELPER METHODS
     // ============================================================================
+
+    private void addStatisticsRows(int count, double sum, double sumOfSquares) {
+        String[] dates = {"2024-01-10", "2024-01-11", "2024-01-12", "2024-01-13", "2024-01-14"};
+        for (int i = 0; i < count && i < dates.length; i++) {
+            HourlyListingStatistic stat = new HourlyListingStatistic();
+            stat.setListingId(LISTING_ID);
+            stat.setSk(HourlyListingStatistic.buildSk(10, dates[i], "tickCount"));
+            stat.setCount(1.0);
+            stat.setSum(sum);
+            stat.setSumOfSquares(sumOfSquares);
+            statisticsQueryResults.add(stat);
+        }
+    }
 
     /**
      * Mock a minute to NOT exist in both DynamoDB and S3.

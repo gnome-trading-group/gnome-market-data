@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.constants.Stage;
 import group.gnometrading.coverage.CoverageRecord;
 import group.gnometrading.gap.Gap;
+import group.gnometrading.gap.GapToleranceCalculator;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.resources.Properties;
@@ -37,6 +38,7 @@ public class Dependencies {
     private final DynamoDbTable<CoverageRecord> coverageTable;
     private final DynamoDbTable<QualityIssue> qualityIssuesTable;
     private final DynamoDbTable<HourlyListingStatistic> hourlyListingStatisticsTable;
+    private final GapToleranceCalculator gapToleranceCalculator;
     private final SecurityMaster securityMaster;
 
     private final String rawBucketName;
@@ -102,6 +104,7 @@ public class Dependencies {
         } else {
             this.hourlyListingStatisticsTable = null;
         }
+        this.gapToleranceCalculator = new GapToleranceCalculator(this.hourlyListingStatisticsTable);
     }
 
     /**
@@ -195,6 +198,10 @@ public class Dependencies {
 
     public DynamoDbTable<HourlyListingStatistic> getHourlyListingStatisticsTable() {
         return hourlyListingStatisticsTable;
+    }
+
+    public GapToleranceCalculator getGapToleranceCalculator() {
+        return gapToleranceCalculator;
     }
 
     public String getListingStatisticsTableName() {

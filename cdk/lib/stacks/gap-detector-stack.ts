@@ -13,6 +13,7 @@ export interface GapDetectorStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
   gapsTable: dynamodb.ITable;
   transformJobsTable: dynamodb.ITable;
+  dailyListingStatisticsTable: dynamodb.ITable;
   gapQueue: sqs.IQueue;
   config: MarketDataConfig;
 }
@@ -30,6 +31,7 @@ export class GapDetectorStack extends cdk.Stack {
         MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
         GAPS_TABLE_NAME: props.gapsTable.tableName,
         TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
+        LISTING_STATISTICS_TABLE_NAME: props.dailyListingStatisticsTable.tableName,
         STAGE: props.config.account.stage,
         REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
       },
@@ -39,6 +41,7 @@ export class GapDetectorStack extends cdk.Stack {
     props.mergedBucket.grantRead(this.gapLambda);
     props.gapsTable.grantReadWriteData(this.gapLambda);
     props.transformJobsTable.grantReadData(this.gapLambda);
+    props.dailyListingStatisticsTable.grantReadData(this.gapLambda);
     this.gapLambda.addToRolePolicy(new iam.PolicyStatement({
       actions: ['apigateway:GET'],
       resources: [cdk.Fn.importValue('RegistryApiKeyArn')],
