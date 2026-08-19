@@ -110,7 +110,8 @@ def handler(listingId: int = None):
             )
 
             # Update deployment version in DynamoDB
-            db.update_service(listing_id, collector['serviceArn'], deployment_version, region, Status.ACTIVE)
+            db.update_service(listing_id, collector['serviceArn'], deployment_version, region, Status.ACTIVE,
+                              listing_ids=listing_ids, cpu=task_cpu, memory=task_memory)
 
             results.append({
                 'listingId': listing_id,

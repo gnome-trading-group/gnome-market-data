@@ -97,3 +97,6 @@ class DynamoDBClient:
             UpdateExpression='SET lastHeartbeat = :now',
             ExpressionAttributeValues={':now': int(time.time())}
         )
+
+    def delete_item(self, listing_id: int) -> Dict:
+        return self.table.delete_item(Key={'listingId': listing_id})

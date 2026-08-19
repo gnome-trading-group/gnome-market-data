@@ -182,6 +182,12 @@ export class BackendStack extends cdk.Stack {
         handlerPath: "delete",
       },
       {
+        name: "PurgeCollector",
+        path: "collectors/purge",
+        method: "DELETE",
+        handlerPath: "purge",
+      },
+      {
         name: "RedeployCollectors",
         path: "collectors/redeploy",
         method: "POST",
