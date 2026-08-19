@@ -21,6 +21,7 @@ export class StorageStack extends cdk.Stack {
   public readonly mergedBucket: s3.Bucket;
   public readonly finalBucket: s3.Bucket;
   public readonly metadataBucket: s3.Bucket;
+  public readonly exchangeRawBucket: s3.Bucket;
   public readonly mergerQueue: sqs.Queue;
   public readonly transformerQueue: sqs.Queue;
   public readonly gapQueue: sqs.Queue;
@@ -43,6 +44,12 @@ export class StorageStack extends cdk.Stack {
     });
     this.metadataBucket = new s3.Bucket(this, 'CollectorMetadataBucket', {
       bucketName: `gnome-market-data-metadata-${props.config.account.stage}`,
+    });
+    this.exchangeRawBucket = new s3.Bucket(this, 'ExchangeRawBucket', {
+      bucketName: `gnome-market-data-exchange-raw-${props.config.account.stage}`,
+      lifecycleRules: [{
+        expiration: cdk.Duration.days(30),
+      }],
     });
 
     this.finalBucket.addInventory({

@@ -45,6 +45,7 @@ class AppStage extends cdk.Stage {
         config,
         deploymentRegion: region,
         rawBucketName: storageStack.rawBucket.bucketName,
+        exchangeRawBucketName: storageStack.exchangeRawBucket.bucketName,
         primaryEventBus: eventBusStack.collectorEventBus,
         registryApiKeyId: config.registryApiKeyId,
       });

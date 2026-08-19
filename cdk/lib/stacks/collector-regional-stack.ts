@@ -22,6 +22,7 @@ export interface CollectorRegionalStackProps extends cdk.StackProps {
   config: MarketDataConfig;
   deploymentRegion: string;
   rawBucketName: string;
+  exchangeRawBucketName: string;
   primaryEventBus: events.EventBus;
   registryApiKeyId: string;
 }
@@ -79,6 +80,8 @@ export class CollectorRegionalStack extends cdk.Stack {
 
     const rawBucket = s3.Bucket.fromBucketName(this, 'RawBucket', props.rawBucketName);
     rawBucket.grantReadWrite(taskRole);
+    const exchangeRawBucket = s3.Bucket.fromBucketName(this, 'ExchangeRawBucket', props.exchangeRawBucketName);
+    exchangeRawBucket.grantReadWrite(taskRole);
     taskRole.addToPolicy(new iam.PolicyStatement({
       actions: ['apigateway:GET'],
       resources: [`arn:aws:apigateway:us-east-1::/apikeys/${props.registryApiKeyId}`],
@@ -117,6 +120,7 @@ export class CollectorRegionalStack extends cdk.Stack {
       environment: {
         MAIN_CLASS: 'group.gnometrading.collectors.DelegatingCollectorOrchestrator',
         OUTPUT_BUCKET: props.rawBucketName,
+        RAW_CAPTURE_BUCKET: props.exchangeRawBucketName,
         STAGE: props.config.account.stage,
         REGISTRY_API_KEY_ID: props.registryApiKeyId,
       },
