@@ -83,6 +83,10 @@ export class CollectorRegionalStack extends cdk.Stack {
       actions: ['apigateway:GET'],
       resources: [`arn:aws:apigateway:us-east-1::/apikeys/${props.registryApiKeyId}`],
     }));
+    taskRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:*:${this.account}:secret:gnome/exchange-credentials/*`],
+    }));
 
     this.cluster = new ecs.Cluster(this, 'CollectorEcsCluster', { 
       clusterName: `CollectorCluster-${props.deploymentRegion}`,
