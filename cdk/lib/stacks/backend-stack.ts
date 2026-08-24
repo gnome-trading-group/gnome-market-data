@@ -33,6 +33,7 @@ interface BackendStackProps extends cdk.StackProps {
   dailyListingStatisticsTable: dynamodb.ITable;
   qualityBackfillLambda: lambda.IFunction;
   qualityInvestigationLambda: lambda.IFunction;
+  bboTimelineLambda: lambda.IFunction;
 }
 
 interface EndpointConfig {
@@ -419,6 +420,27 @@ export class BackendStack extends cdk.Stack {
     investigateResource.addMethod(
       "GET",
       new apigateway.LambdaIntegration(qualityInvestigateLambda),
+      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
+    );
+
+    // BBO timeline — synchronous invocation of the Java BBO timeline Lambda
+    const bboTimelineProxyLambda = new lambda.Function(this, "BboTimelineFunction", {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("lambda/functions/bbo/timeline"),
+      layers: [commonLayer],
+      timeout: cdk.Duration.seconds(60),
+      environment: {
+        BBO_TIMELINE_FUNCTION_NAME: props.bboTimelineLambda.functionName,
+      },
+    });
+    props.bboTimelineLambda.grantInvoke(bboTimelineProxyLambda);
+
+    const bboResource = this.api.root.addResource("bbo");
+    const bboTimelineResource = bboResource.addResource("timeline").addResource("{listingId}");
+    bboTimelineResource.addMethod(
+      "GET",
+      new apigateway.LambdaIntegration(bboTimelineProxyLambda),
       { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
     );
 

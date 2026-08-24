@@ -11,6 +11,7 @@ import { LAMBDAS_VERSION, MarketDataConfig } from "../config";
 
 export interface QualityCheckStackProps extends cdk.StackProps {
   mergedBucket: s3.Bucket;
+  finalBucket: s3.IBucket;
   qualityIssuesTable: dynamodb.ITable;
   dailyListingStatisticsTable: dynamodb.ITable;
   qualityCheckQueue: sqs.IQueue;
@@ -21,6 +22,7 @@ export class QualityCheckStack extends cdk.Stack {
   public readonly qualityCheckLambda: lambda.Function;
   public readonly qualityBackfillLambda: lambda.Function;
   public readonly qualityInvestigationLambda: lambda.Function;
+  public readonly bboTimelineLambda: lambda.Function;
 
   constructor(scope: Construct, id: string, props: QualityCheckStackProps) {
     super(scope, id, props);
@@ -79,5 +81,19 @@ export class QualityCheckStack extends cdk.Stack {
     props.qualityIssuesTable.grantReadData(this.qualityInvestigationLambda);
     props.dailyListingStatisticsTable.grantReadData(this.qualityInvestigationLambda);
     this.qualityInvestigationLambda.addToRolePolicy(registryKeyPolicy);
+
+    const bboTimelineLambda = new JavaLambda(this, `BboTimelineLambda-${LAMBDAS_VERSION}`, {
+      name: `BboTimeline-${LAMBDAS_VERSION}`,
+      classPath: 'group.gnometrading.bbo.BboTimelineLambdaHandler',
+      environment: {
+        FINAL_BUCKET_NAME: props.finalBucket.bucketName,
+        STAGE: props.config.account.stage,
+        REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
+      },
+    });
+    this.bboTimelineLambda = bboTimelineLambda.lambdaFunction;
+
+    props.finalBucket.grantRead(this.bboTimelineLambda);
+    this.bboTimelineLambda.addToRolePolicy(registryKeyPolicy);
   }
 }

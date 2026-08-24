@@ -67,6 +67,7 @@ class AppStage extends cdk.Stage {
 
     const qualityCheckStack = new QualityCheckStack(this, "MarketDataQualityCheckStack", {
       mergedBucket: storageStack.mergedBucket,
+      finalBucket: storageStack.finalBucket,
       qualityIssuesTable: storageStack.qualityIssuesTable,
       dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
       qualityCheckQueue: storageStack.qualityCheckQueue,
@@ -88,6 +89,7 @@ class AppStage extends cdk.Stage {
       dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
       qualityBackfillLambda: qualityCheckStack.qualityBackfillLambda,
       qualityInvestigationLambda: qualityCheckStack.qualityInvestigationLambda,
+      bboTimelineLambda: qualityCheckStack.bboTimelineLambda,
     });
 
     const transformerStack = new TransformerStack(this, "MarketDataTransformerStack", {
