@@ -14,12 +14,12 @@ import group.gnometrading.sm.Listing;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
@@ -27,8 +27,7 @@ import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
-public final class BboTimelineLambdaHandler
-        implements RequestHandler<Map<String, Object>, Map<String, Object>> {
+public final class BboTimelineLambdaHandler implements RequestHandler<Map<String, Object>, Map<String, Object>> {
 
     private static final Logger logger = LogManager.getLogger(BboTimelineLambdaHandler.class);
     private static final int DEFAULT_MAX_POINTS = 5_000;
@@ -70,10 +69,10 @@ public final class BboTimelineLambdaHandler
         int securityId = listing.security().securityId();
         int exchangeId = listing.exchange().exchangeId();
 
-        LocalDateTime start = LocalDateTime.ofEpochSecond(startTimestamp, 0, ZoneOffset.UTC)
-                .truncatedTo(ChronoUnit.MINUTES);
-        LocalDateTime end = LocalDateTime.ofEpochSecond(endTimestamp, 0, ZoneOffset.UTC)
-                .truncatedTo(ChronoUnit.MINUTES);
+        LocalDateTime start =
+                LocalDateTime.ofEpochSecond(startTimestamp, 0, ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES);
+        LocalDateTime end =
+                LocalDateTime.ofEpochSecond(endTimestamp, 0, ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES);
 
         int totalMinutes = (int) ChronoUnit.MINUTES.between(start, end);
         if (totalMinutes > MAX_MINUTES) {
@@ -148,7 +147,7 @@ public final class BboTimelineLambdaHandler
         sampled.add(data.get(0));
 
         double bucketSize = (double) (data.size() - 2) / (threshold - 2);
-        int a = 0;
+        int prevIdx = 0;
 
         for (int i = 0; i < threshold - 2; i++) {
             int nextBucketStart = (int) Math.floor((i + 1) * bucketSize) + 1;
@@ -164,15 +163,15 @@ public final class BboTimelineLambdaHandler
             int currentBucketStart = (int) Math.floor(i * bucketSize) + 1;
             int currentBucketEnd = (int) Math.floor((i + 1) * bucketSize) + 1;
 
-            double pointAX = a;
-            double pointAY = midPrice(data.get(a));
+            double pointAX = prevIdx;
+            double pointAY = midPrice(data.get(prevIdx));
 
             double maxArea = -1;
             int maxIdx = currentBucketStart;
             for (int j = currentBucketStart; j < currentBucketEnd; j++) {
                 double area = Math.abs(
-                        (pointAX - avgX) * (midPrice(data.get(j)) - pointAY)
-                        - (pointAX - j) * (avgY - pointAY)) / 2.0;
+                                (pointAX - avgX) * (midPrice(data.get(j)) - pointAY) - (pointAX - j) * (avgY - pointAY))
+                        / 2.0;
                 if (area > maxArea) {
                     maxArea = area;
                     maxIdx = j;
@@ -180,7 +179,7 @@ public final class BboTimelineLambdaHandler
             }
 
             sampled.add(data.get(maxIdx));
-            a = maxIdx;
+            prevIdx = maxIdx;
         }
 
         sampled.add(data.get(data.size() - 1));
