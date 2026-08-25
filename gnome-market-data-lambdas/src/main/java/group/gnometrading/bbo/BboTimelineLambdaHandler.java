@@ -104,26 +104,10 @@ public final class BboTimelineLambdaHandler implements RequestHandler<Map<String
             List<Schema> records = entry.loadFromS3(s3Client, finalBucketName);
             List<Map<String, Object>> points = new ArrayList<>();
             for (Schema schema : records) {
-                Bbo1sSchema bbo = (Bbo1sSchema) schema;
-                long bid = bbo.decoder.bidPrice0();
-                long ask = bbo.decoder.askPrice0();
-                if (bid == Bbo1sDecoder.bidPrice0NullValue() || ask == Bbo1sDecoder.askPrice0NullValue()) {
-                    continue;
+                Map<String, Object> point = toPoint((Bbo1sSchema) schema);
+                if (point != null) {
+                    points.add(point);
                 }
-                long tsNanos = bbo.decoder.timestampEvent();
-                if (tsNanos == 0) {
-                    continue;
-                }
-                double bidPrice = (double) bid / Statics.PRICE_SCALING_FACTOR;
-                double askPrice = (double) ask / Statics.PRICE_SCALING_FACTOR;
-                double midPrice = (bidPrice + askPrice) / 2.0;
-
-                Map<String, Object> point = new LinkedHashMap<>();
-                point.put("timestamp", TimeUnit.NANOSECONDS.toSeconds(tsNanos));
-                point.put("bidPrice", bidPrice);
-                point.put("askPrice", askPrice);
-                point.put("midPrice", midPrice);
-                points.add(point);
             }
             return points;
         } catch (NoSuchKeyException e) {
@@ -132,6 +116,30 @@ public final class BboTimelineLambdaHandler implements RequestHandler<Map<String
             logger.warn("Failed to load BBO_1S for {}@{}#{}: {}", securityId, exchangeId, timestamp, e.getMessage());
             return List.of();
         }
+    }
+
+    private static Map<String, Object> toPoint(Bbo1sSchema bbo) {
+        long bid = bbo.decoder.bidPrice0();
+        long ask = bbo.decoder.askPrice0();
+        boolean hasBid = bid != Bbo1sDecoder.bidPrice0NullValue();
+        boolean hasAsk = ask != Bbo1sDecoder.askPrice0NullValue();
+        if (!hasBid && !hasAsk) {
+            return null;
+        }
+        long tsNanos = bbo.decoder.timestampEvent();
+        if (tsNanos == 0) {
+            return null;
+        }
+        double bidPrice = hasBid ? (double) bid / Statics.PRICE_SCALING_FACTOR : 0.0;
+        double askPrice = hasAsk ? (double) ask / Statics.PRICE_SCALING_FACTOR : 0.0;
+        double midPrice = hasBid && hasAsk ? (bidPrice + askPrice) / 2.0 : hasBid ? bidPrice : askPrice;
+
+        Map<String, Object> point = new LinkedHashMap<>();
+        point.put("timestamp", TimeUnit.NANOSECONDS.toSeconds(tsNanos));
+        point.put("bidPrice", bidPrice);
+        point.put("askPrice", askPrice);
+        point.put("midPrice", midPrice);
+        return point;
     }
 
     /**
