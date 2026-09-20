@@ -1,3 +1,4 @@
+import json
 import os
 import boto3
 from db import DynamoDBClient
@@ -85,7 +86,7 @@ def handler(listingId: int = None):
             ]
             container_def['environment'].append({
                 'name': 'LISTINGS',
-                'value': ','.join(str(lid) for lid in listing_ids)
+                'value': json.dumps(listing_ids)
             })
 
             collector_task_def_response = ecs.register_task_definition(

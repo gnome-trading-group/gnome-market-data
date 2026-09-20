@@ -1,3 +1,4 @@
+import json
 import os
 import boto3
 from db import DynamoDBClient
@@ -37,7 +38,7 @@ def handler(listingIds: list, region: str = None, cpu: str = None, memory: str =
         container_def['environment'] = []
     container_def['environment'].append({
         'name': 'LISTINGS',
-        'value': ','.join(str(lid) for lid in listing_ids)
+        'value': json.dumps(listing_ids)
     })
 
     task_cpu = cpu or base_task_def['cpu']
