@@ -523,6 +523,42 @@ class MarketDataEntryTest {
     }
 
     @Test
+    void testLoadFromS3MigratesFilesWrittenByAnOlderSchemaVersion() throws IOException {
+        LocalDateTime timestamp = LocalDateTime.of(2025, 4, 15, 14, 30);
+        MarketDataEntry entry = entry(532, 151, timestamp, MarketDataEntry.EntryType.RAW, SchemaType.MBP_10);
+
+        // Two MBP-10 records as schema v0 stored them; 4e9 overflows a signed 32-bit read.
+        int v0Length = group.gnometrading.schemas.MessageHeaderEncoder.ENCODED_LENGTH
+                + group.gnometrading.schemas.v0.Mbp10Encoder.BLOCK_LENGTH;
+        byte[] v0File = new byte[2 * v0Length];
+        org.agrona.concurrent.UnsafeBuffer buffer = new org.agrona.concurrent.UnsafeBuffer(v0File);
+        group.gnometrading.schemas.v0.Mbp10Encoder encoder = new group.gnometrading.schemas.v0.Mbp10Encoder();
+        group.gnometrading.schemas.v0.MessageHeaderEncoder header =
+                new group.gnometrading.schemas.v0.MessageHeaderEncoder();
+        encoder.wrapAndApplyHeader(buffer, 0, header).sequence(1).bidSize0(4_000_000_000L);
+        encoder.wrapAndApplyHeader(buffer, v0Length, header).sequence(2).bidSize0(7L);
+
+        ByteArrayOutputStream compressedOutput = new ByteArrayOutputStream();
+        try (ZstdOutputStream zstdStream = new ZstdOutputStream(compressedOutput)) {
+            zstdStream.write(v0File);
+        }
+        byte[] compressedData = compressedOutput.toByteArray();
+        when(s3Client.getObject(any(Consumer.class)))
+                .thenAnswer(invocation -> new ResponseInputStream<>(
+                        GetObjectResponse.builder().build(), new ByteArrayInputStream(compressedData)));
+
+        List<Schema> schemas = entry.loadFromS3(s3Client, "test-bucket");
+
+        assertEquals(2, schemas.size());
+        group.gnometrading.schemas.Mbp10Schema first = (group.gnometrading.schemas.Mbp10Schema) schemas.get(0);
+        group.gnometrading.schemas.Mbp10Schema second = (group.gnometrading.schemas.Mbp10Schema) schemas.get(1);
+        assertEquals(1, first.decoder.sequence());
+        assertEquals(4_000_000_000L, first.decoder.bidSize0());
+        assertEquals(2, second.decoder.sequence());
+        assertEquals(7L, second.decoder.bidSize0());
+    }
+
+    @Test
     void testLoadFromS3UsesCorrectKey() throws IOException {
         // Given: An entry with specific parameters
         LocalDateTime timestamp = LocalDateTime.of(2025, 4, 15, 14, 30);
