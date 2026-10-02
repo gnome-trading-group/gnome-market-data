@@ -9,6 +9,7 @@ import group.gnometrading.schemas.Mbp10Schema;
 import group.gnometrading.schemas.SchemaType;
 import group.gnometrading.schemas.Statics;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -49,6 +50,20 @@ class MidPriceStatisticTest {
         double result = statistic.compute(entry, List.of(s1, s2));
 
         assertEquals(151.0 / Statics.PRICE_SCALING_FACTOR, result, 1e-12);
+    }
+
+    @Test
+    void testDoesNotOverflowWithManyLargePrices() {
+        MarketDataEntry entry =
+                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+
+        Mbp10Schema record = new Mbp10Schema();
+        record.encoder.bidPrice0(99_999L * Statics.PRICE_SCALING_FACTOR);
+        record.encoder.askPrice0(100_001L * Statics.PRICE_SCALING_FACTOR);
+
+        double result = statistic.compute(entry, Collections.nCopies(100_000, record));
+
+        assertEquals(100_000.0, result, 1e-6);
     }
 
     @Test

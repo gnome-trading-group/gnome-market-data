@@ -50,17 +50,18 @@ public final class MidPriceStatistic implements QualityStatistic {
             return Double.NaN;
         }
 
-        long totalMid = 0;
+        // A long overflows once ~46k BTC-scale (1e14) bid+ask pairs are summed in one minute.
+        double totalMid = 0;
         int validCount = 0;
 
         for (Schema record : records) {
             SchemaFieldExtractor.BboFields bbo = SchemaFieldExtractor.extractBboFields(record, entry.getSchemaType());
             if (!bbo.isBidPriceNull() && !bbo.isAskPriceNull()) {
-                totalMid += bbo.bidPrice() + bbo.askPrice();
+                totalMid += (double) bbo.bidPrice() + bbo.askPrice();
                 validCount++;
             }
         }
 
-        return validCount == 0 ? Double.NaN : (double) totalMid / (2.0 * validCount) / Statics.PRICE_SCALING_FACTOR;
+        return validCount == 0 ? Double.NaN : totalMid / (2.0 * validCount) / Statics.PRICE_SCALING_FACTOR;
     }
 }
