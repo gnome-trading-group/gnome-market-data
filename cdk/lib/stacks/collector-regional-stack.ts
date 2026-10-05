@@ -179,7 +179,8 @@ export class CollectorRegionalStack extends cdk.Stack {
     const dockerfileContent = `
 FROM ubuntu:24.04
 
-RUN apt-get update && apt-get install -y curl jq openjdk-17-jdk python3-boto3 && rm -rf /var/lib/apt/lists/*
+# wget is not used by start.sh: the ECS container health check runs it.
+RUN apt-get update && apt-get install -y curl wget jq openjdk-17-jdk python3-boto3 && rm -rf /var/lib/apt/lists/*
 
 COPY start.sh /start.sh
 RUN chmod +x /start.sh

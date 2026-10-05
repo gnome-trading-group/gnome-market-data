@@ -69,7 +69,8 @@ def handler(listingId: int = None, orchestratorVersion: str = None):
             base_task_def_response = ecs.describe_task_definition(taskDefinition=base_task_definition)
             base_task_def = base_task_def_response['taskDefinition']
 
-            listing_ids = collector['listingIds']
+            # DynamoDB returns numbers as Decimal, which json.dumps rejects.
+            listing_ids = [int(lid) for lid in collector['listingIds']]
             task_cpu = collector.get('cpu') or base_task_def['cpu']
             task_memory = collector.get('memory') or base_task_def['memory']
 
@@ -113,11 +114,19 @@ def handler(listingId: int = None, orchestratorVersion: str = None):
 
         except Exception as e:
             error_msg = f'Failed to redeploy collector {listing_id}: {str(e)}'
+            print(error_msg)
             errors.append({
                 'listingId': listing_id,
                 'region': region,
                 'error': error_msg,
             })
+
+    print(f'Redeployed {len(results)} of {len(collectors_to_redeploy)} collectors onto {deployment_version} '
+          f'(requested {orchestratorVersion!r}); errors: {errors}')
+
+    # A single redeploy that failed must fail the request, or the UI reports success while nothing changed.
+    if listingId and errors:
+        raise Exception(errors[0]['error'])
 
     return {
         'message': f'Redeployment initiated for {operation_type} ({len(results)} collectors) with deployment version {deployment_version}',
