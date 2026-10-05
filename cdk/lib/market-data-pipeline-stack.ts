@@ -78,7 +78,6 @@ class AppStage extends cdk.Stage {
       crossRegionReferences: true,
       collectorsTable: storageStack.collectorsTable,
       collectorRegions: collectorRegions,
-      collectorDeploymentVersion: config.collectorOrchestratorVersion,
       collectorEventBus: eventBusStack.collectorEventBus,
       transformJobsTable: storageStack.transformJobsTable,
       gapsTable: storageStack.gapsTable,

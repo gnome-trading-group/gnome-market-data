@@ -22,7 +22,6 @@ export interface CollectorRegionConfig {
 interface BackendStackProps extends cdk.StackProps {
   collectorsTable: dynamodb.ITable;
   collectorRegions: Record<string, CollectorRegionConfig>;
-  collectorDeploymentVersion: string;
   collectorEventBus: events.IEventBus;
   transformJobsTable: dynamodb.ITable;
   gapsTable: dynamodb.ITable;
@@ -114,10 +113,15 @@ export class BackendStack extends cdk.Stack {
         environment: {
           COLLECTORS_TABLE_NAME: props.collectorsTable.tableName,
           COLLECTOR_REGIONS: collectorRegionsJson,
-          COLLECTOR_DEPLOYMENT_VERSION: props.collectorDeploymentVersion,
         },
       });
       props.collectorsTable.grantReadWriteData(fn);
+
+      // Blank orchestrator versions resolve to the latest release the orchestrator pipeline publishes.
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [`arn:aws:ssm:us-east-1:${this.account}:parameter/gnome/orchestrator/latest-version`],
+      }));
 
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: [

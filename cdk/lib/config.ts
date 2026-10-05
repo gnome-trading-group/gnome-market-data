@@ -5,14 +5,10 @@ export const LAMBDAS_VERSION = "v1";
 export interface MarketDataConfig {
   account: GnomeAccount;
 
-  // Collector settings
-  collectorOrchestratorVersion: string;
   registryApiKeyId: string;
 }
 
-const defaultConfig = {
-  collectorOrchestratorVersion: "1.12.0",
-}
+const defaultConfig = {};
 
 const REGISTRY_API_KEY_IDS: { [stage in Stage]?: string } = {
   [Stage.DEV]: 'rb0pbivke8',

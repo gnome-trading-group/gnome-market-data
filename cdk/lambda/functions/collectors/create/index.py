@@ -1,11 +1,10 @@
 import json
-import os
 import boto3
 from db import DynamoDBClient
-from utils import lambda_handler, get_region_config, get_available_regions
+from utils import lambda_handler, get_region_config, get_available_regions, resolve_orchestrator_version, set_container_env
 
 @lambda_handler
-def handler(listingIds: list, region: str = None, cpu: str = None, memory: str = None):
+def handler(listingIds: list, region: str = None, cpu: str = None, memory: str = None, orchestratorVersion: str = None):
     if not listingIds:
         raise ValueError('listingIds is required and must be non-empty')
 
@@ -20,7 +19,8 @@ def handler(listingIds: list, region: str = None, cpu: str = None, memory: str =
     base_task_definition = region_config['taskDefinitionFamily']
     security_group_id = region_config['securityGroupId']
     subnet_ids = region_config['subnetIds']
-    deployment_version = os.environ.get('COLLECTOR_DEPLOYMENT_VERSION', 'unknown')
+    # Resolved once here, never at container start, so ECS task restarts keep running the same version.
+    deployment_version = resolve_orchestrator_version(orchestratorVersion)
 
     listing_ids = [int(lid) for lid in listingIds]
     first_listing_id = listing_ids[0]
@@ -34,12 +34,8 @@ def handler(listingIds: list, region: str = None, cpu: str = None, memory: str =
 
     container_def = base_task_def['containerDefinitions'][0].copy()
 
-    if 'environment' not in container_def:
-        container_def['environment'] = []
-    container_def['environment'].append({
-        'name': 'LISTINGS',
-        'value': json.dumps(listing_ids)
-    })
+    set_container_env(container_def, 'LISTINGS', json.dumps(listing_ids))
+    set_container_env(container_def, 'ORCHESTRATOR_VERSION', deployment_version)
 
     task_cpu = cpu or base_task_def['cpu']
     task_memory = memory or base_task_def['memory']

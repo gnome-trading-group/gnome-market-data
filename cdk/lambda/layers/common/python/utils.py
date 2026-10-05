@@ -6,6 +6,8 @@ from typing import Any, Callable, Dict, Optional
 from decimal import Decimal
 import datetime
 
+import boto3
+
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Decimal):
@@ -13,6 +15,24 @@ class CustomEncoder(json.JSONEncoder):
         if isinstance(obj, datetime.datetime):
             return obj.isoformat()
         return super().default(obj)
+
+
+LATEST_ORCHESTRATOR_VERSION_PARAMETER = '/gnome/orchestrator/latest-version'
+LATEST_ORCHESTRATOR_VERSION_REGION = 'us-east-1'
+
+
+def resolve_orchestrator_version(requested: Optional[str]) -> str:
+    """A typed version is used as-is; blank means the latest release, which the orchestrator pipeline publishes."""
+    if requested and requested.strip():
+        return requested.strip()
+    ssm = boto3.client('ssm', region_name=LATEST_ORCHESTRATOR_VERSION_REGION)
+    return ssm.get_parameter(Name=LATEST_ORCHESTRATOR_VERSION_PARAMETER)['Parameter']['Value']
+
+
+def set_container_env(container_def: Dict[str, Any], name: str, value: str) -> None:
+    environment = [env for env in container_def.get('environment', []) if env['name'] != name]
+    environment.append({'name': name, 'value': value})
+    container_def['environment'] = environment
 
 
 def get_collector_regions() -> Dict[str, Dict[str, Any]]:

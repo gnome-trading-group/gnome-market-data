@@ -1,17 +1,15 @@
 import json
-import os
 import boto3
 from db import DynamoDBClient
-from utils import lambda_handler, get_region_config
+from utils import lambda_handler, get_region_config, resolve_orchestrator_version, set_container_env
 from constants import Status
 
 @lambda_handler
-def handler(listingId: int = None):
+def handler(listingId: int = None, orchestratorVersion: str = None):
     """
-    Force redeployment of all active collectors or a specific collector to pick up new task definition version.
-    This should be called after updating the collectorOrchestratorVersion in config.
+    Redeploy all active collectors, or one, onto an orchestrator version: the one given, else the latest release.
     """
-    deployment_version = os.environ['COLLECTOR_DEPLOYMENT_VERSION']
+    deployment_version = resolve_orchestrator_version(orchestratorVersion)
 
     db = DynamoDBClient()
 
@@ -77,17 +75,8 @@ def handler(listingId: int = None):
 
             container_def = base_task_def['containerDefinitions'][0].copy()
 
-            if 'environment' not in container_def:
-                container_def['environment'] = []
-
-            container_def['environment'] = [
-                env for env in container_def['environment']
-                if env['name'] != 'LISTINGS'
-            ]
-            container_def['environment'].append({
-                'name': 'LISTINGS',
-                'value': json.dumps(listing_ids)
-            })
+            set_container_env(container_def, 'LISTINGS', json.dumps(listing_ids))
+            set_container_env(container_def, 'ORCHESTRATOR_VERSION', deployment_version)
 
             collector_task_def_response = ecs.register_task_definition(
                 family=f'collector-{listing_id}',
