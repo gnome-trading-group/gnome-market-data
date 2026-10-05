@@ -1,11 +1,11 @@
-import boto3
 from datetime import datetime, timedelta
-from utils import lambda_handler, get_region_config, create_response
+from utils import lambda_handler, get_regional_client, get_region_config, create_response
 from db import DynamoDBClient
+
+db = DynamoDBClient()
 
 @lambda_handler
 def handler(listingId: int):
-    db = DynamoDBClient()
     collector = db.get_item(listingId)
 
     if not collector:
@@ -21,7 +21,7 @@ def handler(listingId: int):
 
     log_group_name = region_config['logGroupName']
 
-    logs_client = boto3.client('logs', region_name=region)
+    logs_client = get_regional_client('logs', region)
 
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(minutes=10)

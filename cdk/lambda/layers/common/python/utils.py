@@ -21,11 +21,17 @@ LATEST_ORCHESTRATOR_VERSION_PARAMETER = '/gnome/orchestrator/latest-version'
 LATEST_ORCHESTRATOR_VERSION_REGION = 'us-east-1'
 
 
+@functools.cache
+def get_regional_client(service: str, region: str):
+    """Cached so warm invocations reuse clients and their connections instead of rebuilding them per request."""
+    return boto3.client(service, region_name=region)
+
+
 def resolve_orchestrator_version(requested: Optional[str]) -> str:
     """A typed version is used as-is; blank means the latest release, which the orchestrator pipeline publishes."""
     if requested and requested.strip():
         return requested.strip()
-    ssm = boto3.client('ssm', region_name=LATEST_ORCHESTRATOR_VERSION_REGION)
+    ssm = get_regional_client('ssm', LATEST_ORCHESTRATOR_VERSION_REGION)
     return ssm.get_parameter(Name=LATEST_ORCHESTRATOR_VERSION_PARAMETER)['Parameter']['Value']
 
 

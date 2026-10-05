@@ -1,7 +1,8 @@
 import json
-import boto3
 from db import DynamoDBClient
-from utils import lambda_handler, get_region_config, get_available_regions, resolve_orchestrator_version, set_container_env
+from utils import lambda_handler, get_regional_client, get_region_config, get_available_regions, resolve_orchestrator_version, set_container_env
+
+db = DynamoDBClient()
 
 @lambda_handler
 def handler(listingIds: list, region: str = None, cpu: str = None, memory: str = None, orchestratorVersion: str = None):
@@ -26,8 +27,7 @@ def handler(listingIds: list, region: str = None, cpu: str = None, memory: str =
     first_listing_id = listing_ids[0]
     service_name = f'collector-{first_listing_id}'
 
-    ecs = boto3.client('ecs', region_name=region)
-    db = DynamoDBClient()
+    ecs = get_regional_client('ecs', region)
 
     base_task_def_response = ecs.describe_task_definition(taskDefinition=base_task_definition)
     base_task_def = base_task_def_response['taskDefinition']

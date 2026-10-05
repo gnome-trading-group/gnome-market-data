@@ -1,12 +1,11 @@
-import boto3
 from db import DynamoDBClient
-from utils import lambda_handler, get_region_config
+from utils import lambda_handler, get_regional_client, get_region_config
 from constants import Status
+
+db = DynamoDBClient()
 
 @lambda_handler
 def handler(listingId: int):
-    db = DynamoDBClient()
-
     collector = db.get_item(listingId)
     if not collector:
         raise Exception(f'Collector with listing ID {listingId} not found')
@@ -21,7 +20,7 @@ def handler(listingId: int):
 
     cluster = region_config['clusterName']
 
-    ecs = boto3.client('ecs', region_name=region)
+    ecs = get_regional_client('ecs', region)
 
     service_name = f'collector-{listingId}'
 

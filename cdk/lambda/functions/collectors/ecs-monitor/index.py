@@ -3,6 +3,8 @@ import boto3
 from typing import Dict, Any, List
 from db import DynamoDBClient, Status
 
+db = DynamoDBClient()
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> None:
     print(f"Received event: {json.dumps(event)}")
 
@@ -25,7 +27,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> None:
         print(f"No listing_id found in event, skipping")
         return
 
-    db = DynamoDBClient()
     collector = db.get_item(listing_id)
 
     if not collector:

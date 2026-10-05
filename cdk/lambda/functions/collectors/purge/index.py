@@ -2,10 +2,10 @@ from db import DynamoDBClient
 from utils import lambda_handler
 from constants import Status
 
+db = DynamoDBClient()
+
 @lambda_handler
 def handler(listingId: int):
-    db = DynamoDBClient()
-
     collector = db.get_item(listingId)
     if not collector:
         raise Exception(f'Collector with listing ID {listingId} not found')

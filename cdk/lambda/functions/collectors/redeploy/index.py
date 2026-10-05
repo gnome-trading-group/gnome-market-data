@@ -1,8 +1,9 @@
 import json
-import boto3
 from db import DynamoDBClient
-from utils import lambda_handler, get_region_config, resolve_orchestrator_version, set_container_env
+from utils import lambda_handler, get_regional_client, get_region_config, resolve_orchestrator_version, set_container_env
 from constants import Status
+
+db = DynamoDBClient()
 
 @lambda_handler
 def handler(listingId: int = None, orchestratorVersion: str = None):
@@ -10,8 +11,6 @@ def handler(listingId: int = None, orchestratorVersion: str = None):
     Redeploy all active collectors, or one, onto an orchestrator version: the one given, else the latest release.
     """
     deployment_version = resolve_orchestrator_version(orchestratorVersion)
-
-    db = DynamoDBClient()
 
     if listingId:
         # Redeploy specific collector
@@ -33,9 +32,6 @@ def handler(listingId: int = None, orchestratorVersion: str = None):
 
     results = []
     errors = []
-
-    # Cache ECS clients by region
-    ecs_clients = {}
 
     for collector in collectors_to_redeploy:
         listing_id = collector['listingId']
@@ -60,9 +56,7 @@ def handler(listingId: int = None, orchestratorVersion: str = None):
         cluster = region_config['clusterName']
         base_task_definition = region_config['taskDefinitionFamily']
 
-        if region not in ecs_clients:
-            ecs_clients[region] = boto3.client('ecs', region_name=region)
-        ecs = ecs_clients[region]
+        ecs = get_regional_client('ecs', region)
 
         try:
             # Get the base task definition to create a new collector-specific version
