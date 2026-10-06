@@ -52,8 +52,9 @@ class MarketDataEntryTest {
     private Listing listing(int securityId, int exchangeId, SchemaType schemaType) {
         return new Listing(
                 securityId,
-                new Exchange(exchangeId, "test-exchange", "test-region", schemaType),
-                new Security(securityId, "test-security", 1),
+                new Exchange(exchangeId, "TEST-EXCHANGE", "test-exchange", "test-region", schemaType),
+                new Security(
+                        securityId, "test-security", null, null, null, null, null, null, false, false, 0L, 0L, true, 0),
                 "test-symbol",
                 "test-name");
     }
