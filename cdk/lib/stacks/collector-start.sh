@@ -32,4 +32,8 @@ curl -fsSL -u "gnome:${GH_TOKEN}" -o /app.jar \
   "https://maven.pkg.github.com/gnome-trading-group/gnome-orchestrator/group/gnometrading/gnome-orchestrator/${ORCHESTRATOR_VERSION}/gnome-orchestrator-${ORCHESTRATOR_VERSION}.jar"
 unset GH_TOKEN
 
-exec java ${JAVA_OPTS:-} --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED -cp /app.jar "$MAIN_CLASS"
+# A heap fixed at launch never grows, so it never needs the full collection that growing the JVM's near-empty
+# default heap triggers: on a fractional vCPU that pause exhausts the CPU quota and stalls every socket read for up
+# to a quarter second. 35% leaves the rest of the task's memory for the JIT, metaspace, threads and zstd buffers.
+HEAP_OPTS="-XX:InitialRAMPercentage=35 -XX:MaxRAMPercentage=35 -XX:+AlwaysPreTouch"
+exec java ${HEAP_OPTS} ${JAVA_OPTS:-} --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED -cp /app.jar "$MAIN_CLASS"

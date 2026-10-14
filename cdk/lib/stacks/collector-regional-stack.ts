@@ -86,9 +86,11 @@ export class CollectorRegionalStack extends cdk.Stack {
       actions: ['apigateway:GET'],
       resources: [`arn:aws:apigateway:us-east-1::/apikeys/${props.registryApiKeyId}`],
     }));
+    // The per-exchange market-data keys, set from the controller.
+    // Never gnome/accounts/*: a collector holds no venue account's keys.
     taskRole.addToPolicy(new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue'],
-      resources: [`arn:aws:secretsmanager:*:${this.account}:secret:gnome/exchange-credentials/*`],
+      resources: [`arn:aws:secretsmanager:*:${this.account}:secret:gnome/market-data/*`],
     }));
     // The PAT for downloading the orchestrator release at container start.
     taskRole.addToPolicy(new iam.PolicyStatement({
