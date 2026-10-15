@@ -2,13 +2,11 @@ import * as cdk from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sqs from "aws-cdk-lib/aws-sqs";
-import * as sns from 'aws-cdk-lib/aws-sns';
 import * as cw from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
-import { CustomMetricGroup, MonitoringFacade, SnsAlarmActionStrategy } from "cdk-monitoring-constructs";
+import { CustomMetricGroup, MonitoringFacade, noopAction } from "cdk-monitoring-constructs";
 import { COLLECTOR_METRICS_NAMESPACE, COLLECTOR_ERROR_METRIC_NAME } from "./collector-regional-stack";
 import { MarketDataConfig } from "../config";
-import { Stage } from "@gnome-trading-group/gnome-shared-cdk";
 
 export interface MonitoringStackProps extends cdk.StackProps {
   config: MarketDataConfig;
@@ -31,15 +29,13 @@ export class MonitoringStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: MonitoringStackProps) {
     super(scope, id, props);
 
-    const slackSnsTopic = sns.Topic.fromTopicArn(
-      this, 'ImportedSlackSnsTopic', cdk.Fn.importValue('SlackSnsTopicArn')
-    );
-
+    // The alarms carry no action: the registry's alerting stack hears every alarm change through EventBridge, and
+    // routes dev's to the dev channel. The pipeline is batch work behind trading, so none of it pages.
     const monitoring = new MonitoringFacade(this, 'MarketDataDashboard', {
       alarmFactoryDefaults: {
-        actionsEnabled: props.config.account.stage === Stage.PROD, // Only enable alarms in prod
+        actionsEnabled: true,
         alarmNamePrefix: 'MarketData-',
-        action: new SnsAlarmActionStrategy({ onAlarmTopic: slackSnsTopic }),
+        action: noopAction(),
         datapointsToAlarm: 1,
       },
     });
@@ -64,7 +60,7 @@ export class MonitoringStack extends cdk.Stack {
 
     const lambdaAlarms: Record<string, any> = {
       addFaultCountAlarm: {
-        Critical: { maxErrorCount: 0, },
+        Error: { maxErrorCount: 0, },
       },
     };
 
