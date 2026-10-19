@@ -1,9 +1,25 @@
 import json
-import boto3
+from datetime import datetime
 from typing import Dict, Any, List
 from db import DynamoDBClient, Status
 
 db = DynamoDBClient()
+
+# A stopped task's ARN is the only way back to its log stream, so the latest few are kept for the logs endpoint.
+MAX_STOPPED_TASKS = 5
+
+
+def stopped_at_millis(detail: Dict[str, Any]) -> int:
+    stopped_at = detail.get('stoppedAt')
+    if stopped_at:
+        return int(datetime.fromisoformat(stopped_at.replace('Z', '+00:00')).timestamp() * 1000)
+    return int(datetime.now().timestamp() * 1000)
+
+
+def with_stopped_task(stopped_tasks: List[Dict], task_arn: str, stopped_at: int) -> List[Dict]:
+    others = [t for t in stopped_tasks if t.get('taskArn') != task_arn]
+    newest_first = [{'taskArn': task_arn, 'stoppedAt': stopped_at}] + others
+    return newest_first[:MAX_STOPPED_TASKS]
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> None:
     print(f"Received event: {json.dumps(event)}")
@@ -46,7 +62,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> None:
     elif last_status == 'STOPPED':
         if task_arn in current_task_arns:
             current_task_arns.remove(task_arn)
-            db.update_task_arns(listing_id, current_task_arns)
+        stopped_tasks = with_stopped_task(collector.get('stoppedTasks', []), task_arn, stopped_at_millis(detail))
+        db.update_tasks(listing_id, current_task_arns, stopped_tasks)
 
         if len(current_task_arns) == 0 and collector.get('status') != Status.INACTIVE.value:
             db.update_status(listing_id, Status.FAILED, stopped_reason)

@@ -1,8 +1,11 @@
-from datetime import datetime, timedelta
+import time
 from utils import lambda_handler, get_regional_client, get_region_config, create_response
 from db import DynamoDBClient
 
 db = DynamoDBClient()
+
+# Covers the shutdown output a task writes around the time ECS reports it stopped.
+STOPPED_TASK_LOGS_GRACE_MS = 5 * 60 * 1000
 
 @lambda_handler
 def handler(listingId: int):
@@ -23,16 +26,22 @@ def handler(listingId: int):
 
     logs_client = get_regional_client('logs', region)
 
-    end_time = datetime.utcnow()
-    start_time = end_time - timedelta(minutes=10)
-
+    now = int(time.time() * 1000)
     task_arns = collector.get('taskArns', [])
-    if not task_arns:
+    # Once nothing runs, the logs shown are those of the collector's last run, ending where it stopped.
+    if task_arns:
+        tasks = [(task_arn, now) for task_arn in task_arns]
+    else:
+        tasks = [
+            (t['taskArn'], min(int(t['stoppedAt']) + STOPPED_TASK_LOGS_GRACE_MS, now))
+            for t in collector.get('stoppedTasks', [])
+        ]
+    if not tasks:
         return {'logs': []}
 
     logs = []
 
-    for task_arn in task_arns:
+    for task_arn, end_time in tasks:
         task_id = task_arn.split('/')[-1]
         log_stream_prefix = f"collector/CollectorContainer/{task_id}"
 
@@ -40,11 +49,11 @@ def handler(listingId: int):
             log_events = []
 
             try:
+                # With no startTime the stream's newest events are returned, however long ago they were written.
                 events_response = logs_client.get_log_events(
                     logGroupName=log_group_name,
                     logStreamName=log_stream_prefix,
-                    startTime=int(start_time.timestamp() * 1000),
-                    endTime=int(end_time.timestamp() * 1000),
+                    endTime=end_time,
                     limit=500
                 )
 
@@ -56,10 +65,6 @@ def handler(listingId: int):
                     })
             except Exception as e:
                 print(f"Error fetching events from stream {log_stream_prefix}: {e}")
-
-            for log_event in log_events:
-                if 'timestamp' in log_event and isinstance(log_event['timestamp'], datetime):
-                    log_event['timestamp'] = int(log_event['timestamp'].timestamp() * 1000)
 
             log_events.sort(key=lambda x: x['timestamp'], reverse=True)
 

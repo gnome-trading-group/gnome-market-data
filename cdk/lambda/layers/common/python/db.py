@@ -91,6 +91,16 @@ class DynamoDBClient:
             }
         )
 
+    def update_tasks(self, listing_id: int, task_arns: List[str], stopped_tasks: List[Dict]) -> Dict:
+        return self.table.update_item(
+            Key={'listingId': listing_id},
+            UpdateExpression='SET taskArns = :taskArns, stoppedTasks = :stoppedTasks',
+            ExpressionAttributeValues={
+                ':taskArns': task_arns,
+                ':stoppedTasks': stopped_tasks,
+            }
+        )
+
     def update_heartbeat(self, listing_id: int) -> Dict:
         return self.table.update_item(
             Key={'listingId': listing_id},
