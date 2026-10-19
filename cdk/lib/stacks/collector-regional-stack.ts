@@ -136,6 +136,9 @@ export class CollectorRegionalStack extends cdk.Stack {
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'collector',
         logGroup: this.collectorLogGroup,
+        // Set here rather than left to the account's defaultLogDriverMode: in blocking mode a slow CloudWatch
+        // stalls the collector's stdout writes. Lines past the driver's 10 MB buffer are dropped instead.
+        mode: ecs.AwsLogDriverMode.NON_BLOCKING,
       }),
       memoryLimitMiB: 512,
       cpu: 256,
