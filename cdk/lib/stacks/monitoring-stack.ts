@@ -4,7 +4,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as cw from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
-import { CustomMetricGroup, MonitoringFacade, noopAction } from "cdk-monitoring-constructs";
+import { CustomMetricGroup, DefaultDashboardFactory, MonitoringFacade, noopAction } from "cdk-monitoring-constructs";
 import { COLLECTOR_METRICS_NAMESPACE, COLLECTOR_ERROR_METRIC_NAME } from "./collector-regional-stack";
 import { MarketDataConfig } from "../config";
 
@@ -32,6 +32,11 @@ export class MonitoringStack extends cdk.Stack {
     // The alarms carry no action: the registry's alerting stack hears every alarm change through EventBridge, and
     // routes dev's to the dev channel. The pipeline is batch work behind trading, so none of it pages.
     const monitoring = new MonitoringFacade(this, 'MarketDataDashboard', {
+      // Only the alarms are used; each dashboard is billed monthly and nobody reads them.
+      dashboardFactory: new DefaultDashboardFactory(this, 'MarketDataDashboardFactory', {
+        dashboardNamePrefix: 'MarketDataDashboard',
+        createDashboard: false,
+      }),
       alarmFactoryDefaults: {
         actionsEnabled: true,
         alarmNamePrefix: 'MarketData-',
@@ -65,7 +70,6 @@ export class MonitoringStack extends cdk.Stack {
     };
 
     monitoring
-      .addLargeHeader('Gnome MarketData')
       .monitorCustom({
         alarmFriendlyName: 'CollectorECSLogErrors',
         humanReadableName: 'Collector ECS Log Errors',
