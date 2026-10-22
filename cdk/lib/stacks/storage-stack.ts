@@ -215,5 +215,12 @@ export class StorageStack extends cdk.Stack {
       new s3notifications.SqsDestination(this.inventoryQueue),
       { prefix: 'market-data-inventory/', suffix: '.csv.gz' }
     );
+
+    // The monitoring stack imported these until its dashboard went; CloudFormation can't drop an export while it is
+    // still imported, so they stay one release while that stack deploys, then go.
+    for (const queue of [this.mergerQueue, this.transformerQueue, this.gapQueue, this.qualityCheckQueue]) {
+      this.exportValue(queue.queueUrl);
+      this.exportValue(queue.queueName);
+    }
   }
 }

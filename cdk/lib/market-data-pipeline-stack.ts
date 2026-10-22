@@ -127,15 +127,11 @@ class AppStage extends cdk.Stage {
       collectorRegions: COLLECTOR_REGIONS,
       api: backendStack.api,
       gapLambda: gapDetectorStack.gapLambda,
-      gapQueue: storageStack.gapQueue,
       mergerLambda: mergerStack.mergerLambda,
-      mergerQueue: storageStack.mergerQueue,
       transformerJobCreatorLambda: transformerStack.transformerJobCreatorLambda,
-      transformerQueue: storageStack.transformerQueue,
       transformerJobProcessorLambda: transformerStack.transformerJobProcessorLambda,
       inventoryProcessorLambda: inventoryProcessorStack.processorFunction,
       qualityCheckLambda: qualityCheckStack.qualityCheckLambda,
-      qualityCheckQueue: storageStack.qualityCheckQueue,
     });
   }
 }

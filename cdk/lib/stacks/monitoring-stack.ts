@@ -1,7 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as cw from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
 import { CustomMetricGroup, DefaultDashboardFactory, MonitoringFacade, noopAction } from "cdk-monitoring-constructs";
@@ -13,15 +12,11 @@ export interface MonitoringStackProps extends cdk.StackProps {
   collectorRegions: string[];
   api: apigateway.RestApi;
   gapLambda: lambda.Function;
-  gapQueue: sqs.Queue;
   mergerLambda: lambda.Function;
-  mergerQueue: sqs.Queue;
   transformerJobCreatorLambda: lambda.Function;
-  transformerQueue: sqs.Queue;
   transformerJobProcessorLambda: lambda.Function;
   inventoryProcessorLambda: lambda.Function;
   qualityCheckLambda: lambda.Function;
-  qualityCheckQueue: sqs.Queue;
 }
 
 export class MonitoringStack extends cdk.Stack {
@@ -86,21 +81,11 @@ export class MonitoringStack extends cdk.Stack {
         alarmFriendlyName: 'MergerLambda',
         ...lambdaAlarms,
       })
-      .monitorSqsQueue({
-        queue: props.mergerQueue,
-        humanReadableName: 'Merger Queue',
-        alarmFriendlyName: 'MergerQueue',
-      })
       .monitorLambdaFunction({
         lambdaFunction: props.transformerJobCreatorLambda,
         humanReadableName: 'Transformer Job Creator Lambda',
         alarmFriendlyName: 'TransformerJobCreatorLambda',
         ...lambdaAlarms,
-      })
-      .monitorSqsQueue({
-        queue: props.transformerQueue,
-        humanReadableName: 'Transformer Queue',
-        alarmFriendlyName: 'TransformerQueue',
       })
       .monitorLambdaFunction({
         lambdaFunction: props.transformerJobProcessorLambda,
@@ -114,11 +99,6 @@ export class MonitoringStack extends cdk.Stack {
         alarmFriendlyName: 'GapDetectorLambda',
         ...lambdaAlarms,
       })
-      .monitorSqsQueue({
-        queue: props.gapQueue,
-        humanReadableName: 'Gap Detector Queue',
-        alarmFriendlyName: 'GapDetectorQueue',
-      })
       .monitorLambdaFunction({
         lambdaFunction: props.inventoryProcessorLambda,
         humanReadableName: 'Inventory Processor Lambda',
@@ -130,11 +110,6 @@ export class MonitoringStack extends cdk.Stack {
         humanReadableName: 'Quality Check Lambda',
         alarmFriendlyName: 'QualityCheckLambda',
         ...lambdaAlarms,
-      })
-      .monitorSqsQueue({
-        queue: props.qualityCheckQueue,
-        humanReadableName: 'Quality Check Queue',
-        alarmFriendlyName: 'QualityCheckQueue',
       });
   }
 }
