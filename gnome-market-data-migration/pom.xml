@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>group.gnometrading</groupId>
+        <artifactId>gnome-market-data</artifactId>
+        <version>2.0.1-SNAPSHOT</version>
+    </parent>
+
+    <!-- TEMPORARY (Phase 3): converts stored market data and journals from schema v0/v1 to the stream-keyed
+         schemas v2 once, then is deleted. Run locally; never deployed. -->
+    <artifactId>gnome-market-data-migration</artifactId>
+
+    <dependencies>
+        <dependency>
+            <groupId>group.gnometrading</groupId>
+            <artifactId>gnome-market-data-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The archived v0 and v1 codecs, published with gnome-schemas' tests so old data can be read. -->
+        <dependency>
+            <groupId>group.gnometrading</groupId>
+            <artifactId>gnome-schemas</artifactId>
+            <version>2.0.1</version>
+            <type>test-jar</type>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apigateway</artifactId>
+        </dependency>
+        <!-- Run locally with an SSO profile (AWS_PROFILE=dev|prod). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sso</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>ssooidc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>gnome-market-data-migration</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>group.gnometrading.migration.Main</mainClass>
+                                    <!-- The registry client's native sockets reach into java.base, as gnomepy's JVM flags allow. -->
+                                    <manifestEntries>
+                                        <Add-Opens>java.base/sun.nio.ch java.base/java.nio java.base/jdk.internal.misc java.base/java.lang</Add-Opens>
+                                        <Add-Exports>java.base/sun.nio.ch java.base/jdk.internal.ref</Add-Exports>
+                                    </manifestEntries>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
