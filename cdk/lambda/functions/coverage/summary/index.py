@@ -13,9 +13,9 @@ def handler():
             'totalFiles': int,
             'totalSizeBytes': int,
             'totalMinutes': int,
-            'securityExchangeCount': int,
-            'securities': {...},
-            'schemaTypes': {...},
+            'streamCount': int,
+            'streams': {...},
+            'recordTypes': {...},
             'lastInventoryDate': str
         }
     """
@@ -37,9 +37,9 @@ def handler():
                 'totalFiles': 0,
                 'totalSizeBytes': 0,
                 'totalMinutes': 0,
-                'securityExchangeCount': 0,
-                'securities': {},
-                'schemaTypes': {}
+                'streamCount': 0,
+                'streams': {},
+                'recordTypes': {}
             }
         
         data = json.loads(response['Item'].get('data', '{}'))
@@ -55,7 +55,7 @@ def handler():
             'totalFiles': 0,
             'totalSizeBytes': 0,
             'totalMinutes': 0,
-            'securityExchangeCount': 0,
-            'securities': {},
-            'schemaTypes': {}
+            'streamCount': 0,
+            'streams': {},
+            'recordTypes': {}
         }

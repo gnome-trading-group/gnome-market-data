@@ -3,11 +3,11 @@ package group.gnometrading.quality.rules;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityIssueStatus;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -46,14 +46,12 @@ class TimestampAlignmentRuleTest {
         lenient().when(listing.exchange()).thenReturn(exchange);
         lenient().when(listing.security()).thenReturn(security);
         lenient().when(exchange.exchangeId()).thenReturn(1);
-        lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
         lenient().when(security.securityId()).thenReturn(2);
     }
 
     @Test
     void testNoIssuesWhenAllTimestampsAlign() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.timestampEvent(MINUTE_START_NANOS);
@@ -67,8 +65,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testIssueWhenTimestampBeforeWindow() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.timestampEvent(MINUTE_START_NANOS - 1);
@@ -82,8 +79,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testIssueWhenTimestampAtOrAfterWindowEnd() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.timestampEvent(MINUTE_START_NANOS + 60_000_000_000L);
@@ -95,8 +91,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testIssueDetailsContainsMismatchCount() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema valid = new Mbp10Schema();
         valid.encoder.timestampEvent(MINUTE_START_NANOS);
@@ -113,8 +108,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testNoIssuesForEmptyRecords() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(), listing, clock);
 
@@ -123,8 +117,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testTimestampAtWindowEnd_ExclusiveBound() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.timestampEvent(MINUTE_START_NANOS + 59_999_999_999L);

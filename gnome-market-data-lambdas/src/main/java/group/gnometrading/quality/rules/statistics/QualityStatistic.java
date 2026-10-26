@@ -1,8 +1,8 @@
 package group.gnometrading.quality.rules.statistics;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import java.util.List;
 
 public interface QualityStatistic {
@@ -16,7 +16,7 @@ public interface QualityStatistic {
      * (e.g., a schema-specific metric on a non-matching schema type). NaN values are skipped
      * by StatisticalQualityRule — no issue is created and the baseline is not updated.
      */
-    double compute(MarketDataEntry entry, List<Schema> records);
+    double compute(StreamEntry entry, List<StreamRecord> records);
 
     AnomalyDirection anomalyDirection();
 

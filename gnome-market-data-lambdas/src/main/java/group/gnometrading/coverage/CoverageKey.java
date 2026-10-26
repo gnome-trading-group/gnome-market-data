@@ -18,22 +18,12 @@ public class CoverageKey {
     }
 
     /**
-     * Security partition key for security-level aggregation.
-     * @param securityId The security ID
-     * @return "SEC#{securityId}"
+     * Stream partition key for one stream's coverage.
+     * @param streamId The stream ID
+     * @return "STREAM#{streamId}"
      */
-    public static String securityKey(int securityId) {
-        return "SEC#" + securityId;
-    }
-
-    /**
-     * Security+Exchange partition key for specific security-exchange pair.
-     * @param securityId The security ID
-     * @param exchangeId The exchange ID
-     * @return "SEC#{securityId}#EX#{exchangeId}"
-     */
-    public static String securityExchangeKey(int securityId, int exchangeId) {
-        return "SEC#" + securityId + "#EX#" + exchangeId;
+    public static String streamKey(int streamId) {
+        return "STREAM#" + streamId;
     }
 
     // Sort key builders

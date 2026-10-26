@@ -4,12 +4,14 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import group.gnometrading.Dependencies;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
+import group.gnometrading.md.Stream;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.rules.QualityRule;
 import group.gnometrading.quality.rules.QualityRuleFactory;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.quality.utils.CollectedRecordType;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -78,16 +80,15 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
 
     @Override
     public Map<String, Object> handleRequest(Map<String, Object> event, Context context) {
-        int exchangeId = requireInt(event, "exchangeId");
-        int securityId = requireInt(event, "securityId");
+        int listingId = requireInt(event, "listingId");
         LocalDate date = requireDate(event, "date");
         Mode mode = parseMode(event);
         boolean resetStatistics = (boolean) event.getOrDefault("resetStatistics", false);
 
-        Listing listing = securityMaster.getListing(exchangeId, securityId);
-        if (listing == null) {
-            throw new IllegalArgumentException(
-                    "Listing not found for exchangeId=" + exchangeId + ", securityId=" + securityId);
+        Listing listing = securityMaster.getListing(listingId);
+        Stream stream = securityMaster.streamForListing(listingId);
+        if (listing == null || stream == null) {
+            throw new IllegalArgumentException("Listing or its book stream not found for listingId=" + listingId);
         }
 
         List<QualityRule> rules = buildRules(mode);
@@ -96,14 +97,18 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
             resetDateStatistics(listing.listingId(), date);
         }
 
-        List<MarketDataEntry> entries =
-                MarketDataEntry.getKeysForListingByDay(s3Client, mergedBucketName, listing, date.atStartOfDay());
+        List<StreamEntry> entries = StreamEntry.getKeysForStreamByDay(
+                s3Client,
+                mergedBucketName,
+                stream.streamId(),
+                CollectedRecordType.of(s3Client, mergedBucketName, stream),
+                date.atStartOfDay());
         logger.info("Processing {} entries for {} mode={}", entries.size(), date, mode);
 
         int entriesProcessed = 0;
         int issuesFound = 0;
 
-        for (MarketDataEntry entry : entries) {
+        for (StreamEntry entry : entries) {
             if (context.getRemainingTimeInMillis() < TIMEOUT_SAFETY_MARGIN_MS) {
                 logger.warn("Approaching timeout, stopping");
                 break;
@@ -126,9 +131,9 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
         return result;
     }
 
-    private int processEntry(MarketDataEntry entry, List<QualityRule> rules, Listing listing) {
+    private int processEntry(StreamEntry entry, List<QualityRule> rules, Listing listing) {
         try {
-            List<Schema> records = entry.loadFromS3(s3Client, mergedBucketName);
+            List<StreamRecord> records = entry.loadFromS3(s3Client, mergedBucketName);
             int issuesFound = 0;
             for (QualityRule rule : rules) {
                 List<QualityIssue> issues = rule.check(entry, records, listing, clock);

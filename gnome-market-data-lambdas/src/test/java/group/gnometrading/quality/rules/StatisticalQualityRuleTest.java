@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityIssueStatus;
@@ -13,8 +13,8 @@ import group.gnometrading.quality.rules.statistics.MidPriceStatistic;
 import group.gnometrading.quality.rules.statistics.SpreadStatistic;
 import group.gnometrading.quality.rules.statistics.TickCountStatistic;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -68,7 +68,6 @@ class StatisticalQualityRuleTest {
         lenient().when(listing.exchange()).thenReturn(exchange);
         lenient().when(listing.security()).thenReturn(security);
         lenient().when(exchange.exchangeId()).thenReturn(1);
-        lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
         lenient().when(security.securityId()).thenReturn(2);
         queryResults.clear();
         PageIterable<HourlyListingStatistic> mockPages = mock(PageIterable.class);
@@ -82,8 +81,7 @@ class StatisticalQualityRuleTest {
     void testNewListingEmitsUpdateItem() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
@@ -95,10 +93,9 @@ class StatisticalQualityRuleTest {
     void testUpdateItemHasCorrectValues() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
-        List<Schema> records = new ArrayList<>();
+        List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
         rule.check(entry, records, listing, clock);
@@ -118,8 +115,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
@@ -136,11 +132,10 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         // 5 records when mean=1000, stddev=0 — fallback: 5 < 100 → anomalous
-        List<Schema> records = new ArrayList<>();
+        List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
         List<QualityIssue> issues = rule.check(entry, records, listing, clock);
@@ -161,11 +156,10 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         // 5 records — would be anomalous against mean=1000 if freshness passed
-        List<Schema> records = new ArrayList<>();
+        List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
         List<QualityIssue> issues = rule.check(entry, records, listing, clock);
@@ -177,8 +171,7 @@ class StatisticalQualityRuleTest {
     void testNaNValueSkippedForIncompatibleSchema() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_1, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         rule.check(entry, List.of(), listing, clock);
 
@@ -189,8 +182,7 @@ class StatisticalQualityRuleTest {
     void testUpdateItemAlwaysCalledAfterCheck() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         rule.check(entry, List.of(), listing, clock);
 
@@ -204,8 +196,7 @@ class StatisticalQualityRuleTest {
                 dynamoDbClient,
                 "test-table",
                 List.of(new TickCountStatistic(), new SpreadStatistic(), new MidPriceStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.bidPrice0(100);
@@ -226,8 +217,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
@@ -250,8 +240,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         // SpreadStatistic lookback=21 days. entryDate=2024-01-15, startDate=2023-12-25.
         // All three rows (Dec 16-18) are outside the 21-day window → filtered out → distinctDays=0 → no anomaly
@@ -264,8 +253,7 @@ class StatisticalQualityRuleTest {
     void testUpdateStatisticsFalseNeverCallsUpdateItem() {
         StatisticalQualityRule noWriteRule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), false, false);
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         noWriteRule.check(entry, List.of(), listing, clock);
 
@@ -281,10 +269,9 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule noDetectRule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), false, false);
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
-        List<Schema> records = new ArrayList<>();
+        List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
         List<QualityIssue> issues = noDetectRule.check(entry, records, listing, clock);
@@ -303,8 +290,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema record = new Mbp10Schema();
         record.encoder.bidPrice0(100);
@@ -328,10 +314,9 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
-        List<Schema> records = new ArrayList<>();
+        List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
         List<QualityIssue> issues = rule.check(entry, records, listing, clock);
@@ -356,11 +341,10 @@ class StatisticalQualityRuleTest {
         Clock satClock = Clock.fixed(saturdayMinute.atZone(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC"));
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, saturdayMinute, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, saturdayMinute, StreamEntry.EntryType.AGGREGATED);
 
         // 5 records against weekend mean=1000, stddev=0 → fallback: 5 < 100 → anomalous
-        List<Schema> records = new ArrayList<>();
+        List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
         List<QualityIssue> issues = rule.check(entry, records, listing, satClock);
@@ -385,10 +369,9 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, midnightMinute, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, midnightMinute, StreamEntry.EntryType.AGGREGATED);
 
-        List<Schema> records = new ArrayList<>();
+        List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
 
         // Should detect anomaly (3 distinct weekday days, mean=1000, value=5 < 100 fallback)

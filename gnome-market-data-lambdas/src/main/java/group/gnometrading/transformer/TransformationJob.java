@@ -1,6 +1,6 @@
 package group.gnometrading.transformer;
 
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeConverter;
@@ -22,7 +22,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
  * - PK: jobId (string)
  * - SK: timestamp (LocalDateTime)
  * - listingId: int
- * - schemaType: string
+ * - schemaType: string (the record type the job writes)
+ * - sourceRecordType: string (the collected record type it converts from)
  * - status: TransformationStatus enum
  * - createdAt: LocalDateTime
  * - processedAt: LocalDateTime (nullable)
@@ -35,7 +36,8 @@ public final class TransformationJob {
     private JobId jobId;
     private LocalDateTime timestamp;
     private Integer listingId;
-    private SchemaType schemaType;
+    private RecordType recordType;
+    private RecordType sourceRecordType;
     private TransformationStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime processedAt;
@@ -80,12 +82,23 @@ public final class TransformationJob {
     @DynamoDbAttribute("schemaType")
     @DynamoDbConvertedBy(SchemaTypeConverter.class)
     @DynamoDbSecondaryPartitionKey(indexNames = "schemaType-status-index")
-    public SchemaType getSchemaType() {
-        return schemaType;
+    public RecordType getRecordType() {
+        return recordType;
     }
 
-    public void setSchemaType(SchemaType schemaType) {
-        this.schemaType = schemaType;
+    public void setRecordType(RecordType recordType) {
+        this.recordType = recordType;
+    }
+
+    /** The record type the job converts from: the one its stream's merged files hold. */
+    @DynamoDbAttribute("sourceRecordType")
+    @DynamoDbConvertedBy(SchemaTypeConverter.class)
+    public RecordType getSourceRecordType() {
+        return sourceRecordType;
+    }
+
+    public void setSourceRecordType(RecordType sourceRecordType) {
+        this.sourceRecordType = sourceRecordType;
     }
 
     @DynamoDbAttribute("status")
@@ -137,26 +150,26 @@ public final class TransformationJob {
         this.expiresAt = expiresAt;
     }
 
-    public static final class SchemaTypeConverter implements AttributeConverter<SchemaType> {
+    public static final class SchemaTypeConverter implements AttributeConverter<RecordType> {
         @Override
-        public AttributeValue transformFrom(SchemaType input) {
+        public AttributeValue transformFrom(RecordType input) {
             if (input == null) {
                 return AttributeValue.builder().nul(true).build();
             }
-            return AttributeValue.builder().s(input.getIdentifier()).build();
+            return AttributeValue.builder().s(input.identifier()).build();
         }
 
         @Override
-        public SchemaType transformTo(AttributeValue input) {
+        public RecordType transformTo(AttributeValue input) {
             if (input == null || input.nul() != null && input.nul()) {
                 return null;
             }
-            return SchemaType.findById(input.s());
+            return RecordType.forIdentifier(input.s());
         }
 
         @Override
-        public EnhancedType<SchemaType> type() {
-            return EnhancedType.of(SchemaType.class);
+        public EnhancedType<RecordType> type() {
+            return EnhancedType.of(RecordType.class);
         }
 
         @Override

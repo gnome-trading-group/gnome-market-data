@@ -14,8 +14,7 @@ import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityIssueStatus;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -85,6 +84,7 @@ class QualityCheckLambdaHandlerTest {
     private static final LocalDateTime FIXED_TIME = LocalDateTime.of(2024, 1, 15, 10, 30);
     private static final int LISTING_ID = 123;
     private static final int SECURITY_ID = 1;
+    private static final int STREAM_ID = SECURITY_ID;
     private static final int EXCHANGE_ID = 2;
 
     private List<byte[]> s3MockedDataList;
@@ -112,8 +112,7 @@ class QualityCheckLambdaHandlerTest {
         lenient().when(listing.exchange()).thenReturn(exchange);
         lenient().when(security.securityId()).thenReturn(SECURITY_ID);
         lenient().when(exchange.exchangeId()).thenReturn(EXCHANGE_ID);
-        lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
-        lenient().when(securityMaster.getListing(EXCHANGE_ID, SECURITY_ID)).thenReturn(listing);
+        lenient().when(securityMaster.listingForStream(STREAM_ID)).thenReturn(listing);
 
         s3MockedDataList = new ArrayList<>();
         s3GetObjectCallCount = 0;
@@ -161,9 +160,9 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testListingNotFoundSkipsEntry() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
-        when(securityMaster.getListing(EXCHANGE_ID, SECURITY_ID)).thenReturn(null);
+        when(securityMaster.listingForStream(STREAM_ID)).thenReturn(null);
 
         handler.handleRequest(event, context);
 
@@ -173,7 +172,7 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testCleanDataProducesNoIssues() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         long windowStartNanos = FIXED_TIME.toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
@@ -192,7 +191,7 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testTimestampAlignmentViolationCreatesIssue() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         Mbp10Schema s = new Mbp10Schema();
@@ -209,7 +208,7 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testSequenceMonotonicityViolationCreatesIssue() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         long windowStartNanos = FIXED_TIME.toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
@@ -231,14 +230,14 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testBadDataFlagsViolationCreatesIssue() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         long windowStartNanos = FIXED_TIME.toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.sequence(1);
         s.encoder.timestampEvent(windowStartNanos + 1000);
-        s.encoder.flags().maybeBadBook(true);
+        s.encoder.flags().badData(true);
         mockS3Data(List.of(s));
 
         handler.handleRequest(event, context);
@@ -250,7 +249,7 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testColdStartProducesNoStatisticalIssues() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         long windowStartNanos = FIXED_TIME.toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
@@ -271,7 +270,7 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testStatisticalAnomalyCreatesIssue() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         for (String date : List.of("2024-01-10", "2024-01-11", "2024-01-12")) {
@@ -302,8 +301,8 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testMultipleEntriesInEventProcessedIndependently() throws Exception {
-        String key1 = "1/2/2024/1/15/10/30/mbp-10.zst";
-        String key2 = "1/2/2024/1/15/10/31/mbp-10.zst";
+        String key1 = "1/book/mbp-10/2024/01/15/10/30.zst";
+        String key2 = "1/book/mbp-10/2024/01/15/10/31.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJsonWithKeys(key1, key2)));
 
         long window1StartNanos = FIXED_TIME.toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
@@ -327,7 +326,7 @@ class QualityCheckLambdaHandlerTest {
 
     @Test
     void testIssueHasCorrectListingAndTimestamp() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(wrapInSnsMessage(createS3EventJson(key)));
 
         Mbp10Schema s = new Mbp10Schema();
@@ -347,9 +346,9 @@ class QualityCheckLambdaHandlerTest {
         assertEquals(QualityIssueStatus.UNREVIEWED, issue.getStatus());
     }
 
-    private void mockS3Data(List<? extends Schema> schemas) throws IOException {
+    private void mockS3Data(List<? extends StreamRecord> schemas) throws IOException {
         ByteArrayOutputStream raw = new ByteArrayOutputStream();
-        for (Schema schema : schemas) {
+        for (StreamRecord schema : schemas) {
             byte[] bytes = new byte[schema.totalMessageSize()];
             schema.buffer.getBytes(0, bytes, 0, schema.totalMessageSize());
             raw.write(bytes);

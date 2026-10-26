@@ -1,6 +1,6 @@
 package group.gnometrading.merger;
 
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -8,15 +8,15 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * Merge strategy for MBP10 schema type.
- * Produces output entries in sequence order.
+ * Keeps the collector copy with the most records, whatever the record type: every copy of a stream-minute holds the
+ * same records from the same venue, so the fullest one lost least.
  */
-public final class Mbp10MergeStrategy implements SchemaMergeStrategy {
+public final class FullestCopyMergeStrategy implements MergeStrategy {
 
-    private static final Logger logger = LogManager.getLogger(Mbp10MergeStrategy.class);
+    private static final Logger logger = LogManager.getLogger(FullestCopyMergeStrategy.class);
 
     @Override
-    public List<Schema> mergeRecords(Map<String, List<Schema>> entries) {
+    public List<StreamRecord> mergeRecords(Map<String, List<StreamRecord>> entries) {
         if (entries.isEmpty()) {
             logger.info("No records to process");
             return List.of();

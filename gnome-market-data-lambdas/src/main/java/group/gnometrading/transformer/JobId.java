@@ -1,19 +1,19 @@
 package group.gnometrading.transformer;
 
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeConverter;
 import software.amazon.awssdk.enhanced.dynamodb.AttributeValueType;
 import software.amazon.awssdk.enhanced.dynamodb.EnhancedType;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
-public record JobId(int listingId, SchemaType schemaType) {
+public record JobId(int listingId, RecordType recordType) {
     public String toString() {
-        return listingId + "-" + schemaType.getIdentifier();
+        return listingId + "-" + recordType.identifier();
     }
 
     public static JobId fromString(String jobId) {
         String[] parts = jobId.split("-", 2);
-        return new JobId(Integer.parseInt(parts[0]), SchemaType.findById(parts[1]));
+        return new JobId(Integer.parseInt(parts[0]), RecordType.forIdentifier(parts[1]));
     }
 
     public static final class JobIdConverter implements AttributeConverter<JobId> {

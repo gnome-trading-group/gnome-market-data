@@ -1,11 +1,11 @@
 package group.gnometrading.quality.rules.statistics;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.quality.utils.SchemaFieldExtractor;
-import group.gnometrading.schemas.Action;
-import group.gnometrading.schemas.Schema;
 import group.gnometrading.schemas.Statics;
+import group.gnometrading.schemas.StreamRecord;
+import group.gnometrading.schemas.book.Action;
 import java.util.List;
 
 public final class TradeVolumeStatistic implements QualityStatistic {
@@ -41,15 +41,15 @@ public final class TradeVolumeStatistic implements QualityStatistic {
     }
 
     @Override
-    public double compute(MarketDataEntry entry, List<Schema> records) {
-        if (!SchemaFieldExtractor.TRADE_SCHEMAS.contains(entry.getSchemaType())) {
+    public double compute(StreamEntry entry, List<StreamRecord> records) {
+        if (!SchemaFieldExtractor.TRADE_SCHEMAS.contains(entry.getRecordType())) {
             return Double.NaN;
         }
 
         long totalVolume = 0;
-        for (Schema record : records) {
+        for (StreamRecord record : records) {
             SchemaFieldExtractor.TradeFields fields =
-                    SchemaFieldExtractor.extractTradeFields(record, entry.getSchemaType());
+                    SchemaFieldExtractor.extractTradeFields(record, entry.getRecordType());
             if (fields.action() == Action.Trade) {
                 totalVolume += fields.size();
             }

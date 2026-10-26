@@ -2,13 +2,13 @@ package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.schemas.Action;
 import group.gnometrading.schemas.MboSchema;
 import group.gnometrading.schemas.Mbp10Schema;
 import group.gnometrading.schemas.Mbp1Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
+import group.gnometrading.schemas.book.Action;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -20,8 +20,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testCountsTradesMbp10() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema trade1 = new Mbp10Schema();
         trade1.encoder.action(Action.Trade);
@@ -37,8 +36,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testCountsTradesMbp1() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_1, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp1Schema trade = new Mbp1Schema();
         trade.encoder.action(Action.Trade);
@@ -52,7 +50,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testCountsTradesMbo() {
-        MarketDataEntry entry = new MarketDataEntry(1, 2, SchemaType.MBO, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         MboSchema trade1 = new MboSchema();
         trade1.encoder.action(Action.Trade);
@@ -66,8 +64,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testReturnsZeroWhenNoTrades() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema nonTrade = new Mbp10Schema();
         nonTrade.encoder.action(Action.Cancel);
@@ -79,8 +76,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testReturnsNanForUnsupportedSchema() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.BBO_1S, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         assertTrue(Double.isNaN(statistic.compute(entry, List.of())));
     }

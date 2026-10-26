@@ -2,14 +2,14 @@ package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.schemas.MboSchema;
-import group.gnometrading.schemas.Mbp10Decoder;
 import group.gnometrading.schemas.Mbp10Schema;
 import group.gnometrading.schemas.Mbp1Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.schemas.Statics;
+import group.gnometrading.schemas.book.Mbp10Decoder;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -21,8 +21,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testComputesStddevMbp10() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.price(100);
@@ -37,8 +36,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testComputesStddevMbp1() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_1, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp1Schema s1 = new Mbp1Schema();
         s1.encoder.price(100);
@@ -52,7 +50,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testComputesStddevMbo() {
-        MarketDataEntry entry = new MarketDataEntry(1, 2, SchemaType.MBO, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         MboSchema s1 = new MboSchema();
         s1.encoder.price(100);
@@ -69,8 +67,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testReturnsNanForSingleRecord() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.price(100);
@@ -80,24 +77,21 @@ class VolatilityStatisticTest {
 
     @Test
     void testReturnsNanForEmptyRecords() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         assertTrue(Double.isNaN(statistic.compute(entry, List.of())));
     }
 
     @Test
     void testReturnsNanForUnsupportedSchema() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.BBO_1S, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         assertTrue(Double.isNaN(statistic.compute(entry, List.of())));
     }
 
     @Test
     void testSkipsNullPriceRecords() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema nullPrice = new Mbp10Schema();
         nullPrice.encoder.price(Mbp10Decoder.priceNullValue());
@@ -114,8 +108,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testReturnsNanWhenOnlyNullPrices() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.price(Mbp10Decoder.priceNullValue());

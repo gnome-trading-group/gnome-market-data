@@ -3,10 +3,10 @@ package group.gnometrading.quality.rules;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -43,14 +43,12 @@ class SequenceMonotonicityRuleTest {
         lenient().when(listing.exchange()).thenReturn(exchange);
         lenient().when(listing.security()).thenReturn(security);
         lenient().when(exchange.exchangeId()).thenReturn(1);
-        lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
         lenient().when(security.securityId()).thenReturn(2);
     }
 
     @Test
     void testNoIssuesForStrictlyIncreasing() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(schema(1), schema(2), schema(3), schema(100)), listing, clock);
 
@@ -59,8 +57,7 @@ class SequenceMonotonicityRuleTest {
 
     @Test
     void testNoIssueForDuplicate() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(schema(1), schema(2), schema(2), schema(3)), listing, clock);
 
@@ -70,8 +67,7 @@ class SequenceMonotonicityRuleTest {
     @Test
     void testIssueWhenAllOutOfOrder() {
         // 1/1 transitions = 100% > 20% threshold
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(schema(5), schema(4)), listing, clock);
 
@@ -83,8 +79,7 @@ class SequenceMonotonicityRuleTest {
     @Test
     void testIssueDetailsIncludesPercentage() {
         // [1, 1, 5, 3, 10]: 1 decrease out of 4 transitions = 25% > 20%
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(schema(1), schema(1), schema(5), schema(3), schema(10)), listing, clock);
 
@@ -97,8 +92,7 @@ class SequenceMonotonicityRuleTest {
     @Test
     void testNoIssueForMinorJitter() {
         // 1 decrease out of 10 transitions = 10% — under the 20% threshold
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(
                 entry,
@@ -123,8 +117,7 @@ class SequenceMonotonicityRuleTest {
     @Test
     void testIssueAtBoundary() {
         // 2 decreases out of 9 transitions = 22.2% — just over the 20% threshold
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(
                 entry,
@@ -147,8 +140,7 @@ class SequenceMonotonicityRuleTest {
 
     @Test
     void testNoIssueForSingleRecord() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(schema(1)), listing, clock);
 
@@ -157,8 +149,7 @@ class SequenceMonotonicityRuleTest {
 
     @Test
     void testNoIssueForEmptyRecords() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(), listing, clock);
 

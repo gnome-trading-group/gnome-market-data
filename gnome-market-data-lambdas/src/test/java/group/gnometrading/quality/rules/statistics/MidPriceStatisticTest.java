@@ -2,12 +2,12 @@ package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.schemas.Mbp10Decoder;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.schemas.Statics;
+import group.gnometrading.schemas.book.Mbp10Decoder;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -20,8 +20,7 @@ class MidPriceStatisticTest {
 
     @Test
     void testComputesAverageMidPrice() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.bidPrice0(100);
@@ -37,8 +36,7 @@ class MidPriceStatisticTest {
 
     @Test
     void testComputesForMbp1Schema() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_1, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         group.gnometrading.schemas.Mbp1Schema s1 = new group.gnometrading.schemas.Mbp1Schema();
         s1.encoder.bidPrice0(100);
@@ -54,8 +52,7 @@ class MidPriceStatisticTest {
 
     @Test
     void testDoesNotOverflowWithManyLargePrices() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema record = new Mbp10Schema();
         record.encoder.bidPrice0(99_999L * Statics.PRICE_SCALING_FACTOR);
@@ -68,7 +65,7 @@ class MidPriceStatisticTest {
 
     @Test
     void testReturnsNanForMboSchema() {
-        MarketDataEntry entry = new MarketDataEntry(1, 2, SchemaType.MBO, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         double result = statistic.compute(entry, List.of());
 
@@ -77,8 +74,7 @@ class MidPriceStatisticTest {
 
     @Test
     void testSkipsNullPriceSentinels() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema nullPrices = new Mbp10Schema();
         nullPrices.encoder.bidPrice0(Mbp10Decoder.bidPrice0NullValue());

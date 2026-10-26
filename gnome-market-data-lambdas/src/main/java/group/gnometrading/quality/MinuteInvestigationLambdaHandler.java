@@ -4,7 +4,8 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import group.gnometrading.Dependencies;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
+import group.gnometrading.md.Stream;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.rules.statistics.HourlyStatisticsAggregator;
@@ -15,8 +16,9 @@ import group.gnometrading.quality.rules.statistics.TickCountStatistic;
 import group.gnometrading.quality.rules.statistics.TradeFrequencyStatistic;
 import group.gnometrading.quality.rules.statistics.TradeVolumeStatistic;
 import group.gnometrading.quality.rules.statistics.VolatilityStatistic;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.quality.utils.CollectedRecordType;
+import group.gnometrading.schemas.RecordType;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -90,19 +92,23 @@ public final class MinuteInvestigationLambdaHandler
             throw new IllegalArgumentException("Listing not found for listingId=" + listingId);
         }
 
-        SchemaType schemaType = listing.exchange().schemaType();
+        Stream stream = securityMaster.streamForListing(listingId);
+        if (stream == null) {
+            throw new IllegalArgumentException("No book stream for listingId=" + listingId);
+        }
+        RecordType schemaType = CollectedRecordType.of(s3Client, mergedBucketName, stream);
 
         LocalDateTime center = LocalDateTime.ofEpochSecond(centerTimestamp, 0, ZoneOffset.UTC);
         LocalDateTime windowStart = center.minusMinutes(windowMinutes);
         LocalDateTime windowEnd = center.plusMinutes(windowMinutes);
 
-        List<Map<String, Object>> minutes = buildMinuteData(listing, schemaType, windowStart, windowEnd);
+        List<Map<String, Object>> minutes = buildMinuteData(stream.streamId(), schemaType, windowStart, windowEnd);
         List<Map<String, Object>> issues = fetchIssues(listingId, centerTimestamp, windowMinutes);
         Map<String, Object> baseline = computeBaseline(listingId, center);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("listingId", listingId);
-        result.put("schemaType", schemaType.getIdentifier());
+        result.put("recordType", schemaType.identifier());
         result.put("centerTimestamp", centerTimestamp);
         result.put("windowMinutes", windowMinutes);
         result.put("minutes", minutes);
@@ -112,25 +118,22 @@ public final class MinuteInvestigationLambdaHandler
     }
 
     private List<Map<String, Object>> buildMinuteData(
-            Listing listing, SchemaType schemaType, LocalDateTime windowStart, LocalDateTime windowEnd) {
+            int streamId, RecordType schemaType, LocalDateTime windowStart, LocalDateTime windowEnd) {
         int totalMinutes = (int) ChronoUnit.MINUTES.between(windowStart, windowEnd);
         return IntStream.rangeClosed(0, totalMinutes)
                 .parallel()
-                .mapToObj(offset -> processMinute(listing, schemaType, windowStart.plusMinutes(offset)))
+                .mapToObj(offset -> processMinute(streamId, schemaType, windowStart.plusMinutes(offset)))
                 .collect(Collectors.toList());
     }
 
-    private Map<String, Object> processMinute(Listing listing, SchemaType schemaType, LocalDateTime timestamp) {
-        int securityId = listing.security().securityId();
-        int exchangeId = listing.exchange().exchangeId();
-        MarketDataEntry entry = new MarketDataEntry(
-                securityId, exchangeId, schemaType, timestamp, MarketDataEntry.EntryType.AGGREGATED);
+    private Map<String, Object> processMinute(int streamId, RecordType schemaType, LocalDateTime timestamp) {
+        StreamEntry entry = new StreamEntry(streamId, schemaType, timestamp, StreamEntry.EntryType.AGGREGATED);
 
         Map<String, Object> minute = new LinkedHashMap<>();
         minute.put("timestamp", timestamp.toEpochSecond(ZoneOffset.UTC));
 
         try {
-            List<Schema> records = entry.loadFromS3(s3Client, mergedBucketName);
+            List<StreamRecord> records = entry.loadFromS3(s3Client, mergedBucketName);
             minute.put("hasData", true);
             minute.put("recordCount", records.size());
 

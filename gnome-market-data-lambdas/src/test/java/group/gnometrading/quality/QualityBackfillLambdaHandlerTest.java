@@ -7,12 +7,12 @@ import static org.mockito.Mockito.*;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.github.luben.zstd.ZstdOutputStream;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.md.Stream;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -44,6 +44,7 @@ import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -86,6 +87,7 @@ class QualityBackfillLambdaHandlerTest {
     private static final LocalDateTime FIXED_TIME = LocalDateTime.of(2024, 1, 15, 10, 30);
     private static final int LISTING_ID = 123;
     private static final int SECURITY_ID = 1;
+    private static final int STREAM_ID = SECURITY_ID;
     private static final int EXCHANGE_ID = 2;
 
     private List<byte[]> s3MockedDataList;
@@ -112,9 +114,13 @@ class QualityBackfillLambdaHandlerTest {
         lenient().when(listing.exchange()).thenReturn(exchange);
         lenient().when(security.securityId()).thenReturn(SECURITY_ID);
         lenient().when(exchange.exchangeId()).thenReturn(EXCHANGE_ID);
-        lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
-        lenient().when(securityMaster.getListing(EXCHANGE_ID, SECURITY_ID)).thenReturn(listing);
+        lenient().when(securityMaster.getListing(LISTING_ID)).thenReturn(listing);
+        lenient()
+                .when(securityMaster.streamForListing(LISTING_ID))
+                .thenReturn(new Stream(
+                        STREAM_ID, 1, "KALSHI", "LISTING", LISTING_ID, null, "book", "us-east-1", 0, 0L, 0L, true));
 
+        mockMergedRecordTypes("mbp-10");
         s3MockedDataList = new ArrayList<>();
         s3GetObjectCallCount = 0;
 
@@ -140,8 +146,8 @@ class QualityBackfillLambdaHandlerTest {
 
     @Test
     void testModeIssuesDoesNotWriteStatistics() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
-        mockS3List("1/2/2024/1/15/", List.of(key));
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
+        mockS3List("1/book/mbp-10/2024/01/15/", List.of(key));
         long windowStart = LocalDateTime.of(2024, 1, 15, 10, 30).toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.sequence(1);
@@ -157,8 +163,8 @@ class QualityBackfillLambdaHandlerTest {
 
     @Test
     void testModeStatisticsWritesStatistics() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
-        mockS3List("1/2/2024/1/15/", List.of(key));
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
+        mockS3List("1/book/mbp-10/2024/01/15/", List.of(key));
         long windowStart = LocalDateTime.of(2024, 1, 15, 10, 30).toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.sequence(1);
@@ -172,8 +178,8 @@ class QualityBackfillLambdaHandlerTest {
 
     @Test
     void testModeStatisticsNoIssuesStored() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
-        mockS3List("1/2/2024/1/15/", List.of(key));
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
+        mockS3List("1/book/mbp-10/2024/01/15/", List.of(key));
         // Bad timestamp — would trigger TIMESTAMP_ALIGNMENT if static rules ran
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.timestampEvent(0L);
@@ -187,8 +193,8 @@ class QualityBackfillLambdaHandlerTest {
 
     @Test
     void testResetStatisticsDeletesOnlyMatchingDate() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
-        mockS3List("1/2/2024/1/15/", List.of(key));
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
+        mockS3List("1/book/mbp-10/2024/01/15/", List.of(key));
         long windowStart = LocalDateTime.of(2024, 1, 15, 10, 30).toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.sequence(1);
@@ -217,7 +223,7 @@ class QualityBackfillLambdaHandlerTest {
 
     @Test
     void testResetStatisticsNotCalledForIssuesMode() throws Exception {
-        mockS3List("1/2/2024/1/15/", List.of());
+        mockS3List("1/book/mbp-10/2024/01/15/", List.of());
 
         handler.handleRequest(payload("2024-01-15", "issues", true), context);
 
@@ -226,7 +232,7 @@ class QualityBackfillLambdaHandlerTest {
 
     @Test
     void testListingNotFoundThrows() {
-        when(securityMaster.getListing(EXCHANGE_ID, SECURITY_ID)).thenReturn(null);
+        when(securityMaster.getListing(LISTING_ID)).thenReturn(null);
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -234,9 +240,8 @@ class QualityBackfillLambdaHandlerTest {
     }
 
     @Test
-    void testMissingExchangeIdThrows() {
+    void testMissingListingIdThrows() {
         Map<String, Object> event = new HashMap<>();
-        event.put("securityId", SECURITY_ID);
         event.put("date", "2024-01-15");
 
         assertThrows(IllegalArgumentException.class, () -> handler.handleRequest(event, context));
@@ -273,8 +278,16 @@ class QualityBackfillLambdaHandlerTest {
     }
 
     @Test
+    void aStreamWithMoreThanOneMergedRecordTypeIsRefused() {
+        mockMergedRecordTypes("mbp-10", "mbo");
+
+        assertThrows(
+                IllegalStateException.class, () -> handler.handleRequest(payload("2024-01-15", "all", false), context));
+    }
+
+    @Test
     void testNoDataForDateReturnsZero() throws Exception {
-        mockS3List("1/2/2024/1/15/", List.of());
+        mockS3List("1/book/mbp-10/2024/01/15/", List.of());
 
         Map<String, Object> result = handler.handleRequest(payload("2024-01-15", "all", false), context);
 
@@ -286,9 +299,9 @@ class QualityBackfillLambdaHandlerTest {
 
     @Test
     void testPerEntryErrorDoesNotAbortRun() throws Exception {
-        String key1 = "1/2/2024/1/15/10/30/mbp-10.zst";
-        String key2 = "1/2/2024/1/15/10/31/mbp-10.zst";
-        mockS3List("1/2/2024/1/15/", List.of(key1, key2));
+        String key1 = "1/book/mbp-10/2024/01/15/10/30.zst";
+        String key2 = "1/book/mbp-10/2024/01/15/10/31.zst";
+        mockS3List("1/book/mbp-10/2024/01/15/", List.of(key1, key2));
 
         long windowStart = LocalDateTime.of(2024, 1, 15, 10, 30).toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L;
         Mbp10Schema s = new Mbp10Schema();
@@ -312,8 +325,8 @@ class QualityBackfillLambdaHandlerTest {
 
     @Test
     void testIssueStoredForTimestampViolation() throws Exception {
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
-        mockS3List("1/2/2024/1/15/", List.of(key));
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
+        mockS3List("1/book/mbp-10/2024/01/15/", List.of(key));
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.timestampEvent(0L);
         mockS3Data(List.of(s));
@@ -337,17 +350,16 @@ class QualityBackfillLambdaHandlerTest {
 
     private Map<String, Object> payload(String date, String mode, boolean resetStatistics) {
         Map<String, Object> event = new HashMap<>();
-        event.put("exchangeId", EXCHANGE_ID);
-        event.put("securityId", SECURITY_ID);
+        event.put("listingId", LISTING_ID);
         event.put("date", date);
         event.put("mode", mode);
         event.put("resetStatistics", resetStatistics);
         return event;
     }
 
-    private void mockS3Data(List<? extends Schema> schemas) throws IOException {
+    private void mockS3Data(List<? extends StreamRecord> schemas) throws IOException {
         ByteArrayOutputStream raw = new ByteArrayOutputStream();
-        for (Schema schema : schemas) {
+        for (StreamRecord schema : schemas) {
             byte[] bytes = new byte[schema.totalMessageSize()];
             schema.buffer.getBytes(0, bytes, 0, schema.totalMessageSize());
             raw.write(bytes);
@@ -357,6 +369,26 @@ class QualityBackfillLambdaHandlerTest {
             zstd.write(raw.toByteArray());
         }
         s3MockedDataList.add(compressed.toByteArray());
+    }
+
+    /** The record type folders the merged bucket holds under the stream's book prefix. */
+    private void mockMergedRecordTypes(String... identifiers) {
+        String prefix = STREAM_ID + "/book/";
+        SdkIterable<CommonPrefix> folders = () -> java.util.Arrays.stream(identifiers)
+                .map(identifier ->
+                        CommonPrefix.builder().prefix(prefix + identifier + "/").build())
+                .iterator();
+        ListObjectsV2Iterable mockIterable = mock(ListObjectsV2Iterable.class);
+        lenient().when(mockIterable.commonPrefixes()).thenReturn(folders);
+        lenient()
+                .when(s3Client.listObjectsV2Paginator(
+                        argThat((java.util.function.Consumer<ListObjectsV2Request.Builder> consumer) -> {
+                            if (consumer == null) return false;
+                            ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder();
+                            consumer.accept(builder);
+                            return prefix.equals(builder.build().prefix());
+                        })))
+                .thenReturn(mockIterable);
     }
 
     private void mockS3List(String prefix, List<String> keys) {

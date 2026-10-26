@@ -8,8 +8,9 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.md.Stream;
 import group.gnometrading.quality.model.HourlyListingStatistic;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -80,6 +81,7 @@ class GapLambdaHandlerTest {
     private static final LocalDateTime FIXED_TIME = LocalDateTime.of(2024, 1, 15, 10, 30);
     private static final int LISTING_ID = 123;
     private static final int SECURITY_ID = 1;
+    private static final int STREAM_ID = SECURITY_ID;
     private static final int EXCHANGE_ID = 2;
 
     @BeforeEach
@@ -109,9 +111,12 @@ class GapLambdaHandlerTest {
         lenient().when(listing.exchange()).thenReturn(exchange);
         lenient().when(security.securityId()).thenReturn(SECURITY_ID);
         lenient().when(exchange.exchangeId()).thenReturn(EXCHANGE_ID);
-        lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
-        lenient().when(securityMaster.getListing(EXCHANGE_ID, SECURITY_ID)).thenReturn(listing);
+        lenient().when(securityMaster.listingForStream(STREAM_ID)).thenReturn(listing);
         lenient().when(securityMaster.getListing(LISTING_ID)).thenReturn(listing);
+        lenient()
+                .when(securityMaster.streamForListing(LISTING_ID))
+                .thenReturn(new Stream(
+                        STREAM_ID, 1, "KALSHI", "LISTING", LISTING_ID, null, "book", "us-east-1", 0, 0L, 0L, true));
     }
 
     // ============================================================================
@@ -154,13 +159,13 @@ class GapLambdaHandlerTest {
     @Test
     void testNoGap_PreviousMinuteExistsInDynamoDB() throws Exception {
         // Given: S3 event for a merged file at 10:30
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock: Previous minute (10:29) exists in transformation jobs table
         LocalDateTime previousMinute = LocalDateTime.of(2024, 1, 15, 10, 29);
-        JobId jobId = new JobId(LISTING_ID, SchemaType.MBP_10);
+        JobId jobId = new JobId(LISTING_ID, RecordType.MBP_10);
         Key dbKey = Key.builder()
                 .partitionValue(jobId.toString())
                 .sortValue(previousMinute.toEpochSecond(ZoneOffset.UTC))
@@ -181,13 +186,13 @@ class GapLambdaHandlerTest {
     @Test
     void testNoGap_PreviousMinuteExistsInS3() throws Exception {
         // Given: S3 event for a merged file at 10:30
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock: Previous minute (10:29) does NOT exist in DDB
         LocalDateTime previousMinute = LocalDateTime.of(2024, 1, 15, 10, 29);
-        JobId jobId = new JobId(LISTING_ID, SchemaType.MBP_10);
+        JobId jobId = new JobId(LISTING_ID, RecordType.MBP_10);
         Key dbKey = Key.builder()
                 .partitionValue(jobId.toString())
                 .sortValue(previousMinute.toEpochSecond(ZoneOffset.UTC))
@@ -214,7 +219,7 @@ class GapLambdaHandlerTest {
     @Test
     void testSingleMinuteGap() throws Exception {
         // Given: S3 event for a merged file at 10:30
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
@@ -252,7 +257,7 @@ class GapLambdaHandlerTest {
     @Test
     void testMultipleMinuteGap() throws Exception {
         // Given: S3 event for a merged file at 10:30
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
@@ -308,7 +313,7 @@ class GapLambdaHandlerTest {
     @Test
     void testFirstEntry_NoPreviousDataWithin2Days() throws Exception {
         // Given: S3 event for a merged file at 10:30
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
@@ -330,7 +335,7 @@ class GapLambdaHandlerTest {
     @Test
     void testGapAtExactly2DayBoundary() throws Exception {
         // Given: S3 event for a merged file at 10:30 on Jan 15
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
@@ -359,7 +364,7 @@ class GapLambdaHandlerTest {
     @Test
     void testGapJustWithin2DayWindow() throws Exception {
         // Given: S3 event for a merged file at 10:30 on Jan 15
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
@@ -414,13 +419,13 @@ class GapLambdaHandlerTest {
     @Test
     void testListingNotFound() throws Exception {
         // Given: S3 event for a merged file
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock: SecurityMaster returns null (listing not found)
         // Override the lenient setup with strict null return
-        when(securityMaster.getListing(EXCHANGE_ID, SECURITY_ID)).thenReturn(null);
+        when(securityMaster.listingForStream(STREAM_ID)).thenReturn(null);
 
         // When: Handling the request
         handler.handleRequest(event, context);
@@ -436,8 +441,8 @@ class GapLambdaHandlerTest {
     @Test
     void testMultipleEntriesInSingleEvent() throws Exception {
         // Given: S3 event with two merged files
-        String key1 = "1/2/2024/1/15/10/30/mbp-10.zst";
-        String key2 = "1/2/2024/1/15/10/31/mbp-10.zst";
+        String key1 = "1/book/mbp-10/2024/01/15/10/30.zst";
+        String key2 = "1/book/mbp-10/2024/01/15/10/31.zst";
         String s3EventJson = createS3EventJsonWithMultipleKeys(key1, key2);
         SQSEvent event = createSQSEvent(s3EventJson);
 
@@ -461,8 +466,8 @@ class GapLambdaHandlerTest {
     @Test
     void testMultipleEntriesWithGaps() throws Exception {
         // Given: S3 event with two merged files, both with gaps
-        String key1 = "1/2/2024/1/15/10/30/mbp-10.zst";
-        String key2 = "1/2/2024/1/15/10/35/mbp-10.zst";
+        String key1 = "1/book/mbp-10/2024/01/15/10/30.zst";
+        String key2 = "1/book/mbp-10/2024/01/15/10/35.zst";
         String s3EventJson = createS3EventJsonWithMultipleKeys(key1, key2);
         SQSEvent event = createSQSEvent(s3EventJson);
 
@@ -512,7 +517,7 @@ class GapLambdaHandlerTest {
         // 5-minute gap should be skipped
         addStatisticsRows(3, 0.5, 0.25);
 
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
 
         LocalDateTime minute30 = LocalDateTime.of(2024, 1, 15, 10, 30);
@@ -539,7 +544,7 @@ class GapLambdaHandlerTest {
         // 10-minute gap should create 10 gap records
         addStatisticsRows(3, 0.5, 0.25);
 
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
 
         LocalDateTime minute20 = LocalDateTime.of(2024, 1, 15, 10, 20);
@@ -564,7 +569,7 @@ class GapLambdaHandlerTest {
         // 2-minute gap should create 2 gap records
         addStatisticsRows(3, 500.0, 250000.0);
 
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
 
         LocalDateTime minute27 = LocalDateTime.of(2024, 1, 15, 10, 27);
@@ -587,7 +592,7 @@ class GapLambdaHandlerTest {
     void testColdStartNoBaselinePreservesOneMinuteBehavior() throws Exception {
         // No statistics rows → cold start → tolerance=1 min
         // 2-minute gap creates 2 gap records (current behavior)
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
 
         LocalDateTime minute27 = LocalDateTime.of(2024, 1, 15, 10, 27);
@@ -627,7 +632,7 @@ class GapLambdaHandlerTest {
      * Mock a minute to NOT exist in both DynamoDB and S3.
      */
     private void mockMinuteDoesNotExist(LocalDateTime timestamp) {
-        JobId jobId = new JobId(LISTING_ID, SchemaType.MBP_10);
+        JobId jobId = new JobId(LISTING_ID, RecordType.MBP_10);
         Key dbKey = Key.builder()
                 .partitionValue(jobId.toString())
                 .sortValue(timestamp.toEpochSecond(ZoneOffset.UTC))
@@ -643,7 +648,7 @@ class GapLambdaHandlerTest {
      * Mock a minute to exist in DynamoDB.
      */
     private void mockMinuteExistsInDynamoDB(LocalDateTime timestamp) {
-        JobId jobId = new JobId(LISTING_ID, SchemaType.MBP_10);
+        JobId jobId = new JobId(LISTING_ID, RecordType.MBP_10);
         Key dbKey = Key.builder()
                 .partitionValue(jobId.toString())
                 .sortValue(timestamp.toEpochSecond(ZoneOffset.UTC))
@@ -657,7 +662,7 @@ class GapLambdaHandlerTest {
      * Mock a minute to exist in S3.
      */
     private void mockMinuteExistsInS3(LocalDateTime timestamp) {
-        JobId jobId = new JobId(LISTING_ID, SchemaType.MBP_10);
+        JobId jobId = new JobId(LISTING_ID, RecordType.MBP_10);
         Key dbKey = Key.builder()
                 .partitionValue(jobId.toString())
                 .sortValue(timestamp.toEpochSecond(ZoneOffset.UTC))

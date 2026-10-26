@@ -1,11 +1,11 @@
 package group.gnometrading.quality.rules;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityIssueStatus;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.quality.utils.SchemaFieldExtractor;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -16,38 +16,38 @@ import java.util.List;
 public final class BadDataFlagsRule implements QualityRule {
 
     @Override
-    public List<QualityIssue> check(MarketDataEntry entry, List<Schema> records, Listing listing, Clock clock) {
+    public List<QualityIssue> check(StreamEntry entry, List<StreamRecord> records, Listing listing, Clock clock) {
         List<QualityIssue> issues = new ArrayList<>();
-        if (!SchemaFieldExtractor.TRADE_SCHEMAS.contains(entry.getSchemaType()) || records.isEmpty()) {
+        if (!SchemaFieldExtractor.TRADE_SCHEMAS.contains(entry.getRecordType()) || records.isEmpty()) {
             return issues;
         }
 
-        int maybeBadBookCount = 0;
+        int badDataCount = 0;
         int badTimestampRecvCount = 0;
 
-        for (Schema record : records) {
+        for (StreamRecord record : records) {
             SchemaFieldExtractor.FlagFields flags =
-                    SchemaFieldExtractor.extractFlagFields(record, entry.getSchemaType());
-            if (flags.maybeBadBook()) {
-                maybeBadBookCount++;
+                    SchemaFieldExtractor.extractFlagFields(record, entry.getRecordType());
+            if (flags.badData()) {
+                badDataCount++;
             }
             if (flags.badTimestampRecv()) {
                 badTimestampRecvCount++;
             }
         }
 
-        if (maybeBadBookCount > 0 || badTimestampRecvCount > 0) {
+        if (badDataCount > 0 || badTimestampRecvCount > 0) {
             QualityIssue issue = buildIssue(entry, listing, clock);
             issue.setDetails(String.format(
-                    "%d record(s) with maybeBadBook flag and %d record(s) with badTimestampRecv flag out of %d total",
-                    maybeBadBookCount, badTimestampRecvCount, records.size()));
+                    "%d record(s) with badData flag and %d record(s) with badTimestampRecv flag out of %d total",
+                    badDataCount, badTimestampRecvCount, records.size()));
             issues.add(issue);
         }
 
         return issues;
     }
 
-    private QualityIssue buildIssue(MarketDataEntry entry, Listing listing, Clock clock) {
+    private QualityIssue buildIssue(StreamEntry entry, Listing listing, Clock clock) {
         QualityIssue issue = new QualityIssue();
         issue.setListingId(listing.listingId());
         issue.setIssueId(

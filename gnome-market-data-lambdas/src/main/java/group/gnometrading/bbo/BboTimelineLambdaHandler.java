@@ -4,12 +4,13 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import group.gnometrading.Dependencies;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.data.MarketDataEntry;
-import group.gnometrading.schemas.Bbo1sDecoder;
+import group.gnometrading.data.StreamEntry;
+import group.gnometrading.md.Stream;
 import group.gnometrading.schemas.Bbo1sSchema;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.schemas.Statics;
+import group.gnometrading.schemas.StreamRecord;
+import group.gnometrading.schemas.book.Bbo1sDecoder;
 import group.gnometrading.sm.Listing;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -66,8 +67,11 @@ public final class BboTimelineLambdaHandler implements RequestHandler<Map<String
             throw new IllegalArgumentException("Listing not found for listingId=" + listingId);
         }
 
-        int securityId = listing.security().securityId();
-        int exchangeId = listing.exchange().exchangeId();
+        Stream stream = securityMaster.streamForListing(listingId);
+        if (stream == null) {
+            throw new IllegalArgumentException("No book stream for listingId=" + listingId);
+        }
+        int streamId = stream.streamId();
 
         LocalDateTime start =
                 LocalDateTime.ofEpochSecond(startTimestamp, 0, ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES);
@@ -83,7 +87,7 @@ public final class BboTimelineLambdaHandler implements RequestHandler<Map<String
 
         List<Map<String, Object>> dataPoints = IntStream.rangeClosed(0, totalMinutes)
                 .parallel()
-                .mapToObj(offset -> loadMinute(securityId, exchangeId, start.plusMinutes(offset)))
+                .mapToObj(offset -> loadMinute(streamId, start.plusMinutes(offset)))
                 .flatMap(List::stream)
                 .sorted(Comparator.comparingLong(p -> (long) p.get("timestamp")))
                 .collect(Collectors.toList());
@@ -96,14 +100,13 @@ public final class BboTimelineLambdaHandler implements RequestHandler<Map<String
         return result;
     }
 
-    private List<Map<String, Object>> loadMinute(int securityId, int exchangeId, LocalDateTime timestamp) {
-        MarketDataEntry entry = new MarketDataEntry(
-                securityId, exchangeId, SchemaType.BBO_1S, timestamp, MarketDataEntry.EntryType.AGGREGATED);
+    private List<Map<String, Object>> loadMinute(int streamId, LocalDateTime timestamp) {
+        StreamEntry entry = new StreamEntry(streamId, RecordType.BBO_1S, timestamp, StreamEntry.EntryType.AGGREGATED);
 
         try {
-            List<Schema> records = entry.loadFromS3(s3Client, finalBucketName);
+            List<StreamRecord> records = entry.loadFromS3(s3Client, finalBucketName);
             List<Map<String, Object>> points = new ArrayList<>();
-            for (Schema schema : records) {
+            for (StreamRecord schema : records) {
                 Map<String, Object> point = toPoint((Bbo1sSchema) schema);
                 if (point != null) {
                     points.add(point);
@@ -113,7 +116,7 @@ public final class BboTimelineLambdaHandler implements RequestHandler<Map<String
         } catch (NoSuchKeyException e) {
             return List.of();
         } catch (Exception e) {
-            logger.warn("Failed to load BBO_1S for {}@{}#{}: {}", securityId, exchangeId, timestamp, e.getMessage());
+            logger.warn("Failed to load BBO_1S for stream {}#{}: {}", streamId, timestamp, e.getMessage());
             return List.of();
         }
     }

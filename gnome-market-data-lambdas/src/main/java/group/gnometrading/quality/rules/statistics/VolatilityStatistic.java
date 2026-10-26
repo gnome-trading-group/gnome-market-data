@@ -1,10 +1,10 @@
 package group.gnometrading.quality.rules.statistics;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.quality.utils.SchemaFieldExtractor;
-import group.gnometrading.schemas.Schema;
 import group.gnometrading.schemas.Statics;
+import group.gnometrading.schemas.StreamRecord;
 import java.util.List;
 
 public final class VolatilityStatistic implements QualityStatistic {
@@ -40,8 +40,8 @@ public final class VolatilityStatistic implements QualityStatistic {
     }
 
     @Override
-    public double compute(MarketDataEntry entry, List<Schema> records) {
-        if (!SchemaFieldExtractor.TRADE_SCHEMAS.contains(entry.getSchemaType()) || records.size() < 2) {
+    public double compute(StreamEntry entry, List<StreamRecord> records) {
+        if (!SchemaFieldExtractor.TRADE_SCHEMAS.contains(entry.getRecordType()) || records.size() < 2) {
             return Double.NaN;
         }
 
@@ -50,9 +50,9 @@ public final class VolatilityStatistic implements QualityStatistic {
         double m2 = 0;
         int count = 0;
 
-        for (Schema record : records) {
+        for (StreamRecord record : records) {
             SchemaFieldExtractor.TradeFields fields =
-                    SchemaFieldExtractor.extractTradeFields(record, entry.getSchemaType());
+                    SchemaFieldExtractor.extractTradeFields(record, entry.getRecordType());
             if (fields.isPriceNull()) {
                 continue;
             }

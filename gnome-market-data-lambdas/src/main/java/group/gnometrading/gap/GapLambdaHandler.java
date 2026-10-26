@@ -7,7 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
 import group.gnometrading.S3Utils;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.transformer.JobId;
 import group.gnometrading.transformer.TransformationJob;
@@ -96,10 +97,10 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         try {
-            Set<MarketDataEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, objectMapper);
+            Set<StreamEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, objectMapper);
             logger.info("Found {} merged entries in S3 event", mergedEntries.size());
 
-            for (MarketDataEntry entry : mergedEntries) {
+            for (StreamEntry entry : mergedEntries) {
                 processEntry(entry);
             }
         } catch (Exception e) {
@@ -109,10 +110,11 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         return null;
     }
 
-    private void processEntry(MarketDataEntry entry) {
+    private void processEntry(StreamEntry entry) {
         logger.info("Processing entry: {}", entry);
 
-        Listing listing = securityMaster.getListing(entry.getExchangeId(), entry.getSecurityId());
+        Listing listing = securityMaster.listingForStream(entry.getStreamId());
+        int streamId = entry.getStreamId();
         if (listing == null) {
             logger.warn("Listing not found for entry: {}", entry);
             return;
@@ -122,8 +124,9 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
 
         LocalDateTime previousMinute = currentTimestamp.minusMinutes(1);
 
-        if (hasGap(listing, previousMinute)) {
-            LocalDateTime mostRecentMinute = findMostRecentMinute(listing, previousMinute);
+        RecordType recordType = entry.getRecordType();
+        if (hasGap(listing, streamId, recordType, previousMinute)) {
+            LocalDateTime mostRecentMinute = findMostRecentMinute(listing, streamId, recordType, previousMinute);
 
             if (mostRecentMinute == null) {
                 logger.info("No recent data found within 2 days for listing {}, treating as first entry", listing);
@@ -159,13 +162,13 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         }
     }
 
-    private boolean hasGap(Listing listing, LocalDateTime previousMinute) {
-        if (transformationJobExists(listing, previousMinute)) {
+    private boolean hasGap(Listing listing, int streamId, RecordType recordType, LocalDateTime previousMinute) {
+        if (transformationJobExists(listing, recordType, previousMinute)) {
             logger.debug("Previous minute exists in transformation jobs: {}", previousMinute);
             return false;
         }
 
-        if (s3ObjectExists(listing, previousMinute)) {
+        if (s3ObjectExists(streamId, recordType, previousMinute)) {
             logger.debug("Previous minute exists in S3: {}", previousMinute);
             return false;
         }
@@ -174,8 +177,8 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         return true;
     }
 
-    private boolean transformationJobExists(Listing listing, LocalDateTime timestamp) {
-        JobId jobId = new JobId(listing.listingId(), listing.exchange().schemaType());
+    private boolean transformationJobExists(Listing listing, RecordType recordType, LocalDateTime timestamp) {
+        JobId jobId = new JobId(listing.listingId(), recordType);
         Key key = Key.builder()
                 .partitionValue(jobId.toString())
                 .sortValue(timestamp.toEpochSecond(ZoneOffset.UTC))
@@ -185,8 +188,8 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         return job != null;
     }
 
-    private boolean s3ObjectExists(Listing listing, LocalDateTime timestamp) {
-        MarketDataEntry entry = new MarketDataEntry(listing, timestamp, MarketDataEntry.EntryType.AGGREGATED);
+    private boolean s3ObjectExists(int streamId, RecordType recordType, LocalDateTime timestamp) {
+        StreamEntry entry = new StreamEntry(streamId, recordType, timestamp, StreamEntry.EntryType.AGGREGATED);
 
         try {
             s3Client.headObject(HeadObjectRequest.builder()
@@ -199,17 +202,18 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
         }
     }
 
-    private LocalDateTime findMostRecentMinute(Listing listing, LocalDateTime startingFrom) {
+    private LocalDateTime findMostRecentMinute(
+            Listing listing, int streamId, RecordType recordType, LocalDateTime startingFrom) {
         LocalDateTime checkTimestamp = startingFrom;
         LocalDateTime twoDaysAgo = startingFrom.minusMinutes(TWO_DAYS_IN_MINUTES);
 
         while (checkTimestamp.isAfter(twoDaysAgo)) {
-            if (transformationJobExists(listing, checkTimestamp)) {
+            if (transformationJobExists(listing, recordType, checkTimestamp)) {
                 logger.debug("Found most recent minute in transformation jobs: {}", checkTimestamp);
                 return checkTimestamp;
             }
 
-            if (s3ObjectExists(listing, checkTimestamp)) {
+            if (s3ObjectExists(streamId, recordType, checkTimestamp)) {
                 logger.debug("Found most recent minute in S3: {}", checkTimestamp);
                 return checkTimestamp;
             }

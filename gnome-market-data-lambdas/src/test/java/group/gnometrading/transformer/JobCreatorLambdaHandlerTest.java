@@ -8,7 +8,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -91,18 +91,18 @@ class JobCreatorLambdaHandlerTest {
     @Test
     void testS3EventParsing() throws Exception {
         // Given: S3 event for a single merged MBP_10 file
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock SecurityMaster to return listing
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
 
         // When: Handling the request (without mocking SchemaConversionRegistry)
         handler.handleRequest(event, context);
 
         // Then: Should have called getListing (proving the event was parsed)
-        verify(securityMaster, atLeastOnce()).getListing(2, 1);
+        verify(securityMaster, atLeastOnce()).listingForStream(1);
     }
 
     @Test
@@ -127,12 +127,12 @@ class JobCreatorLambdaHandlerTest {
     @Test
     void testCreateJobsForSingleMergedFile() throws Exception {
         // Given: S3 event for a single merged MBP_10 file
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock SecurityMaster to return listing
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
 
         // When: Handling the request (using real SchemaConversionRegistry)
         handler.handleRequest(event, context);
@@ -140,17 +140,17 @@ class JobCreatorLambdaHandlerTest {
         // Then: Should create jobs for each convertible schema type
         // We verify that putItem was called at least once (actual count depends on real converters)
         verify(transformJobsTable, atLeastOnce()).putItem(any(Consumer.class));
-        verify(securityMaster, atLeastOnce()).getListing(2, 1);
+        verify(securityMaster, atLeastOnce()).listingForStream(1);
     }
 
     @Test
     void testJobCreationWithCorrectFields() throws Exception {
         // Given: S3 event for a merged MBP_10 file
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
 
         // Capture the jobs that get created
         List<TransformationJob> capturedJobs = new ArrayList<>();
@@ -201,11 +201,11 @@ class JobCreatorLambdaHandlerTest {
     @Test
     void testDuplicateJobHandling() throws Exception {
         // Given: S3 event for a merged file
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
 
         // Mock putItem to throw ConditionalCheckFailedException (job already exists)
         doThrow(ConditionalCheckFailedException.builder()
@@ -229,25 +229,25 @@ class JobCreatorLambdaHandlerTest {
     @Test
     void testKeyParsingWithDifferentTimestamps() throws Exception {
         // Given: S3 events with different timestamps
-        String key1 = "1/2/2024/1/15/10/30/mbp-10.zst";
-        String key2 = "3/4/2024/12/31/23/59/mbp-10.zst";
+        String key1 = "1/book/mbp-10/2024/01/15/10/30.zst";
+        String key2 = "3/book/mbp-10/2024/12/31/23/59.zst";
 
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
         Listing listing2 = mock(Listing.class);
         when(listing2.listingId()).thenReturn(456);
-        when(securityMaster.getListing(4, 3)).thenReturn(listing2);
+        when(securityMaster.listingForStream(3)).thenReturn(listing2);
 
         // Test first key
         SQSEvent event1 = createSQSEvent(createS3EventJsonWithKey(key1));
         handler.handleRequest(event1, context);
-        verify(securityMaster, atLeastOnce()).getListing(2, 1);
+        verify(securityMaster, atLeastOnce()).listingForStream(1);
 
         // Reset and test second key
         reset(securityMaster);
-        when(securityMaster.getListing(4, 3)).thenReturn(listing2);
+        when(securityMaster.listingForStream(3)).thenReturn(listing2);
         SQSEvent event2 = createSQSEvent(createS3EventJsonWithKey(key2));
         handler.handleRequest(event2, context);
-        verify(securityMaster, atLeastOnce()).getListing(4, 3);
+        verify(securityMaster, atLeastOnce()).listingForStream(3);
     }
 
     // ============================================================================
@@ -257,47 +257,47 @@ class JobCreatorLambdaHandlerTest {
     @Test
     void testMultipleEntriesCreateMultipleJobs() throws Exception {
         // Given: S3 event with multiple merged files
-        String key1 = "1/2/2024/1/15/10/30/mbp-10.zst";
-        String key2 = "3/4/2024/1/15/11/45/mbp-10.zst";
+        String key1 = "1/book/mbp-10/2024/01/15/10/30.zst";
+        String key2 = "3/book/mbp-10/2024/01/15/11/45.zst";
         String s3EventJson = createS3EventJsonWithMultipleKeys(key1, key2);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock SecurityMaster for both entries
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
         Listing listing2 = mock(Listing.class);
         when(listing2.listingId()).thenReturn(456);
-        when(securityMaster.getListing(4, 3)).thenReturn(listing2);
+        when(securityMaster.listingForStream(3)).thenReturn(listing2);
 
         // When: Handling the request
         handler.handleRequest(event, context);
 
         // Then: Should create jobs for both entries
         verify(transformJobsTable, atLeastOnce()).putItem(any(Consumer.class));
-        verify(securityMaster, atLeastOnce()).getListing(2, 1);
-        verify(securityMaster, atLeastOnce()).getListing(4, 3);
+        verify(securityMaster, atLeastOnce()).listingForStream(1);
+        verify(securityMaster, atLeastOnce()).listingForStream(3);
     }
 
     @Test
     void testMultipleSQSMessagesProcessed() throws Exception {
         // Given: Multiple SQS messages
-        String key1 = "1/2/2024/1/15/10/30/mbp-10.zst";
-        String key2 = "3/4/2024/1/15/11/45/mbp-10.zst";
+        String key1 = "1/book/mbp-10/2024/01/15/10/30.zst";
+        String key2 = "3/book/mbp-10/2024/01/15/11/45.zst";
         String msg1 = createS3EventJsonWithKey(key1);
         String msg2 = createS3EventJsonWithKey(key2);
         SQSEvent event = createSQSEvent(msg1, msg2);
 
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
         Listing listing2 = mock(Listing.class);
         when(listing2.listingId()).thenReturn(456);
-        when(securityMaster.getListing(4, 3)).thenReturn(listing2);
+        when(securityMaster.listingForStream(3)).thenReturn(listing2);
 
         // When: Handling the request
         handler.handleRequest(event, context);
 
         // Then: Should process both messages
         verify(transformJobsTable, atLeastOnce()).putItem(any(Consumer.class));
-        verify(securityMaster, atLeastOnce()).getListing(2, 1);
-        verify(securityMaster, atLeastOnce()).getListing(4, 3);
+        verify(securityMaster, atLeastOnce()).listingForStream(1);
+        verify(securityMaster, atLeastOnce()).listingForStream(3);
     }
 
     // ============================================================================
@@ -307,10 +307,10 @@ class JobCreatorLambdaHandlerTest {
     @Test
     void testOHLCV1HOnlyCreatedAtMinute59() throws Exception {
         // Given: Two events - one at minute 59, one at minute 30
-        String key59 = "1/2/2024/1/15/10/59/mbp-10.zst";
-        String key30 = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key59 = "1/book/mbp-10/2024/01/15/10/59.zst";
+        String key30 = "1/book/mbp-10/2024/01/15/10/30.zst";
 
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
 
         // Capture jobs created for minute 59
         List<TransformationJob> jobs59 = new ArrayList<>();
@@ -321,12 +321,12 @@ class JobCreatorLambdaHandlerTest {
 
         // Count OHLCV_1H jobs created at minute 59
         long ohlcv1HCount59 = jobs59.stream()
-                .filter(job -> job.getSchemaType() == SchemaType.OHLCV_1H)
+                .filter(job -> job.getRecordType() == RecordType.OHLCV_1H)
                 .count();
 
         // Reset mocks and capture jobs for minute 30
         reset(transformJobsTable, securityMaster);
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
         List<TransformationJob> jobs30 = new ArrayList<>();
         captureJobsIntoList(jobs30);
 
@@ -335,7 +335,7 @@ class JobCreatorLambdaHandlerTest {
 
         // Count OHLCV_1H jobs created at minute 30
         long ohlcv1HCount30 = jobs30.stream()
-                .filter(job -> job.getSchemaType() == SchemaType.OHLCV_1H)
+                .filter(job -> job.getRecordType() == RecordType.OHLCV_1H)
                 .count();
 
         // Then: OHLCV_1H should only be created at minute 59
@@ -347,10 +347,10 @@ class JobCreatorLambdaHandlerTest {
     @MethodSource("ohlcv1HMinuteTestCases")
     void testOHLCV1HMinuteFiltering(int minute, boolean shouldCreateOHLCV1H) throws Exception {
         // Given: Event at specific minute
-        String key = String.format("1/2/2024/1/15/10/%d/mbp-10.zst", minute);
+        String key = String.format("1/book/mbp-10/2024/01/15/10/%02d.zst", minute);
         SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
 
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
 
         // Capture jobs
         List<TransformationJob> capturedJobs = new ArrayList<>();
@@ -361,7 +361,7 @@ class JobCreatorLambdaHandlerTest {
 
         // Then: Verify OHLCV_1H job creation based on minute
         long ohlcv1HCount = capturedJobs.stream()
-                .filter(job -> job.getSchemaType() == SchemaType.OHLCV_1H)
+                .filter(job -> job.getRecordType() == RecordType.OHLCV_1H)
                 .count();
 
         if (shouldCreateOHLCV1H) {
@@ -384,10 +384,10 @@ class JobCreatorLambdaHandlerTest {
     @Test
     void testNonOhlcv1hSchemaTypesCreatedRegardlessOfMinute() throws Exception {
         // Given: Event at minute 30 (not 59)
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
 
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
 
         // Capture jobs
         List<TransformationJob> capturedJobs = new ArrayList<>();
@@ -398,19 +398,37 @@ class JobCreatorLambdaHandlerTest {
 
         // Then: Non-OHLCV_1H jobs should be created
         long nonOhlcv1HCount = capturedJobs.stream()
-                .filter(job -> job.getSchemaType() != SchemaType.OHLCV_1H)
+                .filter(job -> job.getRecordType() != RecordType.OHLCV_1H)
                 .count();
 
         assertTrue(nonOhlcv1HCount > 0, "Non-OHLCV_1H jobs should be created at any minute");
     }
 
     @Test
+    void everyJobConvertsFromTheRecordTypeOfTheMergedKeyThatMadeIt() throws Exception {
+        SQSEvent event = createSQSEvent(createS3EventJsonWithKey("1/book/mbp-10/2024/01/15/10/59.zst"));
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
+        List<TransformationJob> capturedJobs = new ArrayList<>();
+        captureJobsIntoList(capturedJobs);
+
+        handler.handleRequest(event, context);
+
+        assertFalse(capturedJobs.isEmpty());
+        for (TransformationJob job : capturedJobs) {
+            assertEquals(
+                    RecordType.MBP_10,
+                    job.getSourceRecordType(),
+                    job.getRecordType().identifier());
+        }
+    }
+
+    @Test
     void testOHLCV1HTimestampPreservedInJob() throws Exception {
         // Given: Event at minute 59
-        String key = "1/2/2024/1/15/10/59/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/59.zst";
         SQSEvent event = createSQSEvent(createS3EventJsonWithKey(key));
 
-        when(securityMaster.getListing(2, 1)).thenReturn(listing);
+        when(securityMaster.listingForStream(1)).thenReturn(listing);
 
         // Capture jobs
         List<TransformationJob> capturedJobs = new ArrayList<>();
@@ -421,7 +439,7 @@ class JobCreatorLambdaHandlerTest {
 
         // Then: OHLCV_1H job should have correct timestamp
         TransformationJob ohlcv1HJob = capturedJobs.stream()
-                .filter(job -> job.getSchemaType() == SchemaType.OHLCV_1H)
+                .filter(job -> job.getRecordType() == RecordType.OHLCV_1H)
                 .findFirst()
                 .orElse(null);
 
@@ -437,12 +455,12 @@ class JobCreatorLambdaHandlerTest {
     @Test
     void testListingNotFoundHandling() throws Exception {
         // Given: S3 event for a merged file where listing doesn't exist
-        String key = "1/2/2024/1/15/10/30/mbp-10.zst";
+        String key = "1/book/mbp-10/2024/01/15/10/30.zst";
         String s3EventJson = createS3EventJsonWithKey(key);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock SecurityMaster to return null (listing not found)
-        when(securityMaster.getListing(2, 1)).thenReturn(null);
+        when(securityMaster.listingForStream(1)).thenReturn(null);
 
         // When: Handling the request
         // Should throw NullPointerException when trying to access listing.listingId()
@@ -469,17 +487,14 @@ class JobCreatorLambdaHandlerTest {
     }
 
     @Test
-    void testInvalidS3KeyFormat() throws Exception {
-        // Given: S3 event with invalid key format
+    void testKeyInAnotherLayoutIsSkipped() throws Exception {
+        // A key that isn't a stream record file (an older layout, say) must not fail the batch.
         String invalidKey = "invalid/key/format.zst";
-        String s3EventJson = createS3EventJsonWithKey(invalidKey);
-        SQSEvent event = createSQSEvent(s3EventJson);
+        SQSEvent event = createSQSEvent(createS3EventJsonWithKey(invalidKey));
 
-        // When: Handling the request
-        // Should throw exception due to invalid key format
-        assertThrows(RuntimeException.class, () -> {
-            handler.handleRequest(event, context);
-        });
+        handler.handleRequest(event, context);
+
+        verify(transformJobsTable, never()).putItem(any(Consumer.class));
     }
 
     // ============================================================================

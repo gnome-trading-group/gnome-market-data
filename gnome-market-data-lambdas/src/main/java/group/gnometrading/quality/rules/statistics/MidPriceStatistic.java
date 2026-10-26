@@ -1,10 +1,10 @@
 package group.gnometrading.quality.rules.statistics;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.quality.utils.SchemaFieldExtractor;
-import group.gnometrading.schemas.Schema;
 import group.gnometrading.schemas.Statics;
+import group.gnometrading.schemas.StreamRecord;
 import java.util.List;
 
 public final class MidPriceStatistic implements QualityStatistic {
@@ -45,8 +45,8 @@ public final class MidPriceStatistic implements QualityStatistic {
     }
 
     @Override
-    public double compute(MarketDataEntry entry, List<Schema> records) {
-        if (!SchemaFieldExtractor.BBO_SCHEMAS.contains(entry.getSchemaType()) || records.isEmpty()) {
+    public double compute(StreamEntry entry, List<StreamRecord> records) {
+        if (!SchemaFieldExtractor.BBO_SCHEMAS.contains(entry.getRecordType()) || records.isEmpty()) {
             return Double.NaN;
         }
 
@@ -54,8 +54,8 @@ public final class MidPriceStatistic implements QualityStatistic {
         double totalMid = 0;
         int validCount = 0;
 
-        for (Schema record : records) {
-            SchemaFieldExtractor.BboFields bbo = SchemaFieldExtractor.extractBboFields(record, entry.getSchemaType());
+        for (StreamRecord record : records) {
+            SchemaFieldExtractor.BboFields bbo = SchemaFieldExtractor.extractBboFields(record, entry.getRecordType());
             if (!bbo.isBidPriceNull() && !bbo.isAskPriceNull()) {
                 totalMid += (double) bbo.bidPrice() + bbo.askPrice();
                 validCount++;

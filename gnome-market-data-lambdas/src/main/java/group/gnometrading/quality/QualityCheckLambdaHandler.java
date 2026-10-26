@@ -7,12 +7,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
 import group.gnometrading.S3Utils;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.rules.QualityRule;
 import group.gnometrading.quality.rules.QualityRuleFactory;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.util.List;
@@ -70,10 +70,10 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         try {
-            Set<MarketDataEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, objectMapper);
+            Set<StreamEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, objectMapper);
             logger.info("Found {} merged entries in S3 event", mergedEntries.size());
 
-            for (MarketDataEntry entry : mergedEntries) {
+            for (StreamEntry entry : mergedEntries) {
                 processEntry(entry);
             }
         } catch (Exception e) {
@@ -83,16 +83,16 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
         return null;
     }
 
-    private void processEntry(MarketDataEntry entry) {
+    private void processEntry(StreamEntry entry) {
         logger.info("Running quality checks on entry: {}", entry);
 
-        Listing listing = securityMaster.getListing(entry.getExchangeId(), entry.getSecurityId());
+        Listing listing = securityMaster.listingForStream(entry.getStreamId());
         if (listing == null) {
             logger.warn("Listing not found for entry: {}", entry);
             return;
         }
 
-        List<Schema> records = entry.loadFromS3(s3Client, mergedBucketName);
+        List<StreamRecord> records = entry.loadFromS3(s3Client, mergedBucketName);
 
         int totalIssues = 0;
         for (QualityRule rule : rules) {

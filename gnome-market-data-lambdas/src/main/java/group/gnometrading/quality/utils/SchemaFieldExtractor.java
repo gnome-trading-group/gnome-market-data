@@ -1,20 +1,20 @@
 package group.gnometrading.quality.utils;
 
-import group.gnometrading.schemas.Action;
-import group.gnometrading.schemas.MboDecoder;
 import group.gnometrading.schemas.MboSchema;
-import group.gnometrading.schemas.Mbp10Decoder;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.Mbp1Decoder;
 import group.gnometrading.schemas.Mbp1Schema;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
+import group.gnometrading.schemas.StreamRecord;
+import group.gnometrading.schemas.book.Action;
+import group.gnometrading.schemas.book.MboDecoder;
+import group.gnometrading.schemas.book.Mbp10Decoder;
+import group.gnometrading.schemas.book.Mbp1Decoder;
 import java.util.Set;
 
 public final class SchemaFieldExtractor {
 
-    public static final Set<SchemaType> TRADE_SCHEMAS = Set.of(SchemaType.MBO, SchemaType.MBP_1, SchemaType.MBP_10);
-    public static final Set<SchemaType> BBO_SCHEMAS = Set.of(SchemaType.MBP_1, SchemaType.MBP_10);
+    public static final Set<RecordType> TRADE_SCHEMAS = Set.of(RecordType.MBO, RecordType.MBP_1, RecordType.MBP_10);
+    public static final Set<RecordType> BBO_SCHEMAS = Set.of(RecordType.MBP_1, RecordType.MBP_10);
 
     private SchemaFieldExtractor() {}
 
@@ -34,9 +34,9 @@ public final class SchemaFieldExtractor {
         }
     }
 
-    public record FlagFields(boolean maybeBadBook, boolean badTimestampRecv) {}
+    public record FlagFields(boolean badData, boolean badTimestampRecv) {}
 
-    public static TradeFields extractTradeFields(Schema record, SchemaType type) {
+    public static TradeFields extractTradeFields(StreamRecord record, RecordType type) {
         return switch (type) {
             case MBO -> {
                 MboSchema mbo = (MboSchema) record;
@@ -60,7 +60,7 @@ public final class SchemaFieldExtractor {
         };
     }
 
-    public static BboFields extractBboFields(Schema record, SchemaType type) {
+    public static BboFields extractBboFields(StreamRecord record, RecordType type) {
         return switch (type) {
             case MBP_1 -> {
                 Mbp1Schema mbp1 = (Mbp1Schema) record;
@@ -82,24 +82,22 @@ public final class SchemaFieldExtractor {
         };
     }
 
-    public static FlagFields extractFlagFields(Schema record, SchemaType type) {
+    public static FlagFields extractFlagFields(StreamRecord record, RecordType type) {
         return switch (type) {
             case MBO -> {
                 MboSchema mbo = (MboSchema) record;
                 yield new FlagFields(
-                        mbo.decoder.flags().maybeBadBook(), mbo.decoder.flags().badTimestampRecv());
+                        mbo.decoder.flags().badData(), mbo.decoder.flags().badTimestampRecv());
             }
             case MBP_1 -> {
                 Mbp1Schema mbp1 = (Mbp1Schema) record;
                 yield new FlagFields(
-                        mbp1.decoder.flags().maybeBadBook(),
-                        mbp1.decoder.flags().badTimestampRecv());
+                        mbp1.decoder.flags().badData(), mbp1.decoder.flags().badTimestampRecv());
             }
             case MBP_10 -> {
                 Mbp10Schema mbp10 = (Mbp10Schema) record;
                 yield new FlagFields(
-                        mbp10.decoder.flags().maybeBadBook(),
-                        mbp10.decoder.flags().badTimestampRecv());
+                        mbp10.decoder.flags().badData(), mbp10.decoder.flags().badTimestampRecv());
             }
             default -> null;
         };

@@ -2,9 +2,9 @@ package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +23,7 @@ class QualityStatisticDefaultsTest {
             }
 
             @Override
-            public double compute(MarketDataEntry e, List<Schema> r) {
+            public double compute(StreamEntry e, List<StreamRecord> r) {
                 return 0;
             }
 

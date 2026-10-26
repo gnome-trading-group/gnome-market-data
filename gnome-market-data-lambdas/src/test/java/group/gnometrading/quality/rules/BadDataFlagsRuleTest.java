@@ -3,12 +3,12 @@ package group.gnometrading.quality.rules;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
 import group.gnometrading.schemas.MboSchema;
 import group.gnometrading.schemas.Mbp10Schema;
 import group.gnometrading.schemas.Mbp1Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -45,17 +45,15 @@ class BadDataFlagsRuleTest {
         lenient().when(listing.exchange()).thenReturn(exchange);
         lenient().when(listing.security()).thenReturn(security);
         lenient().when(exchange.exchangeId()).thenReturn(1);
-        lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
         lenient().when(security.securityId()).thenReturn(2);
     }
 
     @Test
     void testNoIssuesWhenNoFlagsSet() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s = new Mbp10Schema();
-        s.encoder.flags().maybeBadBook(false);
+        s.encoder.flags().badData(false);
         s.encoder.flags().badTimestampRecv(false);
 
         var issues = rule.check(entry, List.of(s), listing, clock);
@@ -65,23 +63,21 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testIssueForMaybeBadBookFlag() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s = new Mbp10Schema();
-        s.encoder.flags().maybeBadBook(true);
+        s.encoder.flags().badData(true);
 
         var issues = rule.check(entry, List.of(s), listing, clock);
 
         assertEquals(1, issues.size());
         assertEquals(QualityRuleType.BAD_DATA_FLAGS, issues.get(0).getRuleType());
-        assertTrue(issues.get(0).getDetails().contains("1 record(s) with maybeBadBook"));
+        assertTrue(issues.get(0).getDetails().contains("1 record(s) with badData"));
     }
 
     @Test
     void testIssueForBadTimestampRecvFlag() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.flags().badTimestampRecv(true);
@@ -94,11 +90,10 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testIssueDetailsCountsBothFlagTypes() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
-        s1.encoder.flags().maybeBadBook(true);
+        s1.encoder.flags().badData(true);
         Mbp10Schema s2 = new Mbp10Schema();
         s2.encoder.flags().badTimestampRecv(true);
         Mbp10Schema s3 = new Mbp10Schema();
@@ -106,18 +101,17 @@ class BadDataFlagsRuleTest {
         var issues = rule.check(entry, List.of(s1, s2, s3), listing, clock);
 
         assertEquals(1, issues.size());
-        assertTrue(issues.get(0).getDetails().contains("1 record(s) with maybeBadBook"));
+        assertTrue(issues.get(0).getDetails().contains("1 record(s) with badData"));
         assertTrue(issues.get(0).getDetails().contains("1 record(s) with badTimestampRecv"));
         assertTrue(issues.get(0).getDetails().contains("3 total"));
     }
 
     @Test
     void testIssueForMbp1Schema() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_1, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp1Schema s = new Mbp1Schema();
-        s.encoder.flags().maybeBadBook(true);
+        s.encoder.flags().badData(true);
 
         var issues = rule.check(entry, List.of(s), listing, clock);
 
@@ -127,7 +121,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testIssueForMboSchema() {
-        MarketDataEntry entry = new MarketDataEntry(1, 2, SchemaType.MBO, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         MboSchema s = new MboSchema();
         s.encoder.flags().badTimestampRecv(true);
@@ -140,8 +134,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testNoIssueForUnsupportedSchema() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.BBO_1S, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(), listing, clock);
 
@@ -150,8 +143,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testNoIssueForEmptyRecords() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         var issues = rule.check(entry, List.of(), listing, clock);
 

@@ -8,7 +8,9 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.github.luben.zstd.ZstdInputStream;
 import com.github.luben.zstd.ZstdOutputStream;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.md.Stream;
 import group.gnometrading.schemas.*;
+import group.gnometrading.schemas.book.*;
 import group.gnometrading.sm.Exchange;
 import group.gnometrading.sm.Listing;
 import group.gnometrading.sm.Security;
@@ -77,6 +79,7 @@ class JobProcessorLambdaHandlerTest {
     private static final LocalDateTime FIXED_TIME = LocalDateTime.of(2024, 1, 15, 10, 30);
     private static final int LISTING_ID = 123;
     private static final int SECURITY_ID = 1;
+    private static final int STREAM_ID = SECURITY_ID;
     private static final int EXCHANGE_ID = 2;
 
     @BeforeEach
@@ -96,8 +99,11 @@ class JobProcessorLambdaHandlerTest {
         lenient().when(listing.exchange()).thenReturn(exchange);
         lenient().when(security.securityId()).thenReturn(SECURITY_ID);
         lenient().when(exchange.exchangeId()).thenReturn(EXCHANGE_ID);
-        lenient().when(exchange.schemaType()).thenReturn(SchemaType.MBP_10);
         lenient().when(securityMaster.getListing(LISTING_ID)).thenReturn(listing);
+        lenient()
+                .when(securityMaster.streamForListing(LISTING_ID))
+                .thenReturn(new Stream(
+                        STREAM_ID, 1, "KALSHI", "LISTING", LISTING_ID, null, "book", "us-east-1", 0, 0L, 0L, true));
 
         // Setup S3 getObject to use the mockedS3Data map
         lenient()
@@ -156,7 +162,7 @@ class JobProcessorLambdaHandlerTest {
         event.put("schemaType", "mbp-1");
 
         // Mock empty query result
-        mockScanWithJobs(SchemaType.MBP_1, List.of());
+        mockScanWithJobs(RecordType.MBP_1, List.of());
 
         // When: Handling the request
         Void result = handler.handleRequest(event, context);
@@ -174,18 +180,18 @@ class JobProcessorLambdaHandlerTest {
     void testMBP10ToMBP1Conversion() throws Exception {
         // Given: A pending MBP_1 job for a single timestamp
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 30);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.MBP_1, timestamp);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job));
 
         // Create MBP10 schemas with realistic data
-        List<Schema> mbp10Schemas = List.of(
+        List<StreamRecord> mbp10Schemas = List.of(
                 createMbp10Schema(100, timestamp, 50000, 50100, 100, 200),
                 createMbp10Schema(101, timestamp, 50050, 50150, 150, 250),
                 createMbp10Schema(102, timestamp, 50100, 50200, 200, 300));
 
         // Mock S3 to return MBP10 data
-        mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", mbp10Schemas);
+        mockS3GetObject("1/book/mbp-10/2024/01/15/10/30.zst", mbp10Schemas);
 
         // Capture the output written to S3
         ArgumentCaptor<RequestBody> requestBodyCaptor = ArgumentCaptor.forClass(RequestBody.class);
@@ -207,11 +213,12 @@ class JobProcessorLambdaHandlerTest {
         assertNotNull(updatedJob.getExpiresAt());
 
         // Verify the converted schemas
-        List<Schema> convertedSchemas = extractSchemasFromRequestBody(requestBodyCaptor.getValue(), SchemaType.MBP_1);
+        List<StreamRecord> convertedSchemas =
+                extractSchemasFromRequestBody(requestBodyCaptor.getValue(), RecordType.MBP_1);
         assertFalse(convertedSchemas.isEmpty(), "Should have converted schemas");
 
         // Verify all converted schemas are MBP1
-        for (Schema schema : convertedSchemas) {
+        for (StreamRecord schema : convertedSchemas) {
             assertTrue(schema instanceof Mbp1Schema, "Converted schema should be MBP1");
         }
     }
@@ -220,9 +227,9 @@ class JobProcessorLambdaHandlerTest {
     void testMBP10ToMBP1ConversionPreservesFields() throws Exception {
         // Given: A pending MBP_1 job
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 30);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.MBP_1, timestamp);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job));
 
         // Create MBP10 schema with specific field values
         long sequence = 12345;
@@ -233,7 +240,7 @@ class JobProcessorLambdaHandlerTest {
 
         Mbp10Schema mbp10 = createMbp10Schema(sequence, timestamp, bidPrice, askPrice, bidSize, askSize);
 
-        mockS3GetObject("1/2/2024/1/15/10/30/mbp-10.zst", List.of(mbp10));
+        mockS3GetObject("1/book/mbp-10/2024/01/15/10/30.zst", List.of(mbp10));
 
         // Capture output
         ArgumentCaptor<RequestBody> requestBodyCaptor = ArgumentCaptor.forClass(RequestBody.class);
@@ -245,7 +252,8 @@ class JobProcessorLambdaHandlerTest {
 
         // Then: Extract and verify converted schemas
         verify(s3Client).putObject(any(java.util.function.Consumer.class), requestBodyCaptor.capture());
-        List<Schema> convertedSchemas = extractSchemasFromRequestBody(requestBodyCaptor.getValue(), SchemaType.MBP_1);
+        List<StreamRecord> convertedSchemas =
+                extractSchemasFromRequestBody(requestBodyCaptor.getValue(), RecordType.MBP_1);
 
         assertFalse(convertedSchemas.isEmpty(), "Should have converted schemas");
 
@@ -266,26 +274,26 @@ class JobProcessorLambdaHandlerTest {
     void testMBP10ToOHLCV1HConversionWithTimeWindow() throws Exception {
         // Given: A pending OHLCV_1H job at minute 59
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 59);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.OHLCV_1H, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.OHLCV_1H, timestamp);
 
-        mockScanWithJobs(SchemaType.OHLCV_1H, List.of(job));
+        mockScanWithJobs(RecordType.OHLCV_1H, List.of(job));
 
         // Create MBP10 data for the entire hour (minute 0 to 59)
         // We'll create data for minutes 0, 15, 30, 45, 59 to test the window
         mockS3GetObject(
-                "1/2/2024/1/15/10/0/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/00.zst",
                 List.of(createMbp10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/15/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/15.zst",
                 List.of(createMbp10Schema(200, LocalDateTime.of(2024, 1, 15, 10, 15), 49000, 49100, 150, 250)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/30/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/30.zst",
                 List.of(createMbp10Schema(300, LocalDateTime.of(2024, 1, 15, 10, 30), 51000, 51100, 200, 300)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/45/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/45.zst",
                 List.of(createMbp10Schema(400, LocalDateTime.of(2024, 1, 15, 10, 45), 52000, 52100, 250, 350)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/59/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/59.zst",
                 List.of(createMbp10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)));
 
         // Capture output
@@ -303,12 +311,12 @@ class JobProcessorLambdaHandlerTest {
         verify(s3Client).putObject(any(java.util.function.Consumer.class), requestBodyCaptor.capture());
 
         // Extract and verify OHLCV schemas
-        List<Schema> convertedSchemas =
-                extractSchemasFromRequestBody(requestBodyCaptor.getValue(), SchemaType.OHLCV_1H);
+        List<StreamRecord> convertedSchemas =
+                extractSchemasFromRequestBody(requestBodyCaptor.getValue(), RecordType.OHLCV_1H);
         assertFalse(convertedSchemas.isEmpty(), "Should have OHLCV_1H schemas");
 
         // Verify all converted schemas are OHLCV1H
-        for (Schema schema : convertedSchemas) {
+        for (StreamRecord schema : convertedSchemas) {
             assertTrue(schema instanceof Ohlcv1hSchema, "Converted schema should be OHLCV1H");
         }
     }
@@ -317,26 +325,26 @@ class JobProcessorLambdaHandlerTest {
     void testOHLCV1HConversionCalculatesCorrectOHLC() throws Exception {
         // Given: A pending OHLCV_1H job with price data that creates clear OHLC values
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 59);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.OHLCV_1H, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.OHLCV_1H, timestamp);
 
-        mockScanWithJobs(SchemaType.OHLCV_1H, List.of(job));
+        mockScanWithJobs(RecordType.OHLCV_1H, List.of(job));
 
         // Create MBP10 data with specific prices to verify OHLC calculation
         // Open: 50000 (minute 0), High: 52000 (minute 45), Low: 49000 (minute 15), Close: 50500 (minute 59)
         mockS3GetObject(
-                "1/2/2024/1/15/10/0/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/00.zst",
                 List.of(createMbp10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/15/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/15.zst",
                 List.of(createMbp10Schema(200, LocalDateTime.of(2024, 1, 15, 10, 15), 49000, 49100, 150, 250)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/30/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/30.zst",
                 List.of(createMbp10Schema(300, LocalDateTime.of(2024, 1, 15, 10, 30), 51000, 51100, 200, 300)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/45/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/45.zst",
                 List.of(createMbp10Schema(400, LocalDateTime.of(2024, 1, 15, 10, 45), 52000, 52100, 250, 350)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/59/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/59.zst",
                 List.of(createMbp10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)));
 
         // Capture output
@@ -349,8 +357,8 @@ class JobProcessorLambdaHandlerTest {
 
         // Then: Extract and verify OHLCV values
         verify(s3Client).putObject(any(java.util.function.Consumer.class), requestBodyCaptor.capture());
-        List<Schema> convertedSchemas =
-                extractSchemasFromRequestBody(requestBodyCaptor.getValue(), SchemaType.OHLCV_1H);
+        List<StreamRecord> convertedSchemas =
+                extractSchemasFromRequestBody(requestBodyCaptor.getValue(), RecordType.OHLCV_1H);
 
         assertFalse(convertedSchemas.isEmpty(), "Should have OHLCV_1H schemas");
 
@@ -379,16 +387,16 @@ class JobProcessorLambdaHandlerTest {
     void testOHLCV1HWindowStartsAtMinute0() throws Exception {
         // Given: OHLCV_1H job at minute 59
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 59);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.OHLCV_1H, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.OHLCV_1H, timestamp);
 
-        mockScanWithJobs(SchemaType.OHLCV_1H, List.of(job));
+        mockScanWithJobs(RecordType.OHLCV_1H, List.of(job));
 
         // Mock data for minute 0 and minute 59
         mockS3GetObject(
-                "1/2/2024/1/15/10/0/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/00.zst",
                 List.of(createMbp10Schema(100, LocalDateTime.of(2024, 1, 15, 10, 0), 50000, 50100, 100, 200)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/59/mbp-10.zst",
+                "1/book/mbp-10/2024/01/15/10/59.zst",
                 List.of(createMbp10Schema(500, LocalDateTime.of(2024, 1, 15, 10, 59), 50500, 50600, 300, 400)));
 
         // When: Processing the job
@@ -411,12 +419,13 @@ class JobProcessorLambdaHandlerTest {
     void testMBP1UsesSingleTimestampWindow() throws Exception {
         // Given: MBP_1 job (should only query single timestamp, not a range)
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 30);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.MBP_1, timestamp);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job));
 
         mockS3GetObject(
-                "1/2/2024/1/15/10/30/mbp-10.zst", List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
+                "1/book/mbp-10/2024/01/15/10/30.zst",
+                List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
 
         // When: Processing the job
         Map<String, Object> event = new HashMap<>();
@@ -431,11 +440,12 @@ class JobProcessorLambdaHandlerTest {
     void testOutputS3PathIsCorrect() throws Exception {
         // Given: A pending MBP_1 job with specific timestamp
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 30);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.MBP_1, timestamp);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job));
         mockS3GetObject(
-                "1/2/2024/1/15/10/30/mbp-10.zst", List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
+                "1/book/mbp-10/2024/01/15/10/30.zst",
+                List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
 
         // Capture the putObject request
         ArgumentCaptor<java.util.function.Consumer<PutObjectRequest.Builder>> putRequestCaptor =
@@ -455,7 +465,7 @@ class JobProcessorLambdaHandlerTest {
         PutObjectRequest request = builder.build();
 
         // Expected format: {securityId}/{exchangeId}/{year}/{month}/{day}/{hour}/{minute}/{schemaType}.zst
-        String expectedKey = "1/2/2024/1/15/10/30/mbp-1.zst";
+        String expectedKey = "1/book/mbp-1/2024/01/15/10/30.zst";
         assertEquals(expectedKey, request.key(), "S3 output key should match expected format");
         assertEquals(FINAL_BUCKET, request.bucket(), "Should write to final bucket");
     }
@@ -468,11 +478,12 @@ class JobProcessorLambdaHandlerTest {
     void testJobMarkedAsCompleteWithTimestamps() throws Exception {
         // Given: A pending job
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 30);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.MBP_1, timestamp);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job));
         mockS3GetObject(
-                "1/2/2024/1/15/10/30/mbp-10.zst", List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
+                "1/book/mbp-10/2024/01/15/10/30.zst",
+                List.of(createMbp10Schema(100, timestamp, 50000, 50100, 100, 200)));
 
         // When: Processing the job
         Map<String, Object> event = new HashMap<>();
@@ -497,9 +508,9 @@ class JobProcessorLambdaHandlerTest {
     void testEmptySchemaListMarksJobAsComplete() throws Exception {
         // Given: A job where no S3 data exists (all NoSuchKeyException)
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 30);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.MBP_1, timestamp);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job));
 
         // Don't mock any S3 data - the default Answer will throw NoSuchKeyException
 
@@ -527,12 +538,12 @@ class JobProcessorLambdaHandlerTest {
     void testJobMarkedAsFailedOnException() throws Exception {
         // Given: A job that will fail during processing
         LocalDateTime timestamp = LocalDateTime.of(2024, 1, 15, 10, 30);
-        TransformationJob job = createJob(LISTING_ID, SchemaType.MBP_1, timestamp);
+        TransformationJob job = createJob(LISTING_ID, RecordType.MBP_1, timestamp);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job));
 
         // Mock SecurityMaster to throw exception
-        when(securityMaster.getListing(LISTING_ID)).thenThrow(new RuntimeException("Database error"));
+        when(securityMaster.streamForListing(LISTING_ID)).thenThrow(new RuntimeException("Database error"));
 
         // When: Processing the job
         Map<String, Object> event = new HashMap<>();
@@ -557,15 +568,17 @@ class JobProcessorLambdaHandlerTest {
         LocalDateTime timestamp1 = LocalDateTime.of(2024, 1, 15, 10, 30);
         LocalDateTime timestamp2 = LocalDateTime.of(2024, 1, 15, 10, 31);
 
-        TransformationJob job1 = createJob(LISTING_ID, SchemaType.MBP_1, timestamp1);
-        TransformationJob job2 = createJob(LISTING_ID, SchemaType.MBP_1, timestamp2);
+        TransformationJob job1 = createJob(LISTING_ID, RecordType.MBP_1, timestamp1);
+        TransformationJob job2 = createJob(LISTING_ID, RecordType.MBP_1, timestamp2);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job1, job2));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job1, job2));
 
         mockS3GetObject(
-                "1/2/2024/1/15/10/30/mbp-10.zst", List.of(createMbp10Schema(100, timestamp1, 50000, 50100, 100, 200)));
+                "1/book/mbp-10/2024/01/15/10/30.zst",
+                List.of(createMbp10Schema(100, timestamp1, 50000, 50100, 100, 200)));
         mockS3GetObject(
-                "1/2/2024/1/15/10/31/mbp-10.zst", List.of(createMbp10Schema(200, timestamp2, 50100, 50200, 150, 250)));
+                "1/book/mbp-10/2024/01/15/10/31.zst",
+                List.of(createMbp10Schema(200, timestamp2, 50100, 50200, 150, 250)));
 
         // When: Processing the jobs
         Map<String, Object> event = new HashMap<>();
@@ -583,14 +596,15 @@ class JobProcessorLambdaHandlerTest {
         LocalDateTime timestamp1 = LocalDateTime.of(2024, 1, 15, 10, 30);
         LocalDateTime timestamp2 = LocalDateTime.of(2024, 1, 15, 10, 31);
 
-        TransformationJob job1 = createJob(LISTING_ID, SchemaType.MBP_1, timestamp1);
-        TransformationJob job2 = createJob(LISTING_ID, SchemaType.MBP_1, timestamp2);
+        TransformationJob job1 = createJob(LISTING_ID, RecordType.MBP_1, timestamp1);
+        TransformationJob job2 = createJob(LISTING_ID, RecordType.MBP_1, timestamp2);
 
-        mockScanWithJobs(SchemaType.MBP_1, List.of(job1, job2));
+        mockScanWithJobs(RecordType.MBP_1, List.of(job1, job2));
 
         // Mock S3 to succeed for minute 31 only
         mockS3GetObject(
-                "1/2/2024/1/15/10/31/mbp-10.zst", List.of(createMbp10Schema(200, timestamp2, 50100, 50200, 150, 250)));
+                "1/book/mbp-10/2024/01/15/10/31.zst",
+                List.of(createMbp10Schema(200, timestamp2, 50100, 50200, 150, 250)));
 
         // Override the default Answer to throw exception for minute 30
         when(s3Client.getObject(any(java.util.function.Consumer.class))).thenAnswer(invocation -> {
@@ -643,11 +657,12 @@ class JobProcessorLambdaHandlerTest {
     /**
      * Creates a TransformationJob with the given parameters.
      */
-    private TransformationJob createJob(int listingId, SchemaType schemaType, LocalDateTime timestamp) {
+    private TransformationJob createJob(int listingId, RecordType schemaType, LocalDateTime timestamp) {
         TransformationJob job = new TransformationJob();
         job.setJobId(new JobId(listingId, schemaType));
         job.setListingId(listingId);
-        job.setSchemaType(schemaType);
+        job.setRecordType(schemaType);
+        job.setSourceRecordType(RecordType.MBP_10);
         job.setTimestamp(timestamp);
         job.setStatus(TransformationStatus.PENDING);
         job.setCreatedAt(FIXED_TIME.minusHours(1));
@@ -659,13 +674,12 @@ class JobProcessorLambdaHandlerTest {
      */
     private Mbp10Schema createMbp10Schema(
             long sequence, LocalDateTime timestamp, long bidPrice, long askPrice, long bidSize, long askSize) {
-        Mbp10Schema schema = (Mbp10Schema) SchemaType.MBP_10.newInstance();
+        Mbp10Schema schema = (Mbp10Schema) RecordType.MBP_10.newInstance();
 
         long eventTimestamp = timestamp.atZone(ZoneId.of("UTC")).toInstant().toEpochMilli() * 1_000_000;
 
         schema.encoder.sequence(sequence);
-        schema.encoder.exchangeId(EXCHANGE_ID);
-        schema.encoder.securityId(SECURITY_ID);
+        schema.encoder.streamId(STREAM_ID);
         schema.encoder.timestampEvent(eventTimestamp);
         schema.encoder.timestampSent(eventTimestamp);
         schema.encoder.timestampRecv(eventTimestamp);
@@ -684,7 +698,7 @@ class JobProcessorLambdaHandlerTest {
     /**
      * Mocks DynamoDbIndex.query to return the given jobs.
      */
-    private void mockScanWithJobs(SchemaType schemaType, List<TransformationJob> jobs) {
+    private void mockScanWithJobs(RecordType schemaType, List<TransformationJob> jobs) {
         DynamoDbIndex<TransformationJob> index = mock(DynamoDbIndex.class);
         software.amazon.awssdk.core.pagination.sync.SdkIterable<Page<TransformationJob>> pagesIterable =
                 mock(software.amazon.awssdk.core.pagination.sync.SdkIterable.class);
@@ -704,10 +718,10 @@ class JobProcessorLambdaHandlerTest {
     /**
      * Mocks S3Client.getObject to return compressed schema data for the given key.
      */
-    private void mockS3GetObject(String key, List<Schema> schemas) throws IOException {
+    private void mockS3GetObject(String key, List<StreamRecord> schemas) throws IOException {
         // Serialize schemas to bytes
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        for (Schema schema : schemas) {
+        for (StreamRecord schema : schemas) {
             byte[] schemaBytes = new byte[schema.totalMessageSize()];
             schema.buffer.getBytes(0, schemaBytes, 0, schema.totalMessageSize());
             outputStream.write(schemaBytes);
@@ -728,7 +742,7 @@ class JobProcessorLambdaHandlerTest {
     /**
      * Extracts schemas from a RequestBody that was written to S3.
      */
-    private List<Schema> extractSchemasFromRequestBody(RequestBody requestBody, SchemaType schemaType)
+    private List<StreamRecord> extractSchemasFromRequestBody(RequestBody requestBody, RecordType schemaType)
             throws IOException {
         // Get the bytes from RequestBody
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -745,12 +759,12 @@ class JobProcessorLambdaHandlerTest {
         byte[] decompressedData = decompressedOutput.toByteArray();
 
         // Parse schemas
-        List<Schema> schemas = new ArrayList<>();
-        int expectedSize = schemaType.getInstance().totalMessageSize();
+        List<StreamRecord> schemas = new ArrayList<>();
+        int expectedSize = schemaType.newInstance().totalMessageSize();
 
         for (int i = 0; i < decompressedData.length; i += expectedSize) {
             byte[] recordData = Arrays.copyOfRange(decompressedData, i, i + expectedSize);
-            Schema schema = schemaType.newInstance();
+            StreamRecord schema = schemaType.newInstance();
             schema.buffer.putBytes(0, recordData, 0, recordData.length);
             schemas.add(schema);
         }

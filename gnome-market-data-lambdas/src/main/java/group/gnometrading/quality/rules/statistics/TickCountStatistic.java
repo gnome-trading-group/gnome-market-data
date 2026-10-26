@@ -1,8 +1,8 @@
 package group.gnometrading.quality.rules.statistics;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import java.util.List;
 
 public final class TickCountStatistic implements QualityStatistic {
@@ -43,7 +43,7 @@ public final class TickCountStatistic implements QualityStatistic {
     }
 
     @Override
-    public double compute(MarketDataEntry entry, List<Schema> records) {
+    public double compute(StreamEntry entry, List<StreamRecord> records) {
         return records.size();
     }
 }

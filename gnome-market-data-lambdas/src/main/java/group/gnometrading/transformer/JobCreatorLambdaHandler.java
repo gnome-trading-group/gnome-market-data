@@ -7,8 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
 import group.gnometrading.S3Utils;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.data.MarketDataEntry;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.data.StreamEntry;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.schemas.converters.SchemaConversionRegistry;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -55,10 +55,10 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         try {
-            Set<MarketDataEntry> mergedKeys = S3Utils.extractKeysFromS3Event(event, objectMapper);
+            Set<StreamEntry> mergedKeys = S3Utils.extractKeysFromS3Event(event, objectMapper);
             logger.info("Found {} merged keys in S3 event", mergedKeys.size());
 
-            for (MarketDataEntry entry : mergedKeys) {
+            for (StreamEntry entry : mergedKeys) {
                 createTransformJobsForEntry(entry);
             }
         } catch (Exception e) {
@@ -68,9 +68,9 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
         return null;
     }
 
-    private void createTransformJobsForEntry(MarketDataEntry entry) {
-        for (SchemaType schemaType : SchemaType.values()) {
-            if (SchemaConversionRegistry.hasBulkConverter(entry.getSchemaType(), schemaType)) {
+    private void createTransformJobsForEntry(StreamEntry entry) {
+        for (RecordType schemaType : RecordType.values()) {
+            if (SchemaConversionRegistry.hasBulkConverter(entry.getRecordType(), schemaType)) {
                 if (shouldCreateTransformJob(entry, schemaType)) {
                     createTransformJob(entry, schemaType);
                 }
@@ -78,7 +78,7 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
         }
     }
 
-    private boolean shouldCreateTransformJob(MarketDataEntry entry, SchemaType schemaType) {
+    private boolean shouldCreateTransformJob(StreamEntry entry, RecordType schemaType) {
         return switch (schemaType) {
             case MBO, MBP_10, MBP_1, BBO_1S, BBO_1M, TRADES, OHLCV_1S, OHLCV_1M -> true;
             case OHLCV_1H -> // Only create job at end of hour
@@ -86,16 +86,16 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
         };
     }
 
-    private void createTransformJob(MarketDataEntry entry, SchemaType schemaType) {
-        int listingId = this.securityMaster
-                .getListing(entry.getExchangeId(), entry.getSecurityId())
-                .listingId();
+    private void createTransformJob(StreamEntry entry, RecordType schemaType) {
+        int listingId =
+                this.securityMaster.listingForStream(entry.getStreamId()).listingId();
 
         TransformationJob job = new TransformationJob();
         job.setJobId(new JobId(listingId, schemaType));
         job.setTimestamp(entry.getTimestamp());
         job.setListingId(listingId);
-        job.setSchemaType(schemaType);
+        job.setRecordType(schemaType);
+        job.setSourceRecordType(entry.getRecordType());
         job.setStatus(TransformationStatus.PENDING);
         job.setCreatedAt(LocalDateTime.now(this.clock));
 
@@ -108,13 +108,13 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
             logger.info(
                     "Created transformation job: listingId={}, schemaType={}, timestamp={}",
                     listingId,
-                    schemaType.getIdentifier(),
+                    schemaType.identifier(),
                     entry.getTimestamp());
         } catch (ConditionalCheckFailedException e) {
             logger.info(
                     "Job already exists for listingId={}, schemaType={}, timestamp={}",
                     listingId,
-                    schemaType.getIdentifier(),
+                    schemaType.identifier(),
                     entry.getTimestamp());
         }
     }

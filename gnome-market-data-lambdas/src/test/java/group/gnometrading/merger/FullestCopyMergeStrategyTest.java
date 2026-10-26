@@ -3,8 +3,8 @@ package group.gnometrading.merger;
 import static org.junit.jupiter.api.Assertions.*;
 
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
+import group.gnometrading.schemas.StreamRecord;
 import java.util.*;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,21 +13,21 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-class Mbp10MergeStrategyTest {
+class FullestCopyMergeStrategyTest {
 
-    private Mbp10MergeStrategy strategy;
+    private FullestCopyMergeStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new Mbp10MergeStrategy();
+        strategy = new FullestCopyMergeStrategy();
     }
 
     /**
      * Helper to create a schema with a specific sequence number.
      * Makes it easy to track which sequence a schema belongs to.
      */
-    private Schema schema(long sequenceNumber) {
-        Mbp10Schema schema = (Mbp10Schema) SchemaType.MBP_10.newInstance();
+    private StreamRecord schema(long sequenceNumber) {
+        Mbp10Schema schema = (Mbp10Schema) RecordType.MBP_10.newInstance();
         schema.encoder.sequence(sequenceNumber);
         return schema;
     }
@@ -37,12 +37,12 @@ class Mbp10MergeStrategyTest {
      * Example: collector("collector-1", 100, 100, 101)
      * Creates a collector with 3 records: two with sequence 100, one with sequence 101
      */
-    private Map<String, List<Schema>> collectors(Object... args) {
-        Map<String, List<Schema>> result = new LinkedHashMap<>();
+    private Map<String, List<StreamRecord>> collectors(Object... args) {
+        Map<String, List<StreamRecord>> result = new LinkedHashMap<>();
         int i = 0;
         while (i < args.length) {
             String collectorId = (String) args[i];
-            List<Schema> schemas = new ArrayList<>();
+            List<StreamRecord> schemas = new ArrayList<>();
             i++;
             while (i < args.length && args[i] instanceof Long) {
                 schemas.add(schema((Long) args[i]));
@@ -58,15 +58,15 @@ class Mbp10MergeStrategyTest {
      * Format: "collectorId:seq,seq,seq;collectorId:seq,seq"
      * Example: "c1:100,100,101;c2:100,101,101" creates two collectors
      */
-    private Map<String, List<Schema>> parseCollectors(String notation) {
-        Map<String, List<Schema>> result = new LinkedHashMap<>();
+    private Map<String, List<StreamRecord>> parseCollectors(String notation) {
+        Map<String, List<StreamRecord>> result = new LinkedHashMap<>();
         if (notation == null || notation.isEmpty()) {
             return result;
         }
         for (String collectorPart : notation.split(";")) {
             String[] parts = collectorPart.split(":");
             String collectorId = parts[0];
-            List<Schema> schemas = new ArrayList<>();
+            List<StreamRecord> schemas = new ArrayList<>();
             if (parts.length > 1 && !parts[1].isEmpty()) {
                 for (String seq : parts[1].split(",")) {
                     schemas.add(schema(Long.parseLong(seq.trim())));
@@ -253,10 +253,10 @@ class Mbp10MergeStrategyTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("mergeTestCases")
     void testMergeStrategy(String description, String input, String expectedOutput, boolean expectDifferenceLogs) {
-        Map<String, List<Schema>> collectors = parseCollectors(input);
+        Map<String, List<StreamRecord>> collectors = parseCollectors(input);
         long[] expected = parseExpectedOutput(expectedOutput);
 
-        List<Schema> result = strategy.mergeRecords(collectors);
+        List<StreamRecord> result = strategy.mergeRecords(collectors);
 
         assertEquals(expected.length, result.size(), "Output size mismatch for: " + description);
         for (int i = 0; i < expected.length; i++) {
@@ -273,15 +273,15 @@ class Mbp10MergeStrategyTest {
 
     @Test
     void testEmptyRecordsReturnsEmptyList() {
-        Map<String, List<Schema>> records = new HashMap<>();
-        List<Schema> result = strategy.mergeRecords(records);
+        Map<String, List<StreamRecord>> records = new HashMap<>();
+        List<StreamRecord> result = strategy.mergeRecords(records);
         assertTrue(result.isEmpty());
     }
 
     @Test
     void testNoDifferenceWhenAllCollectorsEqual() {
-        Map<String, List<Schema>> input = collectors("collector-1", 100L, 100L, "collector-2", 100L, 100L);
-        List<Schema> result = strategy.mergeRecords(input);
+        Map<String, List<StreamRecord>> input = collectors("collector-1", 100L, 100L, "collector-2", 100L, 100L);
+        List<StreamRecord> result = strategy.mergeRecords(input);
         assertEquals(2, result.size());
     }
 }

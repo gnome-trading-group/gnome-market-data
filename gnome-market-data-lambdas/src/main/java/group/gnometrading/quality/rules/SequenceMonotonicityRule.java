@@ -1,10 +1,10 @@
 package group.gnometrading.quality.rules;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityIssueStatus;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -17,7 +17,7 @@ public final class SequenceMonotonicityRule implements QualityRule {
     private static final double ANOMALY_RATIO = 0.20;
 
     @Override
-    public List<QualityIssue> check(MarketDataEntry entry, List<Schema> records, Listing listing, Clock clock) {
+    public List<QualityIssue> check(StreamEntry entry, List<StreamRecord> records, Listing listing, Clock clock) {
         List<QualityIssue> issues = new ArrayList<>();
         if (records.size() < 2) {
             return issues;
@@ -46,7 +46,7 @@ public final class SequenceMonotonicityRule implements QualityRule {
         return issues;
     }
 
-    private QualityIssue buildIssue(MarketDataEntry entry, Listing listing, Clock clock) {
+    private QualityIssue buildIssue(StreamEntry entry, Listing listing, Clock clock) {
         QualityIssue issue = new QualityIssue();
         issue.setListingId(listing.listingId());
         issue.setIssueId(entry.getTimestamp().toEpochSecond(ZoneOffset.UTC) + "#"

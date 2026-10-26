@@ -7,8 +7,7 @@ from utils import lambda_handler
 
 @lambda_handler
 def handler(
-    exchangeId: int,
-    securityId: int,
+    listingId: int,
     startDate: str,
     endDate: str,
     mode: str = 'all',
@@ -30,8 +29,7 @@ def handler(
     days = 0
     while current <= end:
         payload = {
-            'exchangeId': exchangeId,
-            'securityId': securityId,
+            'listingId': listingId,
             'date': current.isoformat(),
             'mode': mode,
             'resetStatistics': resetStatistics,

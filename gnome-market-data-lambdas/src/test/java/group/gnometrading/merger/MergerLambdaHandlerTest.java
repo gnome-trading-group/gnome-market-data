@@ -9,8 +9,8 @@ import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.luben.zstd.ZstdOutputStream;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
+import group.gnometrading.schemas.StreamRecord;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -243,12 +243,12 @@ class MergerLambdaHandlerTest {
     @Test
     void testNotificationForSingleFileInS3() throws Exception {
         // Given: Notification for uuid-1, and S3 listing returns only uuid-1
-        String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String rawKey = "1/book/mbp-10/2024/01/15/10/00/uuid-1.zst";
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock S3 listing to return only the notified file
-        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/10/00/", List.of(rawKey));
 
         // Mock S3 getObject for the file
         mockS3GetObject(rawKey, List.of(createSchema(100L), createSchema(101L)));
@@ -272,15 +272,15 @@ class MergerLambdaHandlerTest {
     @Test
     void testNotificationForOneFileButMultipleFilesExistInS3() throws Exception {
         // Given: Notification for uuid-1, but S3 has uuid-1, uuid-2, uuid-3
-        String notifiedKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
-        String key2 = "1/2/2024/1/15/10/0/mbp-10/uuid-2.zst";
-        String key3 = "1/2/2024/1/15/10/0/mbp-10/uuid-3.zst";
+        String notifiedKey = "1/book/mbp-10/2024/01/15/10/00/uuid-1.zst";
+        String key2 = "1/book/mbp-10/2024/01/15/10/00/uuid-2.zst";
+        String key3 = "1/book/mbp-10/2024/01/15/10/00/uuid-3.zst";
 
         String s3EventJson = createS3EventJsonWithKey(notifiedKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock S3 listing to return all 3 files
-        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(notifiedKey, key2, key3));
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/10/00/", List.of(notifiedKey, key2, key3));
 
         // Mock S3 getObject for all files
         mockS3GetObject(notifiedKey, List.of(createSchema(100L), createSchema(101L), createSchema(102L)));
@@ -305,15 +305,15 @@ class MergerLambdaHandlerTest {
     @Test
     void testNotificationsForDifferentTimestampsCreateSeparateMerges() throws Exception {
         // Given: Notifications for files at 10:00 and 11:00
-        String key1 = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
-        String key2 = "1/2/2024/1/15/11/0/mbp-10/uuid-2.zst";
+        String key1 = "1/book/mbp-10/2024/01/15/10/00/uuid-1.zst";
+        String key2 = "1/book/mbp-10/2024/01/15/11/00/uuid-2.zst";
 
         String s3EventJson = createS3EventJsonWithMultipleKeys(key1, key2);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock S3 listing for each timestamp
-        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(key1));
-        mockS3ListObjects("1/2/2024/1/15/11/0/mbp-10/", List.of(key2));
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/10/00/", List.of(key1));
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/11/00/", List.of(key2));
 
         // Mock S3 getObject for each file
         mockS3GetObject(key1, List.of(createSchema(100L)));
@@ -340,8 +340,8 @@ class MergerLambdaHandlerTest {
     @Test
     void testDuplicateNotificationsForSameTimestampAreMergedTogether() throws Exception {
         // Given: Two SQS messages with notifications for files at the same timestamp
-        String key1 = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
-        String key2 = "1/2/2024/1/15/10/0/mbp-10/uuid-2.zst";
+        String key1 = "1/book/mbp-10/2024/01/15/10/00/uuid-1.zst";
+        String key2 = "1/book/mbp-10/2024/01/15/10/00/uuid-2.zst";
 
         String sqsMessage1Json = createS3EventJsonWithKey(key1);
         String sqsMessage2Json = createS3EventJsonWithKey(key2);
@@ -355,7 +355,7 @@ class MergerLambdaHandlerTest {
 
         // Mock S3 listing to return both files (they're both in S3)
         // Each SQS message will trigger a separate S3 listing call
-        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(key1, key2));
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/10/00/", List.of(key1, key2));
 
         // Mock S3 getObject for both files
         mockS3GetObject(key1, List.of(createSchema(100L), createSchema(101L)));
@@ -380,12 +380,12 @@ class MergerLambdaHandlerTest {
     @Test
     void testS3ListingReturnsNoFiles() throws Exception {
         // Given: Notification for a file, but S3 listing returns empty
-        String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String rawKey = "1/book/mbp-10/2024/01/15/10/00/uuid-1.zst";
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock S3 listing to return empty list
-        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of());
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/10/00/", List.of());
 
         // Mock putObject since the handler will still try to save an empty merge
         when(s3Client.putObject(any(java.util.function.Consumer.class), any(RequestBody.class)))
@@ -407,12 +407,12 @@ class MergerLambdaHandlerTest {
     @Test
     void testSetDeduplicatesFilesFromListingAndNotification() throws Exception {
         // Given: Notification for uuid-1, and S3 listing also returns uuid-1
-        String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String rawKey = "1/book/mbp-10/2024/01/15/10/00/uuid-1.zst";
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock S3 listing to return the same file (uuid-1)
-        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/10/00/", List.of(rawKey));
 
         // Mock S3 getObject for the file
         mockS3GetObject(rawKey, List.of(createSchema(100L), createSchema(101L)));
@@ -436,19 +436,19 @@ class MergerLambdaHandlerTest {
     @Test
     void testS3ListingWithMultiplePages() throws Exception {
         // Given: Notification for a file, and S3 listing returns many files (simulating pagination)
-        String notifiedKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String notifiedKey = "1/book/mbp-10/2024/01/15/10/00/uuid-1.zst";
         List<String> allKeys = new ArrayList<>();
         allKeys.add(notifiedKey);
         // Add 9 more files to simulate a large listing
         for (int i = 2; i <= 10; i++) {
-            allKeys.add("1/2/2024/1/15/10/0/mbp-10/uuid-" + i + ".zst");
+            allKeys.add("1/book/mbp-10/2024/01/15/10/00/uuid-" + i + ".zst");
         }
 
         String s3EventJson = createS3EventJsonWithKey(notifiedKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock S3 listing to return all 10 files
-        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", allKeys);
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/10/00/", allKeys);
 
         // Mock S3 getObject for all files
         for (String key : allKeys) {
@@ -474,12 +474,12 @@ class MergerLambdaHandlerTest {
     @Test
     void testS3GetObjectFailure() throws Exception {
         // Given: Notification for a file, S3 listing succeeds, but getObject fails
-        String rawKey = "1/2/2024/1/15/10/0/mbp-10/uuid-1.zst";
+        String rawKey = "1/book/mbp-10/2024/01/15/10/00/uuid-1.zst";
         String s3EventJson = createS3EventJsonWithKey(rawKey);
         SQSEvent event = createSQSEvent(s3EventJson);
 
         // Mock S3 listing to return the file
-        mockS3ListObjects("1/2/2024/1/15/10/0/mbp-10/", List.of(rawKey));
+        mockS3ListObjects("1/book/mbp-10/2024/01/15/10/00/", List.of(rawKey));
 
         // Mock S3 getObject to throw an exception
         when(s3Client.getObject(any(java.util.function.Consumer.class)))
@@ -643,11 +643,11 @@ class MergerLambdaHandlerTest {
     }
 
     /**
-     * Creates a Schema with a specific sequence number.
-     * Helper method similar to Mbp10MergeStrategyTest.
+     * Creates a StreamRecord with a specific sequence number.
+     * Helper method similar to FullestCopyMergeStrategyTest.
      */
-    private Schema createSchema(long sequenceNumber) {
-        Mbp10Schema schema = (Mbp10Schema) SchemaType.MBP_10.newInstance();
+    private StreamRecord createSchema(long sequenceNumber) {
+        Mbp10Schema schema = (Mbp10Schema) RecordType.MBP_10.newInstance();
         schema.encoder.sequence(sequenceNumber);
         return schema;
     }
@@ -691,10 +691,10 @@ class MergerLambdaHandlerTest {
      * Mocks S3Client.getObject to return compressed schema data.
      * Adds the data to the list so it will be returned in order on subsequent getObject calls.
      */
-    private void mockS3GetObject(String key, List<Schema> schemas) throws IOException {
+    private void mockS3GetObject(String key, List<StreamRecord> schemas) throws IOException {
         // Serialize schemas to bytes
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        for (Schema schema : schemas) {
+        for (StreamRecord schema : schemas) {
             byte[] schemaBytes = new byte[schema.totalMessageSize()];
             schema.buffer.getBytes(0, schemaBytes, 0, schema.totalMessageSize());
             outputStream.write(schemaBytes);

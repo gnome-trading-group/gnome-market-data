@@ -2,12 +2,12 @@ package group.gnometrading.quality.rules.statistics;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.schemas.Mbp10Decoder;
 import group.gnometrading.schemas.Mbp10Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.schemas.RecordType;
 import group.gnometrading.schemas.Statics;
+import group.gnometrading.schemas.book.Mbp10Decoder;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -19,8 +19,7 @@ class SpreadStatisticTest {
 
     @Test
     void testComputesAverageSpread() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.bidPrice0(100);
@@ -36,8 +35,7 @@ class SpreadStatisticTest {
 
     @Test
     void testComputesForMbp1Schema() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_1, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         group.gnometrading.schemas.Mbp1Schema s = new group.gnometrading.schemas.Mbp1Schema();
         s.encoder.bidPrice0(100);
@@ -50,7 +48,7 @@ class SpreadStatisticTest {
 
     @Test
     void testReturnsNanForMboSchema() {
-        MarketDataEntry entry = new MarketDataEntry(1, 2, SchemaType.MBO, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         double result = statistic.compute(entry, List.of());
 
@@ -59,8 +57,7 @@ class SpreadStatisticTest {
 
     @Test
     void testSkipsNullPriceSentinels() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema nullPrices = new Mbp10Schema();
         nullPrices.encoder.bidPrice0(Mbp10Decoder.bidPrice0NullValue());
@@ -76,8 +73,7 @@ class SpreadStatisticTest {
 
     @Test
     void testReturnsNanWhenAllNullPrices() {
-        MarketDataEntry entry =
-                new MarketDataEntry(1, 2, SchemaType.MBP_10, MINUTE, MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
 
         Mbp10Schema nullPrices = new Mbp10Schema();
         nullPrices.encoder.bidPrice0(Mbp10Decoder.bidPrice0NullValue());

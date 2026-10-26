@@ -3,7 +3,7 @@ package group.gnometrading;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -16,7 +16,7 @@ public class S3Utils {
 
     private S3Utils() {}
 
-    public static Set<MarketDataEntry> extractKeysFromS3Event(SQSEvent event, ObjectMapper objectMapper) {
+    public static Set<StreamEntry> extractKeysFromS3Event(SQSEvent event, ObjectMapper objectMapper) {
         logger.info(
                 "Extracting keys from SQS event with {} messages",
                 event.getRecords().size());
@@ -26,7 +26,7 @@ public class S3Utils {
                 .collect(Collectors.toSet());
     }
 
-    private static Set<MarketDataEntry> extractKeysFromS3Event(SQSEvent.SQSMessage message, ObjectMapper objectMapper) {
+    private static Set<StreamEntry> extractKeysFromS3Event(SQSEvent.SQSMessage message, ObjectMapper objectMapper) {
         JsonNode sqsBody;
         try {
             sqsBody = objectMapper.readTree(message.getBody());
@@ -51,10 +51,10 @@ public class S3Utils {
         }
 
         JsonNode records = s3Event.get("Records");
-        Set<MarketDataEntry> keys = new HashSet<>();
+        Set<StreamEntry> keys = new HashSet<>();
         if (records != null && records.isArray()) {
             for (JsonNode record : records) {
-                MarketDataEntry entry = parseS3Record(record);
+                StreamEntry entry = parseS3Record(record);
                 if (entry == null) {
                     continue;
                 }
@@ -64,7 +64,7 @@ public class S3Utils {
         return keys;
     }
 
-    private static MarketDataEntry parseS3Record(JsonNode record) {
+    private static StreamEntry parseS3Record(JsonNode record) {
         JsonNode s3Info = record.get("s3");
         if (s3Info == null) {
             logger.warn("No S3 information in record");
@@ -77,6 +77,12 @@ public class S3Utils {
 
         logger.info("Processing S3 object: bucket={}, key={}, size={} bytes", bucketName, objectKey, objectSize);
 
-        return MarketDataEntry.fromKey(objectKey);
+        // A key in another layout (an old file, or anything else written to the bucket) is skipped rather than
+        // failing the whole batch.
+        StreamEntry entry = StreamEntry.parse(objectKey).orElse(null);
+        if (entry == null) {
+            logger.warn("Skipping key that is not a stream record file: {}", objectKey);
+        }
+        return entry;
     }
 }

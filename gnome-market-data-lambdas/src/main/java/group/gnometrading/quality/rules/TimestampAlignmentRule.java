@@ -1,10 +1,10 @@
 package group.gnometrading.quality.rules;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityIssueStatus;
 import group.gnometrading.quality.model.QualityRuleType;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -18,7 +18,7 @@ public final class TimestampAlignmentRule implements QualityRule {
     private static final long NANOS_PER_MINUTE = 60L * NANOS_PER_SECOND;
 
     @Override
-    public List<QualityIssue> check(MarketDataEntry entry, List<Schema> records, Listing listing, Clock clock) {
+    public List<QualityIssue> check(StreamEntry entry, List<StreamRecord> records, Listing listing, Clock clock) {
         List<QualityIssue> issues = new ArrayList<>();
         if (records.isEmpty()) {
             return issues;
@@ -29,7 +29,7 @@ public final class TimestampAlignmentRule implements QualityRule {
         long windowEndNanos = windowStartNanos + NANOS_PER_MINUTE;
 
         int misaligned = 0;
-        for (Schema record : records) {
+        for (StreamRecord record : records) {
             long ts = record.getEventTimestamp();
             if (ts < windowStartNanos || ts >= windowEndNanos) {
                 misaligned++;
@@ -47,7 +47,7 @@ public final class TimestampAlignmentRule implements QualityRule {
         return issues;
     }
 
-    private QualityIssue buildIssue(MarketDataEntry entry, Listing listing, Clock clock) {
+    private QualityIssue buildIssue(StreamEntry entry, Listing listing, Clock clock) {
         QualityIssue issue = new QualityIssue();
         issue.setListingId(listing.listingId());
         issue.setIssueId(

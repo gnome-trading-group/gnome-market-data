@@ -4,12 +4,12 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import group.gnometrading.Dependencies;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.data.MarketDataEntry;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.data.StreamEntry;
+import group.gnometrading.md.Stream;
+import group.gnometrading.schemas.RecordType;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.schemas.converters.SchemaBulkConverter;
 import group.gnometrading.schemas.converters.SchemaConversionRegistry;
-import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -78,14 +78,14 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
             throw new IllegalArgumentException("schemaType is required");
         }
 
-        SchemaType schemaType = SchemaType.findById(rawSchemaType);
+        RecordType schemaType = RecordType.forIdentifier(rawSchemaType);
         logger.info("Processing jobs for schemaType: {}", rawSchemaType);
         processPendingJobs(schemaType);
 
         return null;
     }
 
-    private void processPendingJobs(SchemaType schemaType) {
+    private void processPendingJobs(RecordType schemaType) {
         List<TransformationJob> jobs = getPendingJobs(schemaType);
 
         logger.info("Found {} pending jobs", jobs.size());
@@ -100,11 +100,11 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
         }
     }
 
-    private List<TransformationJob> getPendingJobs(SchemaType schemaType) {
+    private List<TransformationJob> getPendingJobs(RecordType schemaType) {
         DynamoDbIndex<TransformationJob> index = transformJobsTable.index("schemaType-status-index");
 
         QueryConditional queryConditional = QueryConditional.sortBeginsWith(Key.builder()
-                .partitionValue(schemaType.getIdentifier())
+                .partitionValue(schemaType.identifier())
                 .sortValue(TransformationStatus.PENDING.name())
                 .build());
 
@@ -132,17 +132,22 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
         logger.info(
                 "Processing job: listingId={}, schemaType={}, timestamp={}",
                 job.getListingId(),
-                job.getSchemaType(),
+                job.getRecordType(),
                 job.getTimestamp());
 
         Window window = calculateWindow(job);
-        Listing listing = securityMaster.getListing(job.getListingId());
+        Stream stream = securityMaster.streamForListing(job.getListingId());
+        RecordType collected = job.getSourceRecordType();
+        if (collected == null) {
+            throw new IllegalStateException("Job " + job.getJobId() + " names no record type to convert from");
+        }
 
-        List<Schema> allSchemas = new ArrayList<>();
+        List<StreamRecord> allSchemas = new ArrayList<>();
         for (LocalDateTime timestamp = window.start();
                 !timestamp.isAfter(window.end());
                 timestamp = timestamp.plusMinutes(1)) {
-            MarketDataEntry entry = new MarketDataEntry(listing, timestamp, MarketDataEntry.EntryType.AGGREGATED);
+            StreamEntry entry =
+                    new StreamEntry(stream.streamId(), collected, timestamp, StreamEntry.EntryType.AGGREGATED);
             allSchemas.addAll(downloadSafely(entry));
         }
 
@@ -152,17 +157,12 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
             return;
         }
 
-        SchemaType originalSchemaType = listing.exchange().schemaType();
-        SchemaBulkConverter<Schema, Schema> converter = (SchemaBulkConverter<Schema, Schema>)
-                SchemaConversionRegistry.getBulkConverter(originalSchemaType, job.getSchemaType());
-        List<Schema> convertedSchemas = converter.convert(allSchemas);
+        SchemaBulkConverter<StreamRecord, StreamRecord> converter = (SchemaBulkConverter<StreamRecord, StreamRecord>)
+                SchemaConversionRegistry.getBulkConverter(collected, job.getRecordType());
+        List<StreamRecord> convertedSchemas = converter.convert(allSchemas);
 
-        MarketDataEntry outputEntry = new MarketDataEntry(
-                listing.security().securityId(),
-                listing.exchange().exchangeId(),
-                job.getSchemaType(),
-                job.getTimestamp(),
-                MarketDataEntry.EntryType.AGGREGATED);
+        StreamEntry outputEntry = new StreamEntry(
+                stream.streamId(), job.getRecordType(), job.getTimestamp(), StreamEntry.EntryType.AGGREGATED);
         outputEntry.saveToS3(s3Client, finalBucketName, convertedSchemas);
 
         handleJobSuccess(job);
@@ -170,11 +170,11 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
         logger.info(
                 "Successfully processed job: listingId={}, schemaType={}, output={}",
                 job.getListingId(),
-                job.getSchemaType(),
+                job.getRecordType(),
                 outputEntry.getKey());
     }
 
-    private List<Schema> downloadSafely(MarketDataEntry entry) {
+    private List<StreamRecord> downloadSafely(StreamEntry entry) {
         try {
             return entry.loadFromS3(s3Client, mergedBucketName);
         } catch (NoSuchKeyException e) {
@@ -186,7 +186,7 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
     private record Window(LocalDateTime start, LocalDateTime end) {}
 
     private Window calculateWindow(TransformationJob job) {
-        return switch (job.getSchemaType()) {
+        return switch (job.getRecordType()) {
             case MBO, MBP_10, MBP_1, BBO_1S, BBO_1M, TRADES, OHLCV_1S, OHLCV_1M -> new Window(
                     job.getTimestamp(), job.getTimestamp());
             case OHLCV_1H -> new Window(
@@ -201,7 +201,7 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
 
         transformJobsTable.updateItem(job);
 
-        logger.info("Job marked as COMPLETE: listingId={}, schemaType={}", job.getListingId(), job.getSchemaType());
+        logger.info("Job marked as COMPLETE: listingId={}, schemaType={}", job.getListingId(), job.getRecordType());
     }
 
     private void handleJobFailure(TransformationJob job, String errorMessage) {
@@ -215,7 +215,7 @@ public final class JobProcessorLambdaHandler implements RequestHandler<Map<Strin
         logger.error(
                 "Job marked as FAILED: listingId={}, schemaType={}, error={}",
                 job.getListingId(),
-                job.getSchemaType(),
+                job.getRecordType(),
                 errorMessage);
     }
 }

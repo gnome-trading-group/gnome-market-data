@@ -243,16 +243,10 @@ export class BackendStack extends cdk.Stack {
         handlerPath: "coverage/summary",
       },
       {
-        name: "GetCoverageBySecurity",
-        path: "coverage/security/{securityId}",
+        name: "GetCoverageByStream",
+        path: "coverage/stream/{streamId}",
         method: "GET",
-        handlerPath: "coverage/get-by-security",
-      },
-      {
-        name: "GetCoverageBySecurityExchange",
-        path: "coverage/{securityId}/{exchangeId}",
-        method: "GET",
-        handlerPath: "coverage/get-by-listing",
+        handlerPath: "coverage/get-by-stream",
       },
     ];
 

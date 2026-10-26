@@ -6,9 +6,8 @@ import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
 import group.gnometrading.S3Utils;
-import group.gnometrading.data.MarketDataEntry;
-import group.gnometrading.schemas.Schema;
-import group.gnometrading.schemas.SchemaType;
+import group.gnometrading.data.StreamEntry;
+import group.gnometrading.schemas.StreamRecord;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -25,6 +24,8 @@ import software.amazon.awssdk.services.s3.S3Client;
  * This handler receives S3 event notifications via SQS and processes raw market data files.
  */
 public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
+
+    private static final MergeStrategy MERGE_STRATEGY = new FullestCopyMergeStrategy();
 
     private static final Logger logger = LogManager.getLogger(MergerLambdaHandler.class);
 
@@ -51,10 +52,10 @@ public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void>
     @Override
     public Void handleRequest(SQSEvent event, Context context) {
         try {
-            Set<MarketDataEntry> rawKeys = S3Utils.extractKeysFromS3Event(event, objectMapper);
+            Set<StreamEntry> rawKeys = S3Utils.extractKeysFromS3Event(event, objectMapper);
             logger.info("Found {} raw keys in S3 event", rawKeys.size());
 
-            Map<MarketDataEntry, Set<MarketDataEntry>> allKeys = aggregateRawKeys(rawKeys);
+            Map<StreamEntry, Set<StreamEntry>> allKeys = aggregateRawKeys(rawKeys);
 
             allKeys.entrySet().parallelStream().forEach(entry -> {
                 mergeEntries(entry.getKey(), entry.getValue());
@@ -67,17 +68,16 @@ public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void>
         return null;
     }
 
-    private void mergeEntries(MarketDataEntry mergedEntry, Set<MarketDataEntry> rawEntries) {
+    private void mergeEntries(StreamEntry mergedEntry, Set<StreamEntry> rawEntries) {
         logger.info("Merging {} entries into {}", rawEntries.size(), mergedEntry);
 
-        Map<String, List<Schema>> entries = new LinkedHashMap<>();
-        for (MarketDataEntry entry : rawEntries) {
+        Map<String, List<StreamRecord>> entries = new LinkedHashMap<>();
+        for (StreamEntry entry : rawEntries) {
             entries.put(entry.getUuid(), entry.loadFromS3(s3Client, inputBucket));
         }
 
         int totalRecords = entries.values().stream().mapToInt(List::size).sum();
-        SchemaMergeStrategy strategy = getMergeStrategy(mergedEntry.getSchemaType());
-        var outputEntries = strategy.mergeRecords(entries);
+        var outputEntries = MERGE_STRATEGY.mergeRecords(entries);
 
         try {
             mergedEntry.saveToS3(s3Client, outputBucket, outputEntries);
@@ -88,37 +88,25 @@ public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void>
         logger.info("Wrote {} (out of {}) records to merged key {}", outputEntries.size(), totalRecords, mergedEntry);
     }
 
-    private SchemaMergeStrategy getMergeStrategy(SchemaType schemaType) {
-        return switch (schemaType) {
-            case MBP_10 -> new Mbp10MergeStrategy();
-            default -> throw new IllegalArgumentException("Unsupported schema type: " + schemaType);
-        };
-    }
-
-    private Map<MarketDataEntry, Set<MarketDataEntry>> aggregateRawKeys(Set<MarketDataEntry> rawKeys) {
-        Set<MarketDataEntry> aggregatedKeys = new HashSet<>();
-        for (MarketDataEntry entry : rawKeys) {
-            assert entry.getEntryType() == MarketDataEntry.EntryType.RAW
+    private Map<StreamEntry, Set<StreamEntry>> aggregateRawKeys(Set<StreamEntry> rawKeys) {
+        Set<StreamEntry> aggregatedKeys = new HashSet<>();
+        for (StreamEntry entry : rawKeys) {
+            assert entry.getEntryType() == StreamEntry.EntryType.RAW
                     : "Expected raw entry, got " + entry.getEntryType();
 
-            MarketDataEntry mergedEntry = new MarketDataEntry(
-                    entry.getSecurityId(),
-                    entry.getExchangeId(),
-                    entry.getSchemaType(),
-                    entry.getTimestamp(),
-                    MarketDataEntry.EntryType.AGGREGATED);
+            StreamEntry mergedEntry = new StreamEntry(
+                    entry.getStreamId(), entry.getRecordType(), entry.getTimestamp(), StreamEntry.EntryType.AGGREGATED);
             aggregatedKeys.add(mergedEntry);
         }
 
-        Map<MarketDataEntry, Set<MarketDataEntry>> keys = new HashMap<>();
-        for (MarketDataEntry mergedEntry : aggregatedKeys) {
-            List<MarketDataEntry> availableKeys = MarketDataEntry.getRawKeys(
+        Map<StreamEntry, Set<StreamEntry>> keys = new HashMap<>();
+        for (StreamEntry mergedEntry : aggregatedKeys) {
+            List<StreamEntry> availableKeys = StreamEntry.getRawKeys(
                     s3Client,
                     inputBucket,
-                    mergedEntry.getSecurityId(),
-                    mergedEntry.getExchangeId(),
+                    mergedEntry.getStreamId(),
                     mergedEntry.getTimestamp(),
-                    mergedEntry.getSchemaType());
+                    mergedEntry.getRecordType());
             keys.computeIfAbsent(mergedEntry, k -> new HashSet<>()).addAll(availableKeys);
         }
 

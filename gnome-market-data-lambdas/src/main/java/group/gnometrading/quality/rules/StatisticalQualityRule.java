@@ -1,12 +1,12 @@
 package group.gnometrading.quality.rules;
 
-import group.gnometrading.data.MarketDataEntry;
+import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.quality.model.QualityIssueStatus;
 import group.gnometrading.quality.rules.statistics.HourlyStatisticsAggregator;
 import group.gnometrading.quality.rules.statistics.QualityStatistic;
-import group.gnometrading.schemas.Schema;
+import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.time.DayOfWeek;
@@ -67,7 +67,7 @@ public final class StatisticalQualityRule implements QualityRule {
     private record Warmup(int distinctDays, LocalDate latestDate) {}
 
     @Override
-    public List<QualityIssue> check(MarketDataEntry entry, List<Schema> records, Listing listing, Clock clock) {
+    public List<QualityIssue> check(StreamEntry entry, List<StreamRecord> records, Listing listing, Clock clock) {
         List<QualityIssue> issues = new ArrayList<>();
 
         LocalDate entryDate = entry.getTimestamp().toLocalDate();
@@ -209,7 +209,7 @@ public final class StatisticalQualityRule implements QualityRule {
     }
 
     private QualityIssue buildIssue(
-            MarketDataEntry entry,
+            StreamEntry entry,
             Listing listing,
             Clock clock,
             QualityStatistic statistic,
