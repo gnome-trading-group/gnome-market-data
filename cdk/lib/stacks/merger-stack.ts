@@ -42,6 +42,8 @@ export class MergerStack extends cdk.Stack {
     this.mergerLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.mergerQueue, {
       batchSize: 1_000,
       maxBatchingWindow: cdk.Duration.minutes(3),
+      // The handler returns the messages behind failed keys, so only those retry and dead-letter.
+      reportBatchItemFailures: true,
     }));
   }
 }

@@ -57,7 +57,9 @@ class StreamEntryTest {
         assertEquals(
                 "42/book/trades/2026/04/05/09/07/abcd1234.zst",
                 new StreamEntry(42, RecordType.TRADES, MINUTE, StreamEntry.EntryType.RAW, "abcd1234").getKey());
-        assertEquals("42/raw/2026/04/05/09/07/f00d.zst", StreamEntry.rawCaptureKey(42, MINUTE, "f00d"));
+        assertEquals(
+                "raw/KALSHI/shard-1/KALSHI-0/2026/04/05/09/07/f00d.zst",
+                StreamEntry.rawCaptureKey("KALSHI", "shard-1", "KALSHI-0", MINUTE, "f00d"));
     }
 
     @Test

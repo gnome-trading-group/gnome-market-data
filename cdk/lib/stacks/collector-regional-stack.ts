@@ -142,8 +142,9 @@ export class CollectorRegionalStack extends cdk.Stack {
       }),
       memoryLimitMiB: 512,
       cpu: 256,
-      // Allow up to 75 seconds for graceful shutdown to complete the current minute file
-      stopTimeout: cdk.Duration.seconds(75),
+      // Fargate's maximum. On SIGTERM the collector stops its streams, flushes every partial minute and drains the
+      // uploader, within 60 + 45 seconds.
+      stopTimeout: cdk.Duration.seconds(120),
     });
 
     this.taskDefinitionArn = taskDefinition.taskDefinitionArn;

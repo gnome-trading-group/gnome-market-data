@@ -6,6 +6,7 @@ import { Construct } from 'constructs';
 import { CustomMetricGroup, DefaultDashboardFactory, MonitoringFacade, noopAction } from "cdk-monitoring-constructs";
 import { COLLECTOR_METRICS_NAMESPACE, COLLECTOR_ERROR_METRIC_NAME } from "./collector-regional-stack";
 import { MarketDataConfig } from "../config";
+import { MonitoredQueue } from "./storage-stack";
 
 export interface MonitoringStackProps extends cdk.StackProps {
   config: MarketDataConfig;
@@ -17,6 +18,7 @@ export interface MonitoringStackProps extends cdk.StackProps {
   transformerJobProcessorLambda: lambda.Function;
   inventoryProcessorLambda: lambda.Function;
   qualityCheckLambda: lambda.Function;
+  queues: MonitoredQueue[];
 }
 
 export class MonitoringStack extends cdk.Stack {
@@ -111,5 +113,21 @@ export class MonitoringStack extends cdk.Stack {
         alarmFriendlyName: 'QualityCheckLambda',
         ...lambdaAlarms,
       });
+
+    // A dead-lettered message is work the pipeline gave up on; an old one is work it has stopped keeping up with.
+    for (const { name, queue, deadLetterQueue, maxAge } of props.queues) {
+      monitoring.monitorSqsQueueWithDlq({
+        queue,
+        deadLetterQueue,
+        humanReadableName: name,
+        alarmFriendlyName: name,
+        addDeadLetterQueueMaxSizeAlarm: {
+          Error: { maxMessageCount: 0 },
+        },
+        addQueueMaxMessageAgeAlarm: {
+          Warning: { maxAgeInSeconds: maxAge.toSeconds() },
+        },
+      });
+    }
   }
 }

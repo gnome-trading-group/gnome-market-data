@@ -50,6 +50,8 @@ export class GapDetectorStack extends cdk.Stack {
     this.gapLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.gapQueue, {
       batchSize: 1_000,
       maxBatchingWindow: cdk.Duration.minutes(3),
+      // The handler returns the messages behind failed keys, so only those retry and dead-letter.
+      reportBatchItemFailures: true,
     }));
   }
 }

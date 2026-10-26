@@ -17,8 +17,9 @@ class CustomEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-LATEST_ORCHESTRATOR_VERSION_PARAMETER = '/gnome/orchestrator/latest-version'
-LATEST_ORCHESTRATOR_VERSION_REGION = 'us-east-1'
+# The last orchestrator release with the per-listing collector these functions start (DelegatingCollectorOrchestrator,
+# LISTINGS). Later releases run shards instead, which Phase 6 placement starts; until then collectors stay on this.
+LAST_COLLECTOR_ORCHESTRATOR_VERSION = '1.20.5'
 
 
 @functools.cache
@@ -27,12 +28,19 @@ def get_regional_client(service: str, region: str):
     return boto3.client(service, region_name=region)
 
 
+def _release(version: str) -> tuple:
+    return tuple(int(part) for part in version.split('-')[0].split('.'))
+
+
 def resolve_orchestrator_version(requested: Optional[str]) -> str:
-    """A typed version is used as-is; blank means the latest release, which the orchestrator pipeline publishes."""
-    if requested and requested.strip():
-        return requested.strip()
-    ssm = get_regional_client('ssm', LATEST_ORCHESTRATOR_VERSION_REGION)
-    return ssm.get_parameter(Name=LATEST_ORCHESTRATOR_VERSION_PARAMETER)['Parameter']['Value']
+    """A typed version is used if it still has the per-listing collector; blank means the last release that does."""
+    if not requested or not requested.strip():
+        return LAST_COLLECTOR_ORCHESTRATOR_VERSION
+    version = requested.strip()
+    if _release(version) > _release(LAST_COLLECTOR_ORCHESTRATOR_VERSION):
+        raise ValueError(f'Orchestrator {version} runs shards, not per-listing collectors; '
+                         f'use {LAST_COLLECTOR_ORCHESTRATOR_VERSION} or earlier')
+    return version
 
 
 def set_container_env(container_def: Dict[str, Any], name: str, value: str) -> None:

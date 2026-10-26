@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.SecurityMaster;
@@ -81,10 +82,10 @@ class JobCreatorLambdaHandlerTest {
         event.setRecords(new ArrayList<>());
 
         // When: Handling request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Returns null and no jobs created
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
         verify(transformJobsTable, never()).putItem(any(Consumer.class));
     }
 
@@ -113,10 +114,10 @@ class JobCreatorLambdaHandlerTest {
 
         // When: Handling request with malformed JSON
         // S3Utils catches exceptions and returns empty set, so no exception is thrown
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should handle gracefully
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
         verify(transformJobsTable, never()).putItem(any(Consumer.class));
     }
 
@@ -215,10 +216,10 @@ class JobCreatorLambdaHandlerTest {
                 .putItem(any(Consumer.class));
 
         // When: Handling the request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should handle gracefully and not throw exception
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
         verify(transformJobsTable, atLeastOnce()).putItem(any(Consumer.class));
     }
 
@@ -463,10 +464,11 @@ class JobCreatorLambdaHandlerTest {
         when(securityMaster.listingForStream(1)).thenReturn(null);
 
         // When: Handling the request
-        // Should throw NullPointerException when trying to access listing.listingId()
-        assertThrows(RuntimeException.class, () -> {
-            handler.handleRequest(event, context);
-        });
+        SQSBatchResponse result = handler.handleRequest(event, context);
+
+        // Then: the message is reported failed, so only it is retried and then dead-lettered
+        assertEquals(1, result.getBatchItemFailures().size());
+        assertEquals("message-0", result.getBatchItemFailures().get(0).getItemIdentifier());
     }
 
     @Test
@@ -479,10 +481,10 @@ class JobCreatorLambdaHandlerTest {
         SQSEvent event = createSQSEvent(snsMessage);
 
         // When: Handling the request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should handle gracefully
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
         verify(transformJobsTable, never()).putItem(any(Consumer.class));
     }
 
@@ -542,6 +544,7 @@ class JobCreatorLambdaHandlerTest {
 
         for (String snsMessage : snsMessages) {
             SQSEvent.SQSMessage message = new SQSEvent.SQSMessage();
+            message.setMessageId("message-" + records.size());
             message.setBody(snsMessage);
             records.add(message);
         }

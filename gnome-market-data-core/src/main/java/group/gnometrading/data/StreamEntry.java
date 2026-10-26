@@ -160,9 +160,14 @@ public final class StreamEntry {
         };
     }
 
-    /** The key of a venue's raw frames captured for a stream in one minute; kept apart from the record files. */
-    public static String rawCaptureKey(int streamId, LocalDateTime timestamp, String uuid) {
-        return "%d/raw/%s/%s.zst".formatted(streamId, timePath(timestamp), uuid);
+    /**
+     * The key of the raw frames one connection received in one minute, kept apart from the record files. A connection
+     * carries many streams, so it is keyed by the source, the shard and the connection's name within the shard; the
+     * uuid keeps a restarted process from overwriting the minute its predecessor wrote.
+     */
+    public static String rawCaptureKey(
+            String source, String shard, String connection, LocalDateTime timestamp, String uuid) {
+        return "raw/%s/%s/%s/%s/%s.zst".formatted(source, shard, connection, timePath(timestamp), uuid);
     }
 
     private static String minutePrefix(int streamId, RecordType recordType, LocalDateTime timestamp) {

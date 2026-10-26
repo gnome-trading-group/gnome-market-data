@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.luben.zstd.ZstdOutputStream;
@@ -97,10 +98,10 @@ class MergerLambdaHandlerTest {
         event.setRecords(new ArrayList<>());
 
         // When: Handling request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
-        // Then: Returns null (handler completes without error)
-        assertNull(result);
+        // Then: no message failed
+        assertTrue(result.getBatchItemFailures().isEmpty());
     }
 
     // ============================================================================
@@ -114,10 +115,10 @@ class MergerLambdaHandlerTest {
         SQSEvent event = createSQSEvent(malformedJson);
 
         // When: Handling request (error is caught and logged, not thrown)
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should handle gracefully
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
     }
 
     @Test
@@ -127,10 +128,10 @@ class MergerLambdaHandlerTest {
         SQSEvent event = createSQSEvent(eventJson);
 
         // When: Handling request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Returns null without errors (empty map, no processing)
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
     }
 
     @Test
@@ -140,10 +141,10 @@ class MergerLambdaHandlerTest {
         SQSEvent event = createSQSEvent(eventJson);
 
         // When: Handling request (missing fields are handled gracefully)
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should handle gracefully
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
     }
 
     @Test
@@ -164,10 +165,10 @@ class MergerLambdaHandlerTest {
         SQSEvent event = createSQSEvent(eventJson);
 
         // When: Handling request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should handle gracefully (returns empty map, no processing)
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
     }
 
     // ============================================================================
@@ -186,8 +187,8 @@ class MergerLambdaHandlerTest {
         if (shouldThrow) {
             assertThrows(RuntimeException.class, () -> handler.handleRequest(event, context));
         } else {
-            Void result = handler.handleRequest(event, context);
-            assertNull(result);
+            SQSBatchResponse result = handler.handleRequest(event, context);
+            assertTrue(result.getBatchItemFailures().isEmpty());
         }
     }
 
@@ -212,10 +213,10 @@ class MergerLambdaHandlerTest {
         SQSEvent event = createSQSEvent(snsMsg1, snsMsg2, snsMsg3);
 
         // When: Handling request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should complete without error
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
     }
 
     @Test
@@ -226,10 +227,10 @@ class MergerLambdaHandlerTest {
         SQSEvent event = createSQSEvent(snsMsg1, snsMsg2);
 
         // When: Handling request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should process both messages without error
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
     }
 
     // ============================================================================
@@ -468,8 +469,8 @@ class MergerLambdaHandlerTest {
     }
 
     /**
-     * Tests that when S3 getObject fails for one file, the error is logged
-     * and the handler throws an exception.
+     * Tests that when S3 getObject fails for one file, its minute fails and only the message that named it is
+     * reported failed, to be retried and then dead-lettered.
      */
     @Test
     void testS3GetObjectFailure() throws Exception {
@@ -485,15 +486,16 @@ class MergerLambdaHandlerTest {
         when(s3Client.getObject(any(java.util.function.Consumer.class)))
                 .thenThrow(new RuntimeException("S3 getObject failed"));
 
-        // When/Then: Handling the request should throw an exception
-        try {
-            handler.handleRequest(event, context);
-            fail("Expected RuntimeException to be thrown");
-        } catch (RuntimeException e) {
-            // Expected
-            verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
-            verify(s3Client).getObject(any(java.util.function.Consumer.class));
-        }
+        // When: Handling the request
+        SQSBatchResponse result = handler.handleRequest(event, context);
+
+        // Then: its message is the batch's one failure
+        verify(s3Client).listObjectsV2Paginator(any(java.util.function.Consumer.class));
+        verify(s3Client).getObject(any(java.util.function.Consumer.class));
+        assertEquals(1, result.getBatchItemFailures().size());
+        assertEquals(
+                event.getRecords().get(0).getMessageId(),
+                result.getBatchItemFailures().get(0).getItemIdentifier());
     }
 
     // ============================================================================

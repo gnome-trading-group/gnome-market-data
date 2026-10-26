@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.SecurityMaster;
@@ -130,10 +131,10 @@ class GapLambdaHandlerTest {
         event.setRecords(new ArrayList<>());
 
         // When: Handling request
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Returns null and no gaps created
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
         verify(gapsTable, never()).putItem(any(Gap.class));
     }
 
@@ -145,10 +146,10 @@ class GapLambdaHandlerTest {
 
         // When: Handling request with malformed JSON
         // S3Utils catches exceptions and returns empty set, so no exception is thrown
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
         // Then: Should handle gracefully
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
         verify(gapsTable, never()).putItem(any(Gap.class));
     }
 
@@ -685,6 +686,7 @@ class GapLambdaHandlerTest {
 
         for (String snsMessage : snsMessages) {
             SQSEvent.SQSMessage message = new SQSEvent.SQSMessage();
+            message.setMessageId("message-" + records.size());
             message.setBody(snsMessage);
             records.add(message);
         }

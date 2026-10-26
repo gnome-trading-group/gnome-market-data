@@ -12,6 +12,18 @@ export interface StorageStackProps extends cdk.StackProps {
   config: MarketDataConfig;
 }
 
+export interface MonitoredQueue {
+  name: string;
+  queue: sqs.IQueue;
+  deadLetterQueue: sqs.IQueue;
+  maxAge: cdk.Duration;
+}
+
+// A message that fails three receives (one bad key, not the whole batch: the handlers report item failures) is set
+// aside for two weeks instead of retrying until it expires.
+const MAX_RECEIVES = 3;
+const DEAD_LETTER_RETENTION = cdk.Duration.days(14);
+
 export class StorageStack extends cdk.Stack {
   public readonly collectorsTable: dynamodb.Table;
   public readonly transformJobsTable: dynamodb.Table;
@@ -29,6 +41,8 @@ export class StorageStack extends cdk.Stack {
   public readonly qualityIssuesTable: dynamodb.Table;
   public readonly dailyListingStatisticsTable: dynamodb.Table;
   public readonly qualityCheckQueue: sqs.Queue;
+  // Each pipeline queue with its dead-letter queue and how old its oldest message may get, for the monitoring stack.
+  public readonly monitoredQueues: MonitoredQueue[] = [];
 
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
@@ -128,22 +142,19 @@ export class StorageStack extends cdk.Stack {
       pointInTimeRecovery: true,
     });
 
-    this.mergerQueue = new sqs.Queue(this, 'MergerQueue', {
-      queueName: 'market-data-merger-queue',
+    this.mergerQueue = this.monitoredQueue('MergerQueue', 'market-data-merger-queue', cdk.Duration.minutes(15), {
       visibilityTimeout: cdk.Duration.minutes(15),
       retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
-    this.transformerQueue = new sqs.Queue(this, 'TransformerQueue', {
-      queueName: 'market-data-transformer-queue',
+    this.transformerQueue = this.monitoredQueue('TransformerQueue', 'market-data-transformer-queue', cdk.Duration.minutes(15), {
       visibilityTimeout: cdk.Duration.minutes(15),
       retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
-    this.gapQueue = new sqs.Queue(this, 'GapQueue', {
-      queueName: 'market-data-gap-queue',
+    this.gapQueue = this.monitoredQueue('GapQueue', 'market-data-gap-queue', cdk.Duration.minutes(30), {
       visibilityTimeout: cdk.Duration.minutes(15),
       retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
@@ -180,15 +191,13 @@ export class StorageStack extends cdk.Stack {
       pointInTimeRecovery: true,
     });
 
-    this.qualityCheckQueue = new sqs.Queue(this, 'QualityCheckQueue', {
-      queueName: 'market-data-quality-check-queue',
+    this.qualityCheckQueue = this.monitoredQueue('QualityCheckQueue', 'market-data-quality-check-queue', cdk.Duration.minutes(15), {
       visibilityTimeout: cdk.Duration.minutes(15),
       retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
-    this.inventoryQueue = new sqs.Queue(this, 'InventoryQueue', {
-      queueName: 'market-data-inventory-queue',
+    this.inventoryQueue = this.monitoredQueue('InventoryQueue', 'market-data-inventory-queue', cdk.Duration.minutes(15), {
       visibilityTimeout: cdk.Duration.minutes(15),
       retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
@@ -215,5 +224,19 @@ export class StorageStack extends cdk.Stack {
       new s3notifications.SqsDestination(this.inventoryQueue),
       { prefix: 'market-data-inventory/', suffix: '.csv.gz' }
     );
+  }
+
+  private monitoredQueue(id: string, name: string, maxAge: cdk.Duration, props: sqs.QueueProps): sqs.Queue {
+    const deadLetterQueue = new sqs.Queue(this, `${id}DeadLetter`, {
+      queueName: `${name}-dlq`,
+      retentionPeriod: DEAD_LETTER_RETENTION,
+    });
+    const queue = new sqs.Queue(this, id, {
+      ...props,
+      queueName: name,
+      deadLetterQueue: { queue: deadLetterQueue, maxReceiveCount: MAX_RECEIVES },
+    });
+    this.monitoredQueues.push({ name, queue, deadLetterQueue, maxAge });
+    return queue;
   }
 }

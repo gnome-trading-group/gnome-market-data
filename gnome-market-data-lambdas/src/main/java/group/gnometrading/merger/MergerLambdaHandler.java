@@ -2,14 +2,14 @@ package group.gnometrading.merger;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
-import group.gnometrading.S3Utils;
+import group.gnometrading.SqsBatch;
 import group.gnometrading.data.StreamEntry;
 import group.gnometrading.schemas.StreamRecord;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,7 +23,7 @@ import software.amazon.awssdk.services.s3.S3Client;
  * Lambda handler for processing S3 object creation events from SQS queue.
  * This handler receives S3 event notifications via SQS and processes raw market data files.
  */
-public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void> {
+public final class MergerLambdaHandler implements RequestHandler<SQSEvent, SQSBatchResponse> {
 
     private static final MergeStrategy MERGE_STRATEGY = new FullestCopyMergeStrategy();
 
@@ -50,22 +50,17 @@ public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void>
     }
 
     @Override
-    public Void handleRequest(SQSEvent event, Context context) {
-        try {
-            Set<StreamEntry> rawKeys = S3Utils.extractKeysFromS3Event(event, objectMapper);
-            logger.info("Found {} raw keys in S3 event", rawKeys.size());
+    public SQSBatchResponse handleRequest(SQSEvent event, Context context) {
+        return SqsBatch.forEachUnit(event, objectMapper, MergerLambdaHandler::mergedEntryOf, true, merged -> {
+            mergeEntries(merged, rawKeysOf(merged));
+        });
+    }
 
-            Map<StreamEntry, Set<StreamEntry>> allKeys = aggregateRawKeys(rawKeys);
-
-            allKeys.entrySet().parallelStream().forEach(entry -> {
-                mergeEntries(entry.getKey(), entry.getValue());
-            });
-        } catch (Exception e) {
-            logger.error("Error processing messages: {}", e.getMessage());
-            throw new RuntimeException("Failed to process messages", e);
-        }
-
-        return null;
+    /** The merged minute a raw collector file belongs to; every raw copy of a minute merges into one. */
+    private static StreamEntry mergedEntryOf(StreamEntry raw) {
+        assert raw.getEntryType() == StreamEntry.EntryType.RAW : "Expected raw entry, got " + raw.getEntryType();
+        return new StreamEntry(
+                raw.getStreamId(), raw.getRecordType(), raw.getTimestamp(), StreamEntry.EntryType.AGGREGATED);
     }
 
     private void mergeEntries(StreamEntry mergedEntry, Set<StreamEntry> rawEntries) {
@@ -88,28 +83,13 @@ public final class MergerLambdaHandler implements RequestHandler<SQSEvent, Void>
         logger.info("Wrote {} (out of {}) records to merged key {}", outputEntries.size(), totalRecords, mergedEntry);
     }
 
-    private Map<StreamEntry, Set<StreamEntry>> aggregateRawKeys(Set<StreamEntry> rawKeys) {
-        Set<StreamEntry> aggregatedKeys = new HashSet<>();
-        for (StreamEntry entry : rawKeys) {
-            assert entry.getEntryType() == StreamEntry.EntryType.RAW
-                    : "Expected raw entry, got " + entry.getEntryType();
-
-            StreamEntry mergedEntry = new StreamEntry(
-                    entry.getStreamId(), entry.getRecordType(), entry.getTimestamp(), StreamEntry.EntryType.AGGREGATED);
-            aggregatedKeys.add(mergedEntry);
-        }
-
-        Map<StreamEntry, Set<StreamEntry>> keys = new HashMap<>();
-        for (StreamEntry mergedEntry : aggregatedKeys) {
-            List<StreamEntry> availableKeys = StreamEntry.getRawKeys(
-                    s3Client,
-                    inputBucket,
-                    mergedEntry.getStreamId(),
-                    mergedEntry.getTimestamp(),
-                    mergedEntry.getRecordType());
-            keys.computeIfAbsent(mergedEntry, k -> new HashSet<>()).addAll(availableKeys);
-        }
-
-        return keys;
+    /** Every collector's raw copy of the minute, listed from the bucket rather than taken from the batch. */
+    private Set<StreamEntry> rawKeysOf(StreamEntry mergedEntry) {
+        return new HashSet<>(StreamEntry.getRawKeys(
+                s3Client,
+                inputBucket,
+                mergedEntry.getStreamId(),
+                mergedEntry.getTimestamp(),
+                mergedEntry.getRecordType()));
     }
 }

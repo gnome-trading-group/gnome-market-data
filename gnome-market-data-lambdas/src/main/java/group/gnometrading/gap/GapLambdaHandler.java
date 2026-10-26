@@ -2,11 +2,12 @@ package group.gnometrading.gap;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
-import group.gnometrading.S3Utils;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.SqsBatch;
 import group.gnometrading.data.StreamEntry;
 import group.gnometrading.schemas.RecordType;
 import group.gnometrading.sm.Listing;
@@ -18,7 +19,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,7 +33,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
  * Triggered by S3 events via SQS when new merged files are created.
  * Checks for missing previous minutes and records gaps in DynamoDB.
  */
-public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
+public final class GapLambdaHandler implements RequestHandler<SQSEvent, SQSBatchResponse> {
 
     private static final Logger logger = LogManager.getLogger(GapLambdaHandler.class);
     private static final int TWO_DAYS_IN_MINUTES = Math.toIntExact(TimeUnit.DAYS.toMinutes(2));
@@ -95,19 +95,8 @@ public final class GapLambdaHandler implements RequestHandler<SQSEvent, Void> {
     }
 
     @Override
-    public Void handleRequest(SQSEvent event, Context context) {
-        try {
-            Set<StreamEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, objectMapper);
-            logger.info("Found {} merged entries in S3 event", mergedEntries.size());
-
-            for (StreamEntry entry : mergedEntries) {
-                processEntry(entry);
-            }
-        } catch (Exception e) {
-            logger.error("Error processing messages: {}", e.getMessage());
-            throw new RuntimeException("Failed to process messages", e);
-        }
-        return null;
+    public SQSBatchResponse handleRequest(SQSEvent event, Context context) {
+        return SqsBatch.forEachUnit(event, objectMapper, entry -> entry, false, this::processEntry);
     }
 
     private void processEntry(StreamEntry entry) {

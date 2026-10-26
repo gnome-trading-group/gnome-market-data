@@ -110,12 +110,6 @@ export class BackendStack extends cdk.Stack {
       });
       props.collectorsTable.grantReadWriteData(fn);
 
-      // Blank orchestrator versions resolve to the latest release the orchestrator pipeline publishes.
-      fn.addToRolePolicy(new iam.PolicyStatement({
-        actions: ['ssm:GetParameter'],
-        resources: [`arn:aws:ssm:us-east-1:${this.account}:parameter/gnome/orchestrator/latest-version`],
-      }));
-
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: [
           'ecs:*',

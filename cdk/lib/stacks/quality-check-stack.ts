@@ -56,6 +56,8 @@ export class QualityCheckStack extends cdk.Stack {
     this.qualityCheckLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.qualityCheckQueue, {
       batchSize: 1_000,
       maxBatchingWindow: cdk.Duration.minutes(3),
+      // The handler returns the messages behind failed keys, so only those retry and dead-letter.
+      reportBatchItemFailures: true,
     }));
 
     const qualityBackfillLambda = new JavaLambda(this, `QualityBackfillLambda-${LAMBDAS_VERSION}`, {

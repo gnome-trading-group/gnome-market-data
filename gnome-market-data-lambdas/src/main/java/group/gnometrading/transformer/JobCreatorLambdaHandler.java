@@ -2,17 +2,17 @@ package group.gnometrading.transformer;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
-import group.gnometrading.S3Utils;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.SqsBatch;
 import group.gnometrading.data.StreamEntry;
 import group.gnometrading.schemas.RecordType;
 import group.gnometrading.schemas.converters.SchemaConversionRegistry;
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
@@ -24,7 +24,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  * Triggered by S3 events via SQS when new merged files are created.
  * Creates job entries in DynamoDB to be processed by JobProcessorLambdaHandler.
  */
-public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, Void> {
+public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, SQSBatchResponse> {
 
     private static final Logger logger = LogManager.getLogger(JobCreatorLambdaHandler.class);
 
@@ -53,19 +53,8 @@ public final class JobCreatorLambdaHandler implements RequestHandler<SQSEvent, V
     }
 
     @Override
-    public Void handleRequest(SQSEvent event, Context context) {
-        try {
-            Set<StreamEntry> mergedKeys = S3Utils.extractKeysFromS3Event(event, objectMapper);
-            logger.info("Found {} merged keys in S3 event", mergedKeys.size());
-
-            for (StreamEntry entry : mergedKeys) {
-                createTransformJobsForEntry(entry);
-            }
-        } catch (Exception e) {
-            logger.error("Error processing messages: {}", e.getMessage());
-            throw new RuntimeException("Failed to process messages", e);
-        }
-        return null;
+    public SQSBatchResponse handleRequest(SQSEvent event, Context context) {
+        return SqsBatch.forEachUnit(event, objectMapper, entry -> entry, false, this::createTransformJobsForEntry);
     }
 
     private void createTransformJobsForEntry(StreamEntry entry) {

@@ -132,6 +132,7 @@ class AppStage extends cdk.Stage {
       transformerJobProcessorLambda: transformerStack.transformerJobProcessorLambda,
       inventoryProcessorLambda: inventoryProcessorStack.processorFunction,
       qualityCheckLambda: qualityCheckStack.qualityCheckLambda,
+      queues: storageStack.monitoredQueues,
     });
   }
 }

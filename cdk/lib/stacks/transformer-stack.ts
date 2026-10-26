@@ -51,6 +51,8 @@ export class TransformerStack extends cdk.Stack {
     this.transformerJobCreatorLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.transformerQueue, {
       batchSize: 1_000,
       maxBatchingWindow: cdk.Duration.minutes(3),
+      // The handler returns the messages behind failed keys, so only those retry and dead-letter.
+      reportBatchItemFailures: true,
     }));
 
     const transformerJobProcessorLambda = new JavaLambda(this, `TransformerJobProcessorLambda-${LAMBDAS_VERSION}`, {

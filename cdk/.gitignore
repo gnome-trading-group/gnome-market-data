@@ -11,3 +11,10 @@ cdk.out
 /*/**/Dockerfile
 
 lambda-jars/
+
+# Python bytecode from running Lambda code locally
+__pycache__/
+*.pyc
+
+# Collector image build context, written by CollectorRegionalStack at synth (source: lib/stacks/collector-start.sh)
+lib/stacks/collector-docker/

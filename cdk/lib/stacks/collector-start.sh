@@ -36,4 +36,9 @@ unset GH_TOKEN
 # default heap triggers: on a fractional vCPU that pause exhausts the CPU quota and stalls every socket read for up
 # to a quarter second. 35% leaves the rest of the task's memory for the JIT, metaspace, threads and zstd buffers.
 HEAP_OPTS="-XX:InitialRAMPercentage=35 -XX:MaxRAMPercentage=35 -XX:+AlwaysPreTouch"
-exec java ${HEAP_OPTS} ${JAVA_OPTS:-} --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED -cp /app.jar "$MAIN_CLASS"
+# ZGC collects concurrently, so a collection doesn't stop the socket readers the way a G1 pause does; one
+# concurrent thread keeps it from taking the whole CPU quota. Minute files are kept in direct memory, outside this
+# heap. Setting GC_OPTS=-XX:+UseG1GC falls back to G1; adding it to JAVA_OPTS instead would select two collectors,
+# which the JVM refuses to start with.
+GC_OPTS="${GC_OPTS:--XX:+UseZGC -XX:ConcGCThreads=1}"
+exec java ${HEAP_OPTS} ${GC_OPTS} ${JAVA_OPTS:-} --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED -cp /app.jar "$MAIN_CLASS"

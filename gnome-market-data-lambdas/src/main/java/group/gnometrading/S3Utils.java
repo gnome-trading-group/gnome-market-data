@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.data.StreamEntry;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -16,17 +15,8 @@ public class S3Utils {
 
     private S3Utils() {}
 
-    public static Set<StreamEntry> extractKeysFromS3Event(SQSEvent event, ObjectMapper objectMapper) {
-        logger.info(
-                "Extracting keys from SQS event with {} messages",
-                event.getRecords().size());
-        return event.getRecords().stream()
-                .map(message -> extractKeysFromS3Event(message, objectMapper))
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-    }
-
-    private static Set<StreamEntry> extractKeysFromS3Event(SQSEvent.SQSMessage message, ObjectMapper objectMapper) {
+    /** The stream entries each S3 notification message names; a message that isn't one names none. */
+    public static Set<StreamEntry> extractKeysFromS3Event(SQSEvent.SQSMessage message, ObjectMapper objectMapper) {
         JsonNode sqsBody;
         try {
             sqsBody = objectMapper.readTree(message.getBody());

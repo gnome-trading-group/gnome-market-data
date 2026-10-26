@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.luben.zstd.ZstdOutputStream;
@@ -142,9 +143,9 @@ class QualityCheckLambdaHandlerTest {
         SQSEvent event = new SQSEvent();
         event.setRecords(new ArrayList<>());
 
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
         verify(qualityIssuesTable, never()).putItem(any(QualityIssue.class));
     }
 
@@ -152,9 +153,9 @@ class QualityCheckLambdaHandlerTest {
     void testMalformedJsonHandledGracefully() {
         SQSEvent event = createSQSEvent("{invalid json");
 
-        Void result = handler.handleRequest(event, context);
+        SQSBatchResponse result = handler.handleRequest(event, context);
 
-        assertNull(result);
+        assertTrue(result.getBatchItemFailures().isEmpty());
         verify(qualityIssuesTable, never()).putItem(any(QualityIssue.class));
     }
 
@@ -363,6 +364,7 @@ class QualityCheckLambdaHandlerTest {
     private SQSEvent createSQSEvent(String body) {
         SQSEvent event = new SQSEvent();
         SQSEvent.SQSMessage message = new SQSEvent.SQSMessage();
+        message.setMessageId("message-0");
         message.setBody(body);
         event.setRecords(List.of(message));
         return event;

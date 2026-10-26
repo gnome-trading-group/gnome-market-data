@@ -2,11 +2,12 @@ package group.gnometrading.quality;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.Dependencies;
-import group.gnometrading.S3Utils;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.SqsBatch;
 import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
@@ -16,14 +17,13 @@ import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.util.List;
-import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
-public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent, Void> {
+public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent, SQSBatchResponse> {
 
     private static final Logger logger = LogManager.getLogger(QualityCheckLambdaHandler.class);
 
@@ -68,19 +68,8 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
     }
 
     @Override
-    public Void handleRequest(SQSEvent event, Context context) {
-        try {
-            Set<StreamEntry> mergedEntries = S3Utils.extractKeysFromS3Event(event, objectMapper);
-            logger.info("Found {} merged entries in S3 event", mergedEntries.size());
-
-            for (StreamEntry entry : mergedEntries) {
-                processEntry(entry);
-            }
-        } catch (Exception e) {
-            logger.error("Error processing messages: {}", e.getMessage());
-            throw new RuntimeException("Failed to process messages", e);
-        }
-        return null;
+    public SQSBatchResponse handleRequest(SQSEvent event, Context context) {
+        return SqsBatch.forEachUnit(event, objectMapper, entry -> entry, false, this::processEntry);
     }
 
     private void processEntry(StreamEntry entry) {
