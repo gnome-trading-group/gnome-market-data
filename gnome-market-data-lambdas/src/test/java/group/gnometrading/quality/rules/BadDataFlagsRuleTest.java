@@ -50,7 +50,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testNoIssuesWhenNoFlagsSet() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.flags().badData(false);
@@ -63,7 +63,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testIssueForMaybeBadBookFlag() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.flags().badData(true);
@@ -77,7 +77,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testIssueForBadTimestampRecvFlag() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.flags().badTimestampRecv(true);
@@ -90,7 +90,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testIssueDetailsCountsBothFlagTypes() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.flags().badData(true);
@@ -108,7 +108,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testIssueForMbp1Schema() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE);
 
         Mbp1Schema s = new Mbp1Schema();
         s.encoder.flags().badData(true);
@@ -121,7 +121,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testIssueForMboSchema() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE);
 
         MboSchema s = new MboSchema();
         s.encoder.flags().badTimestampRecv(true);
@@ -134,7 +134,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testNoIssueForUnsupportedSchema() {
-        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE);
 
         var issues = rule.check(entry, List.of(), listing, clock);
 
@@ -143,7 +143,7 @@ class BadDataFlagsRuleTest {
 
     @Test
     void testNoIssueForEmptyRecords() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(entry, List.of(), listing, clock);
 

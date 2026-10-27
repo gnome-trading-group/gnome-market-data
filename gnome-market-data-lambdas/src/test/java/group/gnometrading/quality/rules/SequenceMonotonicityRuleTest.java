@@ -48,7 +48,7 @@ class SequenceMonotonicityRuleTest {
 
     @Test
     void testNoIssuesForStrictlyIncreasing() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(entry, List.of(schema(1), schema(2), schema(3), schema(100)), listing, clock);
 
@@ -57,7 +57,7 @@ class SequenceMonotonicityRuleTest {
 
     @Test
     void testNoIssueForDuplicate() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(entry, List.of(schema(1), schema(2), schema(2), schema(3)), listing, clock);
 
@@ -67,7 +67,7 @@ class SequenceMonotonicityRuleTest {
     @Test
     void testIssueWhenAllOutOfOrder() {
         // 1/1 transitions = 100% > 20% threshold
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(entry, List.of(schema(5), schema(4)), listing, clock);
 
@@ -79,7 +79,7 @@ class SequenceMonotonicityRuleTest {
     @Test
     void testIssueDetailsIncludesPercentage() {
         // [1, 1, 5, 3, 10]: 1 decrease out of 4 transitions = 25% > 20%
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(entry, List.of(schema(1), schema(1), schema(5), schema(3), schema(10)), listing, clock);
 
@@ -92,7 +92,7 @@ class SequenceMonotonicityRuleTest {
     @Test
     void testNoIssueForMinorJitter() {
         // 1 decrease out of 10 transitions = 10% — under the 20% threshold
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(
                 entry,
@@ -117,7 +117,7 @@ class SequenceMonotonicityRuleTest {
     @Test
     void testIssueAtBoundary() {
         // 2 decreases out of 9 transitions = 22.2% — just over the 20% threshold
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(
                 entry,
@@ -140,7 +140,7 @@ class SequenceMonotonicityRuleTest {
 
     @Test
     void testNoIssueForSingleRecord() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(entry, List.of(schema(1)), listing, clock);
 
@@ -149,7 +149,7 @@ class SequenceMonotonicityRuleTest {
 
     @Test
     void testNoIssueForEmptyRecords() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(entry, List.of(), listing, clock);
 

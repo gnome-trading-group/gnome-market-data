@@ -11,6 +11,8 @@ export interface JavaLambdaProps {
   classPath: string;
   memorySize?: number;
   environment?: { [key: string]: string };
+  reservedConcurrentExecutions?: number;
+  timeout?: cdk.Duration;
 }
 
 export class JavaLambda extends Construct {
@@ -47,7 +49,8 @@ export class JavaLambda extends Construct {
         cmd: [`${props.classPath}::handleRequest`],
       }),
       memorySize: props.memorySize ?? 2048,
-      timeout: cdk.Duration.minutes(15),
+      reservedConcurrentExecutions: props.reservedConcurrentExecutions,
+      timeout: props.timeout ?? cdk.Duration.minutes(15),
       environment,
       loggingFormat: lambda.LoggingFormat.JSON,
       logRetention: logs.RetentionDays.ONE_MONTH,

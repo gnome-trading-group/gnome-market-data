@@ -18,3 +18,4 @@ __pycache__/
 
 # Collector image build context, written by CollectorRegionalStack at synth (source: lib/stacks/collector-start.sh)
 lib/stacks/collector-docker/
+lib/stacks/shard-docker/

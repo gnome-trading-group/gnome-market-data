@@ -4,26 +4,11 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
-import * as events from "aws-cdk-lib/aws-events";
-import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 
-export interface CollectorRegionConfig {
-  region: string;
-  clusterName: string;
-  clusterArn: string;
-  taskDefinitionFamily: string;
-  securityGroupId: string;
-  subnetIds: string[];
-  logGroupName: string;
-}
-
 interface BackendStackProps extends cdk.StackProps {
-  collectorsTable: dynamodb.ITable;
-  collectorRegions: Record<string, CollectorRegionConfig>;
-  collectorEventBus: events.IEventBus;
-  transformJobsTable: dynamodb.ITable;
   gapsTable: dynamodb.ITable;
   finalBucket: s3.IBucket;
   metadataBucket: s3.IBucket;
@@ -32,7 +17,13 @@ interface BackendStackProps extends cdk.StackProps {
   dailyListingStatisticsTable: dynamodb.ITable;
   qualityBackfillLambda: lambda.IFunction;
   qualityInvestigationLambda: lambda.IFunction;
-  bboTimelineLambda: lambda.IFunction;
+  collectionRulesTable: dynamodb.ITable;
+  collectionTargetsTable: dynamodb.ITable;
+  collectionShardsTable: dynamodb.ITable;
+  collectionCoverageTable: dynamodb.ITable;
+  collectionGapsTable: dynamodb.ITable;
+  reconcilerQueue: sqs.IQueue;
+  collectionRegions: string[];
 }
 
 interface EndpointConfig {
@@ -92,121 +83,19 @@ export class BackendStack extends cdk.Stack {
       description: "Common Python dependencies for all Lambda functions",
     });
 
-    const collectorRegionsJson = JSON.stringify(props.collectorRegions);
-
-    const createLambdaFunction = (name: string, handlerPath: string): lambda.Function => {
-      const fn = new lambda.Function(this, name, {
-        runtime: lambda.Runtime.PYTHON_3_13,
-        handler: "index.handler",
-        code: lambda.Code.fromAsset(handlerPath),
-        layers: [commonLayer],
-        // CPU scales with memory; at the 128MB default boto3 setup alone made every UI call take seconds.
-        memorySize: 512,
-        timeout: cdk.Duration.seconds(30),
-        environment: {
-          COLLECTORS_TABLE_NAME: props.collectorsTable.tableName,
-          COLLECTOR_REGIONS: collectorRegionsJson,
-        },
-      });
-      props.collectorsTable.grantReadWriteData(fn);
-
-      fn.addToRolePolicy(new iam.PolicyStatement({
-        actions: [
-          'ecs:*',
-          'iam:PassRole',
-          'logs:DescribeLogStreams',
-          'logs:GetLogEvents',
-        ],
-        resources: ['*'],  // TODO: Restrict to specific resources
-      }));
-
-      return fn;
-    };
-
-    const createEndpoint = (config: EndpointConfig) => {
-      const fn = createLambdaFunction(
-        `${config.name}Function`,
-        `lambda/functions/collectors/${config.handlerPath}`
-      );
-
-      const pathParts = config.path.split('/').filter(Boolean);
+    const route = (path: string, method: string, fn: lambda.IFunction) => {
       let resource = this.api.root;
-      for (const part of pathParts) {
+      for (const part of path.split('/').filter(Boolean)) {
         resource = resource.getResource(part) || resource.addResource(part);
       }
-
-      const methodOptions: apigateway.MethodOptions = {
+      resource.addMethod(method, new apigateway.LambdaIntegration(fn), {
         apiKeyRequired: false,
         authorizationType: apigateway.AuthorizationType.COGNITO,
-        authorizer: authorizer,
-      };
-
-      resource.addMethod(
-        config.method,
-        new apigateway.LambdaIntegration(fn),
-        methodOptions,
-      );
+        authorizer,
+      });
     };
 
-    const endpoints: EndpointConfig[] = [
-      {
-        name: "CreateCollector",
-        path: "collectors/create",
-        method: "POST",
-        handlerPath: "create",
-      },
-      {
-        name: "ListCollectors",
-        path: "collectors/list",
-        method: "GET",
-        handlerPath: "list",
-      },
-      {
-        name: "GetCollector",
-        path: "collectors/{listingId}",
-        method: "GET",
-        handlerPath: "get",
-      },
-      {
-        name: "DeleteCollector",
-        path: "collectors/delete",
-        method: "DELETE",
-        handlerPath: "delete",
-      },
-      {
-        name: "PurgeCollector",
-        path: "collectors/purge",
-        method: "DELETE",
-        handlerPath: "purge",
-      },
-      {
-        name: "RedeployCollectors",
-        path: "collectors/redeploy",
-        method: "POST",
-        handlerPath: "redeploy",
-      },
-      {
-        name: "CollectorLogs",
-        path: "collectors/{listingId}/logs",
-        method: "GET",
-        handlerPath: "logs",
-      },
-    ];
-
-    const transformJobsEndpoints: EndpointConfig[] = [
-      {
-        name: "ListTransformJobs",
-        path: "transform-jobs/list",
-        method: "GET",
-        handlerPath: "transform-jobs/list",
-      },
-      {
-        name: "SearchTransformJobs",
-        path: "transform-jobs/search",
-        method: "GET",
-        handlerPath: "transform-jobs/search",
-      },
-    ];
+    this.collectionRoutes(props, commonLayer, route);
 
     const gapsEndpoints: EndpointConfig[] = [
       {
@@ -244,8 +133,6 @@ export class BackendStack extends cdk.Stack {
       },
     ];
 
-    endpoints.forEach(createEndpoint);
-
     const createMarketDataLambda = (name: string, handlerPath: string): lambda.Function => {
       const fn = new lambda.Function(this, name, {
         runtime: lambda.Runtime.PYTHON_3_13,
@@ -254,7 +141,6 @@ export class BackendStack extends cdk.Stack {
         layers: [commonLayer],
         timeout: cdk.Duration.seconds(30),
         environment: {
-          TRANSFORM_JOBS_TABLE_NAME: props.transformJobsTable.tableName,
           GAPS_TABLE_NAME: props.gapsTable.tableName,
           FINAL_BUCKET_NAME: props.finalBucket.bucketName,
           METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
@@ -263,7 +149,6 @@ export class BackendStack extends cdk.Stack {
         },
       });
 
-      props.transformJobsTable.grantReadWriteData(fn);
       props.gapsTable.grantReadWriteData(fn);
       props.finalBucket.grantRead(fn);
       props.metadataBucket.grantRead(fn);
@@ -319,7 +204,6 @@ export class BackendStack extends cdk.Stack {
       },
     ];
 
-    transformJobsEndpoints.forEach(createMarketDataEndpoint);
     gapsEndpoints.forEach(createMarketDataEndpoint);
     coverageEndpoints.forEach(createMarketDataEndpoint);
     qualityIssuesEndpoints.forEach(createMarketDataEndpoint);
@@ -408,58 +292,77 @@ export class BackendStack extends cdk.Stack {
       { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
     );
 
-    // BBO timeline — synchronous invocation of the Java BBO timeline Lambda
-    const bboTimelineProxyLambda = new lambda.Function(this, "BboTimelineFunction", {
-      runtime: lambda.Runtime.PYTHON_3_13,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/functions/bbo/timeline"),
-      layers: [commonLayer],
-      timeout: cdk.Duration.seconds(60),
-      environment: {
-        BBO_TIMELINE_FUNCTION_NAME: props.bboTimelineLambda.functionName,
-      },
-    });
-    props.bboTimelineLambda.grantInvoke(bboTimelineProxyLambda);
-
-    const bboResource = this.api.root.addResource("bbo");
-    const bboTimelineResource = bboResource.addResource("timeline").addResource("{listingId}");
-    bboTimelineResource.addMethod(
-      "GET",
-      new apigateway.LambdaIntegration(bboTimelineProxyLambda),
-      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
-    );
-
-    const collectorEcsMonitorLambda = new lambda.Function(this, "CollectorEcsMonitorLambda", {
-      runtime: lambda.Runtime.PYTHON_3_13,
-      handler: "index.lambda_handler",
-      code: lambda.Code.fromAsset("lambda/functions/collectors/ecs-monitor"),
-      layers: [commonLayer],
-      environment: {
-        COLLECTORS_TABLE_NAME: props.collectorsTable.tableName,
-        COLLECTOR_REGIONS: collectorRegionsJson,
-      },
-      timeout: cdk.Duration.seconds(30),
-    });
-
-    props.collectorsTable.grantReadWriteData(collectorEcsMonitorLambda);
-
-    // Rule on the collector event bus that handles all ECS events (forwarded from all regions)
-    const ecsMonitorRule = new events.Rule(this, "CollectorEcsMonitorRule", {
-      eventBus: props.collectorEventBus,
-      eventPattern: {
-        source: ["aws.ecs"],
-        detailType: ["ECS Task State Change"],
-        detail: {
-          lastStatus: ["RUNNING", "STOPPED", "PENDING"],
-        },
-      },
-    });
-    ecsMonitorRule.addTarget(new targets.LambdaFunction(collectorEcsMonitorLambda));
-
-
     new cdk.CfnOutput(this, "ApiUrl", {
       value: this.api.url,
       description: "API Gateway URL",
     });
   }
-} 
+
+  /**
+   * The collection control plane's API: rules people edit, the reconciler's targets and shards to read, a trigger that
+   * ticks it now, and coverage. Every rule change wakes the reconciler through its queue; nothing here writes targets
+   * or shards, which only the reconciler does.
+   */
+  private collectionRoutes(
+    props: BackendStackProps,
+    commonLayer: lambda.ILayerVersion,
+    route: (path: string, method: string, fn: lambda.IFunction) => void,
+  ) {
+    const environment = {
+      COLLECTION_RULES_TABLE: props.collectionRulesTable.tableName,
+      COLLECTION_TARGETS_TABLE: props.collectionTargetsTable.tableName,
+      COLLECTION_SHARDS_TABLE: props.collectionShardsTable.tableName,
+      COLLECTION_COVERAGE_TABLE: props.collectionCoverageTable.tableName,
+      COLLECTION_GAPS_TABLE: props.collectionGapsTable.tableName,
+      METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
+      RECONCILER_QUEUE_URL: props.reconcilerQueue.queueUrl,
+    };
+    const handler = (id: string, dir: string) => new lambda.Function(this, id, {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset(`lambda/functions/collection/${dir}`),
+      layers: [commonLayer],
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      environment,
+    });
+
+    const rules = handler("CollectionRulesFunction", "rules");
+    props.collectionRulesTable.grantReadWriteData(rules);
+    props.reconcilerQueue.grantSendMessages(rules);
+    route("collection/rules", "GET", rules);
+    route("collection/rules", "POST", rules);
+    route("collection/rules/{ruleId}", "PATCH", rules);
+    route("collection/rules/{ruleId}", "DELETE", rules);
+
+    const triggers = handler("CollectionTriggersFunction", "triggers");
+    props.reconcilerQueue.grantSendMessages(triggers);
+    route("collection/triggers", "POST", triggers);
+
+    const targets = handler("CollectionTargetsFunction", "targets");
+    props.collectionTargetsTable.grantReadData(targets);
+    route("collection/targets", "GET", targets);
+
+    const shards = handler("CollectionShardsFunction", "shards");
+    props.collectionShardsTable.grantReadData(shards);
+    route("collection/shards", "GET", shards);
+
+    const shard = handler("CollectionShardFunction", "shard");
+    props.collectionShardsTable.grantReadData(shard);
+    props.metadataBucket.grantRead(shard, "collection/shards/*");
+    route("collection/shards/{shardId}", "GET", shard);
+
+    const shardLogs = handler("CollectionShardLogsFunction", "shard-logs");
+    shardLogs.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["logs:GetLogEvents"],
+      resources: props.collectionRegions.map(
+        (region) => `arn:aws:logs:${region}:${this.account}:log-group:/collection/shards-${region}:*`),
+    }));
+    route("collection/shards/{shardId}/logs", "GET", shardLogs);
+
+    const coverage = handler("CollectionCoverageFunction", "coverage");
+    props.collectionCoverageTable.grantReadData(coverage);
+    props.collectionGapsTable.grantReadData(coverage);
+    route("collection/coverage/{streamId}", "GET", coverage);
+  }
+}

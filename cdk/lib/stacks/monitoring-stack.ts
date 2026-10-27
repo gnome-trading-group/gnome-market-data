@@ -1,21 +1,15 @@
 import * as cdk from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as cw from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
-import { CustomMetricGroup, DefaultDashboardFactory, MonitoringFacade, noopAction } from "cdk-monitoring-constructs";
-import { COLLECTOR_METRICS_NAMESPACE, COLLECTOR_ERROR_METRIC_NAME } from "./collector-regional-stack";
+import { DefaultDashboardFactory, MonitoringFacade, noopAction } from "cdk-monitoring-constructs";
 import { MarketDataConfig } from "../config";
 import { MonitoredQueue } from "./storage-stack";
 
 export interface MonitoringStackProps extends cdk.StackProps {
   config: MarketDataConfig;
-  collectorRegions: string[];
   api: apigateway.RestApi;
-  gapLambda: lambda.Function;
-  mergerLambda: lambda.Function;
-  transformerJobCreatorLambda: lambda.Function;
-  transformerJobProcessorLambda: lambda.Function;
+  reconcilerLambda: lambda.Function;
   inventoryProcessorLambda: lambda.Function;
   qualityCheckLambda: lambda.Function;
   queues: MonitoredQueue[];
@@ -42,24 +36,6 @@ export class MonitoringStack extends cdk.Stack {
       },
     });
 
-    const collectorLogMetrics: CustomMetricGroup[] = [];
-    for (const region of props.collectorRegions) {
-      collectorLogMetrics.push(
-        {
-          metrics: [
-            new cw.Metric({
-              namespace: COLLECTOR_METRICS_NAMESPACE,
-              metricName: `${COLLECTOR_ERROR_METRIC_NAME}-${region}`,
-              region: region,
-              statistic: 'Sum',
-              period: cdk.Duration.minutes(1),
-            }),
-          ],
-          title: region,
-        }
-      );
-    }
-
     const lambdaAlarms: Record<string, any> = {
       addFaultCountAlarm: {
         Error: { maxErrorCount: 0, },
@@ -67,39 +43,20 @@ export class MonitoringStack extends cdk.Stack {
     };
 
     monitoring
-      .monitorCustom({
-        alarmFriendlyName: 'CollectorECSLogErrors',
-        humanReadableName: 'Collector ECS Log Errors',
-        metricGroups: collectorLogMetrics,
-      })
       .monitorApiGateway({
         api: props.api,
         humanReadableName: 'MarketData API',
         alarmFriendlyName: 'MarketDataApi',
       })
+      // RECONCILER_FAILING: a tick that throws fails its batch and the next minute's tick retries, so one failure is
+      // noise; three in the alarm's period mean placement and coverage have stopped.
       .monitorLambdaFunction({
-        lambdaFunction: props.mergerLambda,
-        humanReadableName: 'Merger Lambda',
-        alarmFriendlyName: 'MergerLambda',
-        ...lambdaAlarms,
-      })
-      .monitorLambdaFunction({
-        lambdaFunction: props.transformerJobCreatorLambda,
-        humanReadableName: 'Transformer Job Creator Lambda',
-        alarmFriendlyName: 'TransformerJobCreatorLambda',
-        ...lambdaAlarms,
-      })
-      .monitorLambdaFunction({
-        lambdaFunction: props.transformerJobProcessorLambda,
-        humanReadableName: 'Transformer Job Processor Lambda',
-        alarmFriendlyName: 'TransformerJobProcessorLambda',
-        ...lambdaAlarms,
-      })
-      .monitorLambdaFunction({
-        lambdaFunction: props.gapLambda,
-        humanReadableName: 'Gap Detector Lambda',
-        alarmFriendlyName: 'GapDetectorLambda',
-        ...lambdaAlarms,
+        lambdaFunction: props.reconcilerLambda,
+        humanReadableName: 'Collection Reconciler Lambda',
+        alarmFriendlyName: 'ReconcilerLambda',
+        addFaultCountAlarm: {
+          Error: { maxErrorCount: 2 },
+        },
       })
       .monitorLambdaFunction({
         lambdaFunction: props.inventoryProcessorLambda,

@@ -5,9 +5,9 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.SQSBatchResponse;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import group.gnometrading.Dependencies;
 import group.gnometrading.SecurityMaster;
-import group.gnometrading.SqsBatch;
+import group.gnometrading.common.Dependencies;
+import group.gnometrading.common.SqsBatch;
 import group.gnometrading.data.StreamEntry;
 import group.gnometrading.quality.model.HourlyListingStatistic;
 import group.gnometrading.quality.model.QualityIssue;
@@ -17,6 +17,7 @@ import group.gnometrading.schemas.StreamRecord;
 import group.gnometrading.sm.Listing;
 import java.time.Clock;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
@@ -31,9 +32,11 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
     private final S3Client s3Client;
     private final SecurityMaster securityMaster;
     private final DynamoDbTable<QualityIssue> qualityIssuesTable;
-    private final String mergedBucketName;
+    private final String finalBucketName;
     private final Clock clock;
     private final List<QualityRule> rules;
+    // market-data's quality_checks.enabled: off, a batch is acknowledged without being read.
+    private final BooleanSupplier enabled;
 
     public QualityCheckLambdaHandler() {
         this(
@@ -41,11 +44,16 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
                 Dependencies.getInstance().getS3Client(),
                 Dependencies.getInstance().getSecurityMaster(),
                 Dependencies.getInstance().getQualityIssuesTable(),
-                Dependencies.getInstance().getMergedBucketName(),
+                Dependencies.getInstance().getFinalBucketName(),
                 Dependencies.getInstance().getClock(),
                 Dependencies.getInstance().getHourlyListingStatisticsTable(),
                 Dependencies.getInstance().getDynamoDbClient(),
-                Dependencies.getInstance().getListingStatisticsTableName());
+                Dependencies.getInstance().getListingStatisticsTableName(),
+                () -> Dependencies.getInstance()
+                        .getServiceConfig()
+                        .get()
+                        .qualityChecks()
+                        .enabled());
     }
 
     QualityCheckLambdaHandler(
@@ -53,22 +61,30 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
             S3Client s3Client,
             SecurityMaster securityMaster,
             DynamoDbTable<QualityIssue> qualityIssuesTable,
-            String mergedBucketName,
+            String finalBucketName,
             Clock clock,
             DynamoDbTable<HourlyListingStatistic> hourlyStatisticsTable,
             DynamoDbClient dynamoDbClient,
-            String statisticsTableName) {
+            String statisticsTableName,
+            BooleanSupplier enabled) {
         this.objectMapper = objectMapper;
         this.s3Client = s3Client;
         this.securityMaster = securityMaster;
         this.qualityIssuesTable = qualityIssuesTable;
-        this.mergedBucketName = mergedBucketName;
+        this.finalBucketName = finalBucketName;
         this.clock = clock;
         this.rules = QualityRuleFactory.buildAll(hourlyStatisticsTable, dynamoDbClient, statisticsTableName);
+        this.enabled = enabled;
     }
 
     @Override
     public SQSBatchResponse handleRequest(SQSEvent event, Context context) {
+        if (!enabled.getAsBoolean()) {
+            logger.info(
+                    "Quality checks are off; skipping {} messages",
+                    event.getRecords() == null ? 0 : event.getRecords().size());
+            return new SQSBatchResponse(List.of());
+        }
         return SqsBatch.forEachUnit(event, objectMapper, entry -> entry, false, this::processEntry);
     }
 
@@ -81,7 +97,7 @@ public final class QualityCheckLambdaHandler implements RequestHandler<SQSEvent,
             return;
         }
 
-        List<StreamRecord> records = entry.loadFromS3(s3Client, mergedBucketName);
+        List<StreamRecord> records = entry.loadFromS3(s3Client, finalBucketName);
 
         int totalIssues = 0;
         for (QualityRule rule : rules) {

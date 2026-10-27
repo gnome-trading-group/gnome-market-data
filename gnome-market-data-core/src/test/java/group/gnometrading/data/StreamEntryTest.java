@@ -1,8 +1,6 @@
 package group.gnometrading.data;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -53,10 +51,7 @@ class StreamEntryTest {
     void keysAreStreamFamilyRecordThenZeroPaddedTime() {
         assertEquals(
                 "1962670/book/mbp-10/2026/04/05/09/07.zst",
-                new StreamEntry(1_962_670, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED).getKey());
-        assertEquals(
-                "42/book/trades/2026/04/05/09/07/abcd1234.zst",
-                new StreamEntry(42, RecordType.TRADES, MINUTE, StreamEntry.EntryType.RAW, "abcd1234").getKey());
+                new StreamEntry(1_962_670, RecordType.MBP_10, MINUTE).getKey());
         assertEquals(
                 "raw/KALSHI/shard-1/KALSHI-0/2026/04/05/09/07/f00d.zst",
                 StreamEntry.rawCaptureKey("KALSHI", "shard-1", "KALSHI-0", MINUTE, "f00d"));
@@ -65,10 +60,8 @@ class StreamEntryTest {
     @Test
     void keysParseBackToTheirEntry() {
         for (RecordType type : RecordType.values()) {
-            StreamEntry aggregated = new StreamEntry(9, type, MINUTE, StreamEntry.EntryType.AGGREGATED);
-            StreamEntry raw = new StreamEntry(9, type, MINUTE, StreamEntry.EntryType.RAW);
-            assertEquals(Optional.of(aggregated), StreamEntry.parse(aggregated.getKey()));
-            assertEquals(Optional.of(raw), StreamEntry.parse(raw.getKey()));
+            StreamEntry entry = new StreamEntry(9, type, MINUTE);
+            assertEquals(Optional.of(entry), StreamEntry.parse(entry.getKey()));
         }
     }
 
@@ -76,20 +69,15 @@ class StreamEntryTest {
     void keysOfOtherLayoutsParseToNothing() {
         assertTrue(StreamEntry.parse("532/151/2025/4/15/10/30/mbp-10.zst").isEmpty(), "the old layout");
         assertTrue(StreamEntry.parse("42/raw/2026/04/05/09/07/f00d.zst").isEmpty(), "raw capture");
+        assertTrue(StreamEntry.parse("42/book/mbp-10/2026/04/05/09/07/f00d.zst").isEmpty(), "a retired raw copy");
         assertTrue(StreamEntry.parse("42/esports/mbp-10/2026/04/05/09/07.zst").isEmpty(), "record of another family");
         assertTrue(StreamEntry.parse("42/book/nope/2026/04/05/09/07.zst").isEmpty(), "unknown record");
         assertTrue(StreamEntry.parse("market-data-inventory/manifest.json").isEmpty());
     }
 
     @Test
-    void rawEntriesGetAnIdOfTheirOwn() {
-        assertNotNull(new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.RAW).getUuid());
-        assertNull(new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED).getUuid());
-    }
-
-    @Test
     void savedRecordsLoadBackInOrder() throws IOException {
-        StreamEntry entry = new StreamEntry(7, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(7, RecordType.MBP_10, MINUTE);
         Mbp10Schema first = new Mbp10Schema();
         first.encoder.streamId(7).sequence(1).bidPrice0(100);
         Mbp10Schema second = new Mbp10Schema();
@@ -118,8 +106,7 @@ class StreamEntryTest {
         trade.encoder.streamId(3).sequence(2);
         serve(compress(concat(bytes(book), bytes(trade))));
 
-        List<StreamRecord> records = new StreamEntry(3, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED)
-                .loadFromS3(s3Client, "b");
+        List<StreamRecord> records = new StreamEntry(3, RecordType.MBP_10, MINUTE).loadFromS3(s3Client, "b");
 
         assertEquals(RecordType.MBP_10, records.get(0).recordType);
         assertEquals(RecordType.TRADES, records.get(1).recordType);
@@ -139,7 +126,7 @@ class StreamEntryTest {
     void anEmptyFileHasNoRecords() throws IOException {
         serve(compress(new byte[0]));
 
-        assertTrue(new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED)
+        assertTrue(new StreamEntry(1, RecordType.MBP_10, MINUTE)
                 .loadFromS3(s3Client, "b")
                 .isEmpty());
     }
@@ -161,16 +148,6 @@ class StreamEntryTest {
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder();
         request.getValue().accept(builder);
         assertEquals("7/book/mbp-10/2026/04/05/", builder.build().prefix());
-    }
-
-    @Test
-    void rawKeysAreTheMinutesCollectorCopies() {
-        stubListing("7/book/mbp-10/2026/04/05/09/07/aaaa.zst", "7/book/mbp-10/2026/04/05/09/07/bbbb.zst");
-
-        List<StreamEntry> raws = StreamEntry.getRawKeys(s3Client, "raw", 7, MINUTE, RecordType.MBP_10);
-
-        assertEquals(2, raws.size());
-        assertEquals(StreamEntry.EntryType.RAW, raws.get(0).getEntryType());
     }
 
     private void stubListing(String... keys) {

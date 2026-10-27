@@ -3,8 +3,6 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3notifications from "aws-cdk-lib/aws-s3-notifications";
 import * as sqs from "aws-cdk-lib/aws-sqs";
-import * as sns from "aws-cdk-lib/aws-sns";
-import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import { Construct } from "constructs";
 import { MarketDataConfig } from "../config";
 
@@ -25,18 +23,17 @@ const MAX_RECEIVES = 3;
 const DEAD_LETTER_RETENTION = cdk.Duration.days(14);
 
 export class StorageStack extends cdk.Stack {
-  public readonly collectorsTable: dynamodb.Table;
-  public readonly transformJobsTable: dynamodb.Table;
   public readonly gapsTable: dynamodb.Table;
   public readonly coverageTable: dynamodb.Table;
-  public readonly rawBucket: s3.Bucket;
-  public readonly mergedBucket: s3.Bucket;
+  // The collection control plane (Phase 6): what to collect, where it runs, and what was collected when.
+  public readonly collectionRulesTable: dynamodb.Table;
+  public readonly collectionTargetsTable: dynamodb.Table;
+  public readonly collectionShardsTable: dynamodb.Table;
+  public readonly collectionCoverageTable: dynamodb.Table;
+  public readonly collectionGapsTable: dynamodb.Table;
   public readonly finalBucket: s3.Bucket;
   public readonly metadataBucket: s3.Bucket;
   public readonly exchangeRawBucket: s3.Bucket;
-  public readonly mergerQueue: sqs.Queue;
-  public readonly transformerQueue: sqs.Queue;
-  public readonly gapQueue: sqs.Queue;
   public readonly inventoryQueue: sqs.Queue;
   public readonly qualityIssuesTable: dynamodb.Table;
   public readonly dailyListingStatisticsTable: dynamodb.Table;
@@ -47,17 +44,15 @@ export class StorageStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
 
-    this.rawBucket = new s3.Bucket(this, 'CollectorRawBucket', {
-      bucketName: `gnome-market-data-raw-${props.config.account.stage}`,
-    });
-    this.mergedBucket = new s3.Bucket(this, 'CollectorArchiveBucket', {
-      bucketName: `gnome-market-data-merged-${props.config.account.stage}`,
-    });
+    // Shards write each minute here directly, once (gnome-strategies CycleManager, conditional put).
     this.finalBucket = new s3.Bucket(this, 'CollectorBucket', {
       bucketName: `gnome-market-data-${props.config.account.stage}`,
     });
     this.metadataBucket = new s3.Bucket(this, 'CollectorMetadataBucket', {
       bucketName: `gnome-market-data-metadata-${props.config.account.stage}`,
+      // Shard statuses (collection/shards/<shard>/status/<task>.json) are rewritten every 15 s while a task lives; a
+      // dead task's last one only matters until the reconciler has closed its coverage.
+      lifecycleRules: [{ prefix: 'collection/', expiration: cdk.Duration.days(1) }],
     });
     this.exchangeRawBucket = new s3.Bucket(this, 'ExchangeRawBucket', {
       bucketName: `gnome-market-data-exchange-raw-${props.config.account.stage}`,
@@ -77,45 +72,6 @@ export class StorageStack extends cdk.Stack {
         bucket: this.metadataBucket,
         prefix: 'market-data-inventory',
       },
-    });
-
-    this.collectorsTable = new dynamodb.Table(this, "MarketDataCollectorsTable", {
-      tableName: "market-data-collectors",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-
-    this.transformJobsTable = new dynamodb.Table(this, "MarketDataTransformJobsTable", {
-      tableName: "market-data-transform-jobs",
-      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-      timeToLiveAttribute: "expiresAt",
-    });
-
-    // Used for the lambda that process jobs
-    this.transformJobsTable.addGlobalSecondaryIndex({
-      indexName: "schemaType-status-index",
-      partitionKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "status", type: dynamodb.AttributeType.STRING },
-    });
-
-    // Used for /transform-jobs/search
-    this.transformJobsTable.addGlobalSecondaryIndex({
-      indexName: "listingId-schemaType-index",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
-    });
-
-    // Used for /transform-jobs/list
-    this.transformJobsTable.addGlobalSecondaryIndex({
-      indexName: "status-timestamp-index",
-      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
     });
 
     this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
@@ -142,24 +98,43 @@ export class StorageStack extends cdk.Stack {
       pointInTimeRecovery: true,
     });
 
-    this.mergerQueue = this.monitoredQueue('MergerQueue', 'market-data-merger-queue', cdk.Duration.minutes(15), {
-      visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.days(4),
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
+    this.collectionRulesTable = this.collectionTable("CollectionRulesTable", "collection-rules", {
+      name: "rule_id", type: dynamodb.AttributeType.STRING,
     });
 
-    this.transformerQueue = this.monitoredQueue('TransformerQueue', 'market-data-transformer-queue', cdk.Duration.minutes(15), {
-      visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.days(4),
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
+    // One row per stream wanted, or retiring: which shard it is on, and why it is wanted.
+    this.collectionTargetsTable = this.collectionTable("CollectionTargetsTable", "collection-targets", {
+      name: "stream_id", type: dynamodb.AttributeType.NUMBER,
+    });
+    this.collectionTargetsTable.addGlobalSecondaryIndex({
+      indexName: "shard_id-index",
+      partitionKey: { name: "shard_id", type: dynamodb.AttributeType.STRING },
     });
 
-    this.gapQueue = this.monitoredQueue('GapQueue', 'market-data-gap-queue', cdk.Duration.minutes(30), {
-      visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.days(4),
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-      deliveryDelay: cdk.Duration.minutes(15),
+    // A shard's item is its assignment: shards in every region read it (gnome-orchestrator DynamoAssignment).
+    this.collectionShardsTable = this.collectionTable("CollectionShardsTable", "collection-shards", {
+      name: "shard_id", type: dynamodb.AttributeType.STRING,
     });
+
+    // Intervals each stream was live and verified on a task; open ones carry open_shard_id, so a shard's are one query.
+    this.collectionCoverageTable = this.collectionTable(
+      "CollectionCoverageTable",
+      "collection-coverage",
+      { name: "stream_id", type: dynamodb.AttributeType.NUMBER },
+      { name: "from_ns", type: dynamodb.AttributeType.NUMBER },
+    );
+    this.collectionCoverageTable.addGlobalSecondaryIndex({
+      indexName: "open_shard_id-index",
+      partitionKey: { name: "open_shard_id", type: dynamodb.AttributeType.STRING },
+    });
+
+    // Time a stream was wanted but not covered, with why.
+    this.collectionGapsTable = this.collectionTable(
+      "CollectionGapsTable",
+      "collection-gaps",
+      { name: "stream_id", type: dynamodb.AttributeType.NUMBER },
+      { name: "from_ns", type: dynamodb.AttributeType.NUMBER },
+    );
 
     this.qualityIssuesTable = new dynamodb.Table(this, "QualityIssuesTable", {
       tableName: "market-data-quality-issues",
@@ -203,27 +178,135 @@ export class StorageStack extends cdk.Stack {
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
-    const rawTopic = new sns.Topic(this, 'MarketDataRawBucketSnsTopic');
-    rawTopic.addSubscription(new subs.SqsSubscription(this.mergerQueue));
-    this.rawBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3notifications.SnsDestination(rawTopic)
-    );
+    // Quality checks are off (2026-10-27: not worth their cost yet). Re-enable by sending the final bucket's new objects
+    // to this.qualityCheckQueue and giving QualityCheckStack's Lambda its SQS event source back.
 
-    const mergerTopic = new sns.Topic(this, 'MarketDataMergerBucketSnsTopic');
-    mergerTopic.addSubscription(new subs.SqsSubscription(this.transformerQueue));
-    mergerTopic.addSubscription(new subs.SqsSubscription(this.gapQueue));
-    mergerTopic.addSubscription(new subs.SqsSubscription(this.qualityCheckQueue));
-    this.mergedBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3notifications.SnsDestination(mergerTopic)
-    );
+    this.retireOldPipeline(props);
 
     this.metadataBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3notifications.SqsDestination(this.inventoryQueue),
       { prefix: 'market-data-inventory/', suffix: '.csv.gz' }
     );
+  }
+
+  /**
+   * The pipeline before Phase 6 (merger, transformer, gap detector, per-listing collectors, raw and merged buckets),
+   * kept unused for one release: the stacks that imported these deploy after this one, and an export still imported
+   * can't be deleted. The next release removes all of it; the raw and merged buckets are retained (empty and delete
+   * them by hand).
+   */
+  private retireOldPipeline(props: StorageStackProps) {
+    const rawBucket = new s3.Bucket(this, 'CollectorRawBucket', {
+      bucketName: `gnome-market-data-raw-${props.config.account.stage}`,
+    });
+    const mergedBucket = new s3.Bucket(this, 'CollectorArchiveBucket', {
+      bucketName: `gnome-market-data-merged-${props.config.account.stage}`,
+    });
+    const collectorsTable = new dynamodb.Table(this, "MarketDataCollectorsTable", {
+      tableName: "market-data-collectors",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+    });
+
+    const transformJobsTable = new dynamodb.Table(this, "MarketDataTransformJobsTable", {
+      tableName: "market-data-transform-jobs",
+      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+      timeToLiveAttribute: "expiresAt",
+    });
+
+    // Used for the lambda that process jobs
+    transformJobsTable.addGlobalSecondaryIndex({
+      indexName: "schemaType-status-index",
+      partitionKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "status", type: dynamodb.AttributeType.STRING },
+    });
+
+    // Used for /transform-jobs/search
+    transformJobsTable.addGlobalSecondaryIndex({
+      indexName: "listingId-schemaType-index",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
+    });
+
+    // Used for /transform-jobs/list
+    transformJobsTable.addGlobalSecondaryIndex({
+      indexName: "status-timestamp-index",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+    });
+
+    const mergerQueue = this.retiredQueue('MergerQueue', 'market-data-merger-queue', cdk.Duration.minutes(15), {
+      visibilityTimeout: cdk.Duration.minutes(15),
+      retentionPeriod: cdk.Duration.days(4),
+      receiveMessageWaitTime: cdk.Duration.seconds(20),
+    });
+
+    const transformerQueue = this.retiredQueue('TransformerQueue', 'market-data-transformer-queue', cdk.Duration.minutes(15), {
+      visibilityTimeout: cdk.Duration.minutes(15),
+      retentionPeriod: cdk.Duration.days(4),
+      receiveMessageWaitTime: cdk.Duration.seconds(20),
+    });
+
+    const gapQueue = this.retiredQueue('GapQueue', 'market-data-gap-queue', cdk.Duration.minutes(30), {
+      visibilityTimeout: cdk.Duration.minutes(15),
+      retentionPeriod: cdk.Duration.days(4),
+      receiveMessageWaitTime: cdk.Duration.seconds(20),
+      deliveryDelay: cdk.Duration.minutes(15),
+    });
+
+    for (const bucket of [rawBucket, mergedBucket]) {
+      this.exportValue(bucket.bucketName);
+      this.exportValue(bucket.bucketArn);
+    }
+    for (const table of [collectorsTable, transformJobsTable]) {
+      this.exportValue(table.tableName);
+      this.exportValue(table.tableArn);
+    }
+    for (const queue of [mergerQueue, transformerQueue, gapQueue]) {
+      this.exportValue(queue.queueArn);
+      this.exportValue(queue.queueName);
+      this.exportValue(queue.deadLetterQueue!.queue.queueName);
+    }
+    // Still imported by stacks that deploy after this one or are deleted by hand: the quality queue by the quality
+    // check stack (which no longer reads it), the exchange-raw bucket by the old us-east-1 collector stack.
+    this.exportValue(this.qualityCheckQueue.queueArn);
+    this.exportValue(this.exchangeRawBucket.bucketName);
+  }
+
+  /** A queue as monitoredQueue builds it (same ids, so the same resources), without its alarms. */
+  private retiredQueue(id: string, name: string, _maxAge: cdk.Duration, props: sqs.QueueProps): sqs.Queue {
+    const deadLetterQueue = new sqs.Queue(this, `${id}DeadLetter`, {
+      queueName: `${name}-dlq`,
+      retentionPeriod: DEAD_LETTER_RETENTION,
+    });
+    return new sqs.Queue(this, id, {
+      ...props,
+      queueName: name,
+      deadLetterQueue: { queue: deadLetterQueue, maxReceiveCount: MAX_RECEIVES },
+    });
+  }
+
+  private collectionTable(
+    id: string,
+    tableName: string,
+    partitionKey: dynamodb.Attribute,
+    sortKey?: dynamodb.Attribute,
+  ): dynamodb.Table {
+    return new dynamodb.Table(this, id, {
+      tableName,
+      partitionKey,
+      sortKey,
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+    });
   }
 
   private monitoredQueue(id: string, name: string, maxAge: cdk.Duration, props: sqs.QueueProps): sqs.Queue {

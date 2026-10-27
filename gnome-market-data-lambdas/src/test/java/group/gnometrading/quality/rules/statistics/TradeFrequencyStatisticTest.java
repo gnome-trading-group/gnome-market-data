@@ -20,7 +20,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testCountsTradesMbp10() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema trade1 = new Mbp10Schema();
         trade1.encoder.action(Action.Trade);
@@ -36,7 +36,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testCountsTradesMbp1() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE);
 
         Mbp1Schema trade = new Mbp1Schema();
         trade.encoder.action(Action.Trade);
@@ -50,7 +50,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testCountsTradesMbo() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE);
 
         MboSchema trade1 = new MboSchema();
         trade1.encoder.action(Action.Trade);
@@ -64,7 +64,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testReturnsZeroWhenNoTrades() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema nonTrade = new Mbp10Schema();
         nonTrade.encoder.action(Action.Cancel);
@@ -76,7 +76,7 @@ class TradeFrequencyStatisticTest {
 
     @Test
     void testReturnsNanForUnsupportedSchema() {
-        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE);
 
         assertTrue(Double.isNaN(statistic.compute(entry, List.of())));
     }

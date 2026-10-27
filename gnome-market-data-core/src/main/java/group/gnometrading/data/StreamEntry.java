@@ -17,7 +17,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -27,49 +26,27 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 
 /**
  * One minute of one stream's records of one type, as stored in S3:
- * {@code {streamId}/{family}/{record}/{YYYY}/{MM}/{DD}/{hh}/{mm}.zst}, or for a collector's raw copy (the merger's
- * input) the same followed by {@code /{uuid}.zst}. Fields are zero-padded so keys sort by time. A file is zstd over
- * SBE messages, read by walking each message's header, so it may mix versions written either side of a release.
+ * {@code {streamId}/{family}/{record}/{YYYY}/{MM}/{DD}/{hh}/{mm}.zst}. Fields are zero-padded so keys sort by time. A
+ * file is zstd over SBE messages, read by walking each message's header, so it may mix versions written either side of
+ * a release.
  */
 public final class StreamEntry {
 
     private static final String SEGMENT = "([a-z0-9-]+)";
     private static final String MINUTE = "(\\d{4})/(\\d{2})/(\\d{2})/(\\d{2})/(\\d{2})";
-    private static final Pattern AGGREGATED_FILE_PATTERN =
+    private static final Pattern FILE_PATTERN =
             Pattern.compile("^(\\d+)/" + SEGMENT + "/" + SEGMENT + "/" + MINUTE + "\\.zst$");
-    private static final Pattern RAW_FILE_PATTERN =
-            Pattern.compile("^(\\d+)/" + SEGMENT + "/" + SEGMENT + "/" + MINUTE + "/([^/]+)\\.zst$");
-    private static final int UUID_LENGTH = 8;
-    private static final int UUID_GROUP = 9;
 
     public static final ChronoUnit CYCLE_CHRONO_UNIT = ChronoUnit.MINUTES;
-
-    public enum EntryType {
-        RAW,
-        AGGREGATED
-    }
 
     private final int streamId;
     private final RecordType recordType;
     private final LocalDateTime timestamp;
-    private final EntryType entryType;
-    private final String uuid;
 
-    public StreamEntry(int streamId, RecordType recordType, LocalDateTime timestamp, EntryType entryType) {
-        this(
-                streamId,
-                recordType,
-                timestamp,
-                entryType,
-                entryType == EntryType.RAW ? UUID.randomUUID().toString().substring(0, UUID_LENGTH) : null);
-    }
-
-    public StreamEntry(int streamId, RecordType recordType, LocalDateTime timestamp, EntryType entryType, String uuid) {
+    public StreamEntry(int streamId, RecordType recordType, LocalDateTime timestamp) {
         this.streamId = streamId;
         this.recordType = recordType;
         this.timestamp = timestamp;
-        this.entryType = entryType;
-        this.uuid = uuid;
     }
 
     /** The minute's records, each brought to its schema's current version. Empty if the file is. */
@@ -144,20 +121,9 @@ public final class StreamEntry {
         return timestamp;
     }
 
-    public EntryType getEntryType() {
-        return entryType;
-    }
-
-    public String getUuid() {
-        return uuid;
-    }
-
     public String getKey() {
-        String minute = minutePrefix(streamId, recordType, timestamp);
-        return switch (entryType) {
-            case AGGREGATED -> minute + ".zst";
-            case RAW -> minute + "/" + uuid + ".zst";
-        };
+        return "%d/%s/%s/%s.zst"
+                .formatted(streamId, recordType.family().identifier(), recordType.identifier(), timePath(timestamp));
     }
 
     /**
@@ -168,11 +134,6 @@ public final class StreamEntry {
     public static String rawCaptureKey(
             String source, String shard, String connection, LocalDateTime timestamp, String uuid) {
         return "raw/%s/%s/%s/%s/%s.zst".formatted(source, shard, connection, timePath(timestamp), uuid);
-    }
-
-    private static String minutePrefix(int streamId, RecordType recordType, LocalDateTime timestamp) {
-        return "%d/%s/%s/%s"
-                .formatted(streamId, recordType.family().identifier(), recordType.identifier(), timePath(timestamp));
     }
 
     private static String timePath(LocalDateTime timestamp) {
@@ -187,8 +148,7 @@ public final class StreamEntry {
 
     @Override
     public String toString() {
-        return "StreamEntry{streamId=" + streamId + ", recordType=" + recordType + ", timestamp=" + timestamp
-                + ", entryType=" + entryType + ", uuid='" + uuid + "'}";
+        return "StreamEntry{streamId=" + streamId + ", recordType=" + recordType + ", timestamp=" + timestamp + "}";
     }
 
     @Override
@@ -200,22 +160,12 @@ public final class StreamEntry {
             return false;
         }
         StreamEntry that = (StreamEntry) other;
-        return streamId == that.streamId
-                && recordType == that.recordType
-                && Objects.equals(timestamp, that.timestamp)
-                && entryType == that.entryType
-                && Objects.equals(this.uuid, that.uuid);
+        return streamId == that.streamId && recordType == that.recordType && Objects.equals(timestamp, that.timestamp);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(streamId, recordType, timestamp, entryType, uuid);
-    }
-
-    /** Every collector's raw copy of one stream-minute, for the merger to choose between. */
-    public static List<StreamEntry> getRawKeys(
-            S3Client s3Client, String bucket, int streamId, LocalDateTime timestamp, RecordType recordType) {
-        return list(s3Client, bucket, minutePrefix(streamId, recordType, timestamp) + "/");
+        return Objects.hash(streamId, recordType, timestamp);
     }
 
     /** A stream's files of one record type on one day, or every day when {@code day} is null, in time order. */
@@ -259,18 +209,10 @@ public final class StreamEntry {
 
     /** The entry a key names, or empty for any key that isn't a stream record file (old layouts, inventories). */
     public static Optional<StreamEntry> parse(String key) {
-        Matcher aggregated = AGGREGATED_FILE_PATTERN.matcher(key);
-        if (aggregated.matches()) {
-            return entry(aggregated, EntryType.AGGREGATED, null);
+        Matcher matcher = FILE_PATTERN.matcher(key);
+        if (!matcher.matches()) {
+            return Optional.empty();
         }
-        Matcher raw = RAW_FILE_PATTERN.matcher(key);
-        if (raw.matches()) {
-            return entry(raw, EntryType.RAW, raw.group(UUID_GROUP));
-        }
-        return Optional.empty();
-    }
-
-    private static Optional<StreamEntry> entry(Matcher matcher, EntryType entryType, String uuid) {
         RecordType recordType;
         try {
             recordType = RecordType.forIdentifier(matcher.group(3));
@@ -286,6 +228,6 @@ public final class StreamEntry {
                 Integer.parseInt(matcher.group(6)),
                 Integer.parseInt(matcher.group(7)),
                 Integer.parseInt(matcher.group(8)));
-        return Optional.of(new StreamEntry(Integer.parseInt(matcher.group(1)), recordType, timestamp, entryType, uuid));
+        return Optional.of(new StreamEntry(Integer.parseInt(matcher.group(1)), recordType, timestamp));
     }
 }

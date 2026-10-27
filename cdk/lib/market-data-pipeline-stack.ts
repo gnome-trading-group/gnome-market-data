@@ -6,19 +6,16 @@ import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from "constructs";
 import { platformRegions, Stage } from "@gnome-trading-group/gnome-shared-cdk";
 import { CONFIGS, GITHUB_BRANCH, GITHUB_REPO, MarketDataConfig } from "./config";
-import { BackendStack, CollectorRegionConfig } from "./stacks/backend-stack";
+import { BackendStack } from "./stacks/backend-stack";
 import { StorageStack } from "./stacks/storage-stack";
-import { CollectorRegionalStack } from "./stacks/collector-regional-stack";
-import { EventBusStack } from "./stacks/event-bus-stack";
+import { CollectionRegionalStack } from "./stacks/collection-regional-stack";
+import { ReconcilerStack } from "./stacks/reconciler-stack";
 import { MonitoringStack } from "./stacks/monitoring-stack";
-import { TransformerStack } from "./stacks/transformer-stack";
-import { MergerStack } from "./stacks/merger-stack";
-import { GapDetectorStack } from "./stacks/gap-detector-stack";
 import { InventoryProcessorStack } from "./stacks/inventory-processor-stack";
 import { QualityCheckStack } from "./stacks/quality-check-stack";
 
-/** Regions where collectors can be deployed */
-export const COLLECTOR_REGIONS = platformRegions();
+/** Regions shards run in. */
+export const COLLECTION_REGIONS = platformRegions();
 
 class AppStage extends cdk.Stage {
   constructor(scope: Construct, id: string, config: MarketDataConfig) {
@@ -26,60 +23,44 @@ class AppStage extends cdk.Stage {
 
     const accountId = config.account.environment.account!;
 
-    // Create storage stack (includes buckets, tables, and queues with S3 notifications)
     const storageStack = new StorageStack(this, "MarketDataStorageStack", {
       config,
     });
 
-    const eventBusStack = new EventBusStack(this, "MarketDataEventBusStack");
-
-    // Regional collector stacks (VPC, ECS, task definition) - one per region
-    const collectorRegionalStacks: Record<string, CollectorRegionalStack> = {};
-    for (const region of COLLECTOR_REGIONS) {
-      const regionalStack = new CollectorRegionalStack(this, `CollectorRegionalStack-${region}`, {
+    for (const region of COLLECTION_REGIONS) {
+      new CollectionRegionalStack(this, `CollectionRegionalStack-${region}`, {
         env: {
           account: accountId,
           region: region,
         },
-        crossRegionReferences: true,
         config,
         deploymentRegion: region,
-        rawBucketName: storageStack.rawBucket.bucketName,
-        exchangeRawBucketName: storageStack.exchangeRawBucket.bucketName,
-        primaryEventBus: eventBusStack.collectorEventBus,
+        finalBucketName: `gnome-market-data-${config.account.stage}`,
+        exchangeRawBucketName: `gnome-market-data-exchange-raw-${config.account.stage}`,
+        metadataBucketName: `gnome-market-data-metadata-${config.account.stage}`,
         registryApiKeyId: config.registryApiKeyId,
       });
-      collectorRegionalStacks[region] = regionalStack;
     }
 
-    const collectorRegions: Record<string, CollectorRegionConfig> = {};
-    for (const [region, stack] of Object.entries(collectorRegionalStacks)) {
-      collectorRegions[region] = {
-        region: region,
-        clusterName: stack.cluster.clusterName,
-        clusterArn: stack.cluster.clusterArn,
-        taskDefinitionFamily: stack.taskDefinitionFamily,
-        securityGroupId: stack.securityGroup.securityGroupId,
-        subnetIds: stack.vpc.publicSubnets.map(subnet => subnet.subnetId),
-        logGroupName: stack.collectorLogGroup.logGroupName,
-      };
-    }
+    const reconcilerStack = new ReconcilerStack(this, "MarketDataReconcilerStack", {
+      config,
+      regions: COLLECTION_REGIONS,
+      rulesTable: storageStack.collectionRulesTable,
+      targetsTable: storageStack.collectionTargetsTable,
+      shardsTable: storageStack.collectionShardsTable,
+      coverageTable: storageStack.collectionCoverageTable,
+      gapsTable: storageStack.collectionGapsTable,
+      metadataBucket: storageStack.metadataBucket,
+    });
 
     const qualityCheckStack = new QualityCheckStack(this, "MarketDataQualityCheckStack", {
-      mergedBucket: storageStack.mergedBucket,
       finalBucket: storageStack.finalBucket,
       qualityIssuesTable: storageStack.qualityIssuesTable,
       dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
-      qualityCheckQueue: storageStack.qualityCheckQueue,
       config,
     });
 
     const backendStack = new BackendStack(this, "MarketDataBackendStack", {
-      crossRegionReferences: true,
-      collectorsTable: storageStack.collectorsTable,
-      collectorRegions: collectorRegions,
-      collectorEventBus: eventBusStack.collectorEventBus,
-      transformJobsTable: storageStack.transformJobsTable,
       gapsTable: storageStack.gapsTable,
       finalBucket: storageStack.finalBucket,
       metadataBucket: storageStack.metadataBucket,
@@ -88,31 +69,13 @@ class AppStage extends cdk.Stage {
       dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
       qualityBackfillLambda: qualityCheckStack.qualityBackfillLambda,
       qualityInvestigationLambda: qualityCheckStack.qualityInvestigationLambda,
-      bboTimelineLambda: qualityCheckStack.bboTimelineLambda,
-    });
-
-    const transformerStack = new TransformerStack(this, "MarketDataTransformerStack", {
-      mergedBucket: storageStack.mergedBucket,
-      finalBucket: storageStack.finalBucket,
-      transformJobsTable: storageStack.transformJobsTable,
-      transformerQueue: storageStack.transformerQueue,
-      config,
-    });
-
-    const mergerStack = new MergerStack(this, "MarketDataMergerStack", {
-      rawBucket: storageStack.rawBucket,
-      mergedBucket: storageStack.mergedBucket,
-      mergerQueue: storageStack.mergerQueue,
-      config,
-    });
-
-    const gapDetectorStack = new GapDetectorStack(this, "MarketDataGapDetectorStack", {
-      mergedBucket: storageStack.mergedBucket,
-      gapsTable: storageStack.gapsTable,
-      transformJobsTable: storageStack.transformJobsTable,
-      dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
-      gapQueue: storageStack.gapQueue,
-      config,
+      collectionRulesTable: storageStack.collectionRulesTable,
+      collectionTargetsTable: storageStack.collectionTargetsTable,
+      collectionShardsTable: storageStack.collectionShardsTable,
+      collectionCoverageTable: storageStack.collectionCoverageTable,
+      collectionGapsTable: storageStack.collectionGapsTable,
+      reconcilerQueue: reconcilerStack.wakeQueue,
+      collectionRegions: COLLECTION_REGIONS,
     });
 
     const inventoryProcessorStack = new InventoryProcessorStack(this, "MarketDataInventoryProcessorStack", {
@@ -124,12 +87,8 @@ class AppStage extends cdk.Stage {
 
     new MonitoringStack(this, "MarketDataMonitoringStack", {
       config,
-      collectorRegions: COLLECTOR_REGIONS,
       api: backendStack.api,
-      gapLambda: gapDetectorStack.gapLambda,
-      mergerLambda: mergerStack.mergerLambda,
-      transformerJobCreatorLambda: transformerStack.transformerJobCreatorLambda,
-      transformerJobProcessorLambda: transformerStack.transformerJobProcessorLambda,
+      reconcilerLambda: reconcilerStack.reconcilerLambda,
       inventoryProcessorLambda: inventoryProcessorStack.processorFunction,
       qualityCheckLambda: qualityCheckStack.qualityCheckLambda,
       queues: storageStack.monitoredQueues,

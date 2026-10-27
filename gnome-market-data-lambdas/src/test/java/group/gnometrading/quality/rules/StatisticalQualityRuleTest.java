@@ -81,7 +81,7 @@ class StatisticalQualityRuleTest {
     void testNewListingEmitsUpdateItem() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
@@ -93,7 +93,7 @@ class StatisticalQualityRuleTest {
     void testUpdateItemHasCorrectValues() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
@@ -115,7 +115,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
@@ -132,7 +132,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         // 5 records when mean=1000, stddev=0 — fallback: 5 < 100 → anomalous
         List<StreamRecord> records = new ArrayList<>();
@@ -156,7 +156,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         // 5 records — would be anomalous against mean=1000 if freshness passed
         List<StreamRecord> records = new ArrayList<>();
@@ -171,7 +171,7 @@ class StatisticalQualityRuleTest {
     void testNaNValueSkippedForIncompatibleSchema() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE);
 
         rule.check(entry, List.of(), listing, clock);
 
@@ -182,7 +182,7 @@ class StatisticalQualityRuleTest {
     void testUpdateItemAlwaysCalledAfterCheck() {
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         rule.check(entry, List.of(), listing, clock);
 
@@ -196,7 +196,7 @@ class StatisticalQualityRuleTest {
                 dynamoDbClient,
                 "test-table",
                 List.of(new TickCountStatistic(), new SpreadStatistic(), new MidPriceStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.bidPrice0(100);
@@ -217,7 +217,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         List<QualityIssue> issues = rule.check(entry, List.of(), listing, clock);
 
@@ -240,7 +240,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         // SpreadStatistic lookback=21 days. entryDate=2024-01-15, startDate=2023-12-25.
         // All three rows (Dec 16-18) are outside the 21-day window → filtered out → distinctDays=0 → no anomaly
@@ -253,7 +253,7 @@ class StatisticalQualityRuleTest {
     void testUpdateStatisticsFalseNeverCallsUpdateItem() {
         StatisticalQualityRule noWriteRule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), false, false);
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         noWriteRule.check(entry, List.of(), listing, clock);
 
@@ -269,7 +269,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule noDetectRule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()), false, false);
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
@@ -290,7 +290,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new SpreadStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema record = new Mbp10Schema();
         record.encoder.bidPrice0(100);
@@ -314,7 +314,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());
@@ -341,7 +341,7 @@ class StatisticalQualityRuleTest {
         Clock satClock = Clock.fixed(saturdayMinute.atZone(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC"));
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, saturdayMinute, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, saturdayMinute);
 
         // 5 records against weekend mean=1000, stddev=0 → fallback: 5 < 100 → anomalous
         List<StreamRecord> records = new ArrayList<>();
@@ -369,7 +369,7 @@ class StatisticalQualityRuleTest {
 
         StatisticalQualityRule rule = new StatisticalQualityRule(
                 statisticsTable, dynamoDbClient, "test-table", List.of(new TickCountStatistic()));
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, midnightMinute, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, midnightMinute);
 
         List<StreamRecord> records = new ArrayList<>();
         for (int i = 0; i < 5; i++) records.add(new Mbp10Schema());

@@ -44,7 +44,6 @@ import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -120,7 +119,6 @@ class QualityBackfillLambdaHandlerTest {
                 .thenReturn(new Stream(
                         STREAM_ID, 1, "KALSHI", "LISTING", LISTING_ID, null, "book", "us-east-1", 0, 0L, 0L, true));
 
-        mockMergedRecordTypes("mbp-10");
         s3MockedDataList = new ArrayList<>();
         s3GetObjectCallCount = 0;
 
@@ -278,14 +276,6 @@ class QualityBackfillLambdaHandlerTest {
     }
 
     @Test
-    void aStreamWithMoreThanOneMergedRecordTypeIsRefused() {
-        mockMergedRecordTypes("mbp-10", "mbo");
-
-        assertThrows(
-                IllegalStateException.class, () -> handler.handleRequest(payload("2024-01-15", "all", false), context));
-    }
-
-    @Test
     void testNoDataForDateReturnsZero() throws Exception {
         mockS3List("1/book/mbp-10/2024/01/15/", List.of());
 
@@ -372,25 +362,6 @@ class QualityBackfillLambdaHandlerTest {
     }
 
     /** The record type folders the merged bucket holds under the stream's book prefix. */
-    private void mockMergedRecordTypes(String... identifiers) {
-        String prefix = STREAM_ID + "/book/";
-        SdkIterable<CommonPrefix> folders = () -> java.util.Arrays.stream(identifiers)
-                .map(identifier ->
-                        CommonPrefix.builder().prefix(prefix + identifier + "/").build())
-                .iterator();
-        ListObjectsV2Iterable mockIterable = mock(ListObjectsV2Iterable.class);
-        lenient().when(mockIterable.commonPrefixes()).thenReturn(folders);
-        lenient()
-                .when(s3Client.listObjectsV2Paginator(
-                        argThat((java.util.function.Consumer<ListObjectsV2Request.Builder> consumer) -> {
-                            if (consumer == null) return false;
-                            ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder();
-                            consumer.accept(builder);
-                            return prefix.equals(builder.build().prefix());
-                        })))
-                .thenReturn(mockIterable);
-    }
-
     private void mockS3List(String prefix, List<String> keys) {
         List<S3Object> s3Objects =
                 keys.stream().map(key -> S3Object.builder().key(key).build()).toList();

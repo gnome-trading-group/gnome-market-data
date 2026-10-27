@@ -18,7 +18,7 @@ class TickCountStatisticTest {
 
     @Test
     void testComputeReturnsRecordCount() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
         List<Mbp10Schema> records = new ArrayList<>();
         for (int i = 0; i < 42; i++) records.add(new Mbp10Schema());
 

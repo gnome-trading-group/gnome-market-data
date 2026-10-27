@@ -1,5 +1,4 @@
 import * as cdk from 'aws-cdk-lib';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -32,7 +31,7 @@ export class InventoryProcessorStack extends cdk.Stack {
 
     const processLambda = new JavaLambda(this, `InventoryProcessorLambda-${LAMBDAS_VERSION}`, {
       name: `InventoryProcessor-${LAMBDAS_VERSION}`,
-      classPath: 'group.gnometrading.coverage.InventoryProcessorLambdaHandler',
+      classPath: 'group.gnometrading.inventory.InventoryProcessorLambdaHandler',
       memorySize: 3008,
       environment: {
         METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
@@ -44,10 +43,6 @@ export class InventoryProcessorStack extends cdk.Stack {
 
     props.metadataBucket.grantRead(this.processorFunction);
     props.coverageTable.grantReadWriteData(this.processorFunction);
-    this.processorFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['apigateway:GET'],
-      resources: [cdk.Fn.importValue('RegistryApiKeyArn')],
-    }));
 
     this.processorFunction.addEventSource(new SqsEventSource(props.inventoryQueue, {
       batchSize: 1,

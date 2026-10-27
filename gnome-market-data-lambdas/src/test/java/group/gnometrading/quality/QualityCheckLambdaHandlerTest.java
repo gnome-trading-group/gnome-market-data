@@ -49,6 +49,8 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 @ExtendWith(MockitoExtension.class)
 class QualityCheckLambdaHandlerTest {
 
+    private boolean qualityChecksEnabled = true;
+
     private ObjectMapper objectMapper;
 
     @Mock
@@ -106,7 +108,8 @@ class QualityCheckLambdaHandlerTest {
                 clock,
                 hourlyStatisticsTable,
                 dynamoDbClient,
-                "test-table");
+                "test-table",
+                () -> qualityChecksEnabled);
 
         lenient().when(listing.listingId()).thenReturn(LISTING_ID);
         lenient().when(listing.security()).thenReturn(security);
@@ -392,5 +395,15 @@ class QualityCheckLambdaHandlerTest {
         return String.format(
                 "{\"Type\":\"Notification\",\"MessageId\":\"test\",\"TopicArn\":\"arn:test\",\"Message\":\"%s\"}",
                 escaped);
+    }
+
+    @Test
+    void withQualityChecksOffABatchIsAcknowledgedUnread() throws Exception {
+        qualityChecksEnabled = false;
+
+        SQSBatchResponse response = handler.handleRequest(new SQSEvent(), context);
+
+        assertTrue(response.getBatchItemFailures().isEmpty());
+        verifyNoInteractions(s3Client);
     }
 }

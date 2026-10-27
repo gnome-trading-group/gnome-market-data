@@ -21,7 +21,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testComputesStddevMbp10() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.price(100);
@@ -36,7 +36,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testComputesStddevMbp1() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE);
 
         Mbp1Schema s1 = new Mbp1Schema();
         s1.encoder.price(100);
@@ -50,7 +50,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testComputesStddevMbo() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE);
 
         MboSchema s1 = new MboSchema();
         s1.encoder.price(100);
@@ -67,7 +67,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testReturnsNanForSingleRecord() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s = new Mbp10Schema();
         s.encoder.price(100);
@@ -77,21 +77,21 @@ class VolatilityStatisticTest {
 
     @Test
     void testReturnsNanForEmptyRecords() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         assertTrue(Double.isNaN(statistic.compute(entry, List.of())));
     }
 
     @Test
     void testReturnsNanForUnsupportedSchema() {
-        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE);
 
         assertTrue(Double.isNaN(statistic.compute(entry, List.of())));
     }
 
     @Test
     void testSkipsNullPriceRecords() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema nullPrice = new Mbp10Schema();
         nullPrice.encoder.price(Mbp10Decoder.priceNullValue());
@@ -108,7 +108,7 @@ class VolatilityStatisticTest {
 
     @Test
     void testReturnsNanWhenOnlyNullPrices() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.price(Mbp10Decoder.priceNullValue());

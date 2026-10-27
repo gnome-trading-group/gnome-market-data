@@ -2,8 +2,8 @@ package group.gnometrading.quality;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import group.gnometrading.Dependencies;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.common.Dependencies;
 import group.gnometrading.data.StreamEntry;
 import group.gnometrading.md.Stream;
 import group.gnometrading.quality.model.HourlyListingStatistic;
@@ -57,7 +57,7 @@ public final class MinuteInvestigationLambdaHandler
     private final SecurityMaster securityMaster;
     private final DynamoDbTable<QualityIssue> qualityIssuesTable;
     private final DynamoDbTable<HourlyListingStatistic> hourlyStatisticsTable;
-    private final String mergedBucketName;
+    private final String finalBucketName;
 
     public MinuteInvestigationLambdaHandler() {
         this(
@@ -65,7 +65,7 @@ public final class MinuteInvestigationLambdaHandler
                 Dependencies.getInstance().getSecurityMaster(),
                 Dependencies.getInstance().getQualityIssuesTable(),
                 Dependencies.getInstance().getHourlyListingStatisticsTable(),
-                Dependencies.getInstance().getMergedBucketName());
+                Dependencies.getInstance().getFinalBucketName());
     }
 
     public MinuteInvestigationLambdaHandler(
@@ -73,12 +73,12 @@ public final class MinuteInvestigationLambdaHandler
             SecurityMaster securityMaster,
             DynamoDbTable<QualityIssue> qualityIssuesTable,
             DynamoDbTable<HourlyListingStatistic> hourlyStatisticsTable,
-            String mergedBucketName) {
+            String finalBucketName) {
         this.s3Client = s3Client;
         this.securityMaster = securityMaster;
         this.qualityIssuesTable = qualityIssuesTable;
         this.hourlyStatisticsTable = hourlyStatisticsTable;
-        this.mergedBucketName = mergedBucketName;
+        this.finalBucketName = finalBucketName;
     }
 
     @Override
@@ -96,7 +96,7 @@ public final class MinuteInvestigationLambdaHandler
         if (stream == null) {
             throw new IllegalArgumentException("No book stream for listingId=" + listingId);
         }
-        RecordType schemaType = CollectedRecordType.of(s3Client, mergedBucketName, stream);
+        RecordType schemaType = CollectedRecordType.of(stream);
 
         LocalDateTime center = LocalDateTime.ofEpochSecond(centerTimestamp, 0, ZoneOffset.UTC);
         LocalDateTime windowStart = center.minusMinutes(windowMinutes);
@@ -127,13 +127,13 @@ public final class MinuteInvestigationLambdaHandler
     }
 
     private Map<String, Object> processMinute(int streamId, RecordType schemaType, LocalDateTime timestamp) {
-        StreamEntry entry = new StreamEntry(streamId, schemaType, timestamp, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(streamId, schemaType, timestamp);
 
         Map<String, Object> minute = new LinkedHashMap<>();
         minute.put("timestamp", timestamp.toEpochSecond(ZoneOffset.UTC));
 
         try {
-            List<StreamRecord> records = entry.loadFromS3(s3Client, mergedBucketName);
+            List<StreamRecord> records = entry.loadFromS3(s3Client, finalBucketName);
             minute.put("hasData", true);
             minute.put("recordCount", records.size());
 

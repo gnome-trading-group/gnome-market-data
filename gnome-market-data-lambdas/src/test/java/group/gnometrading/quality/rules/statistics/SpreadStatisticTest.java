@@ -19,7 +19,7 @@ class SpreadStatisticTest {
 
     @Test
     void testComputesAverageSpread() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.bidPrice0(100);
@@ -35,7 +35,7 @@ class SpreadStatisticTest {
 
     @Test
     void testComputesForMbp1Schema() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE);
 
         group.gnometrading.schemas.Mbp1Schema s = new group.gnometrading.schemas.Mbp1Schema();
         s.encoder.bidPrice0(100);
@@ -48,7 +48,7 @@ class SpreadStatisticTest {
 
     @Test
     void testReturnsNanForMboSchema() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE);
 
         double result = statistic.compute(entry, List.of());
 
@@ -57,7 +57,7 @@ class SpreadStatisticTest {
 
     @Test
     void testSkipsNullPriceSentinels() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema nullPrices = new Mbp10Schema();
         nullPrices.encoder.bidPrice0(Mbp10Decoder.bidPrice0NullValue());
@@ -73,7 +73,7 @@ class SpreadStatisticTest {
 
     @Test
     void testReturnsNanWhenAllNullPrices() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema nullPrices = new Mbp10Schema();
         nullPrices.encoder.bidPrice0(Mbp10Decoder.bidPrice0NullValue());

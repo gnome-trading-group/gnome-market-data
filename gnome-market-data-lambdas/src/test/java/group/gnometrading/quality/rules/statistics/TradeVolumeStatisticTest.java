@@ -21,7 +21,7 @@ class TradeVolumeStatisticTest {
 
     @Test
     void testSumsTradeVolumeMbp10() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema trade1 = new Mbp10Schema();
         trade1.encoder.action(Action.Trade);
@@ -40,7 +40,7 @@ class TradeVolumeStatisticTest {
 
     @Test
     void testSumsTradeVolumeMbp1() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_1, MINUTE);
 
         Mbp1Schema trade = new Mbp1Schema();
         trade.encoder.action(Action.Trade);
@@ -53,7 +53,7 @@ class TradeVolumeStatisticTest {
 
     @Test
     void testSumsTradeVolumeMbo() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBO, MINUTE);
 
         MboSchema trade = new MboSchema();
         trade.encoder.action(Action.Trade);
@@ -66,7 +66,7 @@ class TradeVolumeStatisticTest {
 
     @Test
     void testReturnsZeroWhenNoTrades() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema nonTrade = new Mbp10Schema();
         nonTrade.encoder.action(Action.Add);
@@ -79,7 +79,7 @@ class TradeVolumeStatisticTest {
 
     @Test
     void testReturnsNanForUnsupportedSchema() {
-        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.BBO_1S, MINUTE);
 
         assertTrue(Double.isNaN(statistic.compute(entry, List.of())));
     }

@@ -1,12 +1,9 @@
 import json
-import os
 import functools
 import inspect
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 from decimal import Decimal
 import datetime
-
-import boto3
 
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -16,51 +13,6 @@ class CustomEncoder(json.JSONEncoder):
             return obj.isoformat()
         return super().default(obj)
 
-
-# The last orchestrator release with the per-listing collector these functions start (DelegatingCollectorOrchestrator,
-# LISTINGS). Later releases run shards instead, which Phase 6 placement starts; until then collectors stay on this.
-LAST_COLLECTOR_ORCHESTRATOR_VERSION = '1.20.5'
-
-
-@functools.cache
-def get_regional_client(service: str, region: str):
-    """Cached so warm invocations reuse clients and their connections instead of rebuilding them per request."""
-    return boto3.client(service, region_name=region)
-
-
-def _release(version: str) -> tuple:
-    return tuple(int(part) for part in version.split('-')[0].split('.'))
-
-
-def resolve_orchestrator_version(requested: Optional[str]) -> str:
-    """A typed version is used if it still has the per-listing collector; blank means the last release that does."""
-    if not requested or not requested.strip():
-        return LAST_COLLECTOR_ORCHESTRATOR_VERSION
-    version = requested.strip()
-    if _release(version) > _release(LAST_COLLECTOR_ORCHESTRATOR_VERSION):
-        raise ValueError(f'Orchestrator {version} runs shards, not per-listing collectors; '
-                         f'use {LAST_COLLECTOR_ORCHESTRATOR_VERSION} or earlier')
-    return version
-
-
-def set_container_env(container_def: Dict[str, Any], name: str, value: str) -> None:
-    environment = [env for env in container_def.get('environment', []) if env['name'] != name]
-    environment.append({'name': name, 'value': value})
-    container_def['environment'] = environment
-
-
-def get_collector_regions() -> Dict[str, Dict[str, Any]]:
-    regions_json = os.environ.get('COLLECTOR_REGIONS', '{}')
-    return json.loads(regions_json)
-
-
-def get_region_config(region: str) -> Optional[Dict[str, Any]]:
-    regions = get_collector_regions()
-    return regions.get(region)
-
-
-def get_available_regions() -> list:
-    return list(get_collector_regions().keys())
 
 CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',

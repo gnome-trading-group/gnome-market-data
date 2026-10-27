@@ -2,8 +2,8 @@ package group.gnometrading.quality;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import group.gnometrading.Dependencies;
 import group.gnometrading.SecurityMaster;
+import group.gnometrading.common.Dependencies;
 import group.gnometrading.data.StreamEntry;
 import group.gnometrading.md.Stream;
 import group.gnometrading.quality.model.HourlyListingStatistic;
@@ -44,7 +44,7 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
     private final DynamoDbTable<HourlyListingStatistic> hourlyStatisticsTable;
     private final DynamoDbClient dynamoDbClient;
     private final String statisticsTableName;
-    private final String mergedBucketName;
+    private final String finalBucketName;
     private final Clock clock;
 
     public QualityBackfillLambdaHandler() {
@@ -55,7 +55,7 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
                 Dependencies.getInstance().getHourlyListingStatisticsTable(),
                 Dependencies.getInstance().getDynamoDbClient(),
                 Dependencies.getInstance().getListingStatisticsTableName(),
-                Dependencies.getInstance().getMergedBucketName(),
+                Dependencies.getInstance().getFinalBucketName(),
                 Dependencies.getInstance().getClock());
     }
 
@@ -66,7 +66,7 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
             DynamoDbTable<HourlyListingStatistic> hourlyStatisticsTable,
             DynamoDbClient dynamoDbClient,
             String statisticsTableName,
-            String mergedBucketName,
+            String finalBucketName,
             Clock clock) {
         this.s3Client = s3Client;
         this.securityMaster = securityMaster;
@@ -74,7 +74,7 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
         this.hourlyStatisticsTable = hourlyStatisticsTable;
         this.dynamoDbClient = dynamoDbClient;
         this.statisticsTableName = statisticsTableName;
-        this.mergedBucketName = mergedBucketName;
+        this.finalBucketName = finalBucketName;
         this.clock = clock;
     }
 
@@ -98,11 +98,7 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
         }
 
         List<StreamEntry> entries = StreamEntry.getKeysForStreamByDay(
-                s3Client,
-                mergedBucketName,
-                stream.streamId(),
-                CollectedRecordType.of(s3Client, mergedBucketName, stream),
-                date.atStartOfDay());
+                s3Client, finalBucketName, stream.streamId(), CollectedRecordType.of(stream), date.atStartOfDay());
         logger.info("Processing {} entries for {} mode={}", entries.size(), date, mode);
 
         int entriesProcessed = 0;
@@ -133,7 +129,7 @@ public final class QualityBackfillLambdaHandler implements RequestHandler<Map<St
 
     private int processEntry(StreamEntry entry, List<QualityRule> rules, Listing listing) {
         try {
-            List<StreamRecord> records = entry.loadFromS3(s3Client, mergedBucketName);
+            List<StreamRecord> records = entry.loadFromS3(s3Client, finalBucketName);
             int issuesFound = 0;
             for (QualityRule rule : rules) {
                 List<QualityIssue> issues = rule.check(entry, records, listing, clock);

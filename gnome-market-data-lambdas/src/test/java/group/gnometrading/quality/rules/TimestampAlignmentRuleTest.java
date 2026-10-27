@@ -51,7 +51,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testNoIssuesWhenAllTimestampsAlign() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.timestampEvent(MINUTE_START_NANOS);
@@ -65,7 +65,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testIssueWhenTimestampBeforeWindow() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.timestampEvent(MINUTE_START_NANOS - 1);
@@ -79,7 +79,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testIssueWhenTimestampAtOrAfterWindowEnd() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.timestampEvent(MINUTE_START_NANOS + 60_000_000_000L);
@@ -91,7 +91,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testIssueDetailsContainsMismatchCount() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema valid = new Mbp10Schema();
         valid.encoder.timestampEvent(MINUTE_START_NANOS);
@@ -108,7 +108,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testNoIssuesForEmptyRecords() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         var issues = rule.check(entry, List.of(), listing, clock);
 
@@ -117,7 +117,7 @@ class TimestampAlignmentRuleTest {
 
     @Test
     void testTimestampAtWindowEnd_ExclusiveBound() {
-        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE, StreamEntry.EntryType.AGGREGATED);
+        StreamEntry entry = new StreamEntry(1, RecordType.MBP_10, MINUTE);
 
         Mbp10Schema s1 = new Mbp10Schema();
         s1.encoder.timestampEvent(MINUTE_START_NANOS + 59_999_999_999L);

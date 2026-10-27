@@ -2,19 +2,15 @@ import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as s3 from "aws-cdk-lib/aws-s3";
-import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
 import { JavaLambda } from "../constructs/java-lambda";
 import { LAMBDAS_VERSION, MarketDataConfig } from "../config";
 
 export interface QualityCheckStackProps extends cdk.StackProps {
-  mergedBucket: s3.Bucket;
   finalBucket: s3.IBucket;
   qualityIssuesTable: dynamodb.ITable;
   dailyListingStatisticsTable: dynamodb.ITable;
-  qualityCheckQueue: sqs.IQueue;
   config: MarketDataConfig;
 }
 
@@ -22,7 +18,6 @@ export class QualityCheckStack extends cdk.Stack {
   public readonly qualityCheckLambda: lambda.Function;
   public readonly qualityBackfillLambda: lambda.Function;
   public readonly qualityInvestigationLambda: lambda.Function;
-  public readonly bboTimelineLambda: lambda.Function;
 
   constructor(scope: Construct, id: string, props: QualityCheckStackProps) {
     super(scope, id, props);
@@ -34,7 +29,7 @@ export class QualityCheckStack extends cdk.Stack {
     });
 
     const sharedEnv = {
-      MERGED_BUCKET_NAME: props.mergedBucket.bucketName,
+      FINAL_BUCKET_NAME: props.finalBucket.bucketName,
       QUALITY_ISSUES_TABLE_NAME: props.qualityIssuesTable.tableName,
       LISTING_STATISTICS_TABLE_NAME: props.dailyListingStatisticsTable.tableName,
       STAGE: props.config.account.stage,
@@ -44,22 +39,26 @@ export class QualityCheckStack extends cdk.Stack {
     const qualityCheckLambda = new JavaLambda(this, `QualityCheckLambda-${LAMBDAS_VERSION}`, {
       name: `QualityCheck-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.quality.QualityCheckLambdaHandler',
-      environment: sharedEnv,
+      environment: {
+        ...sharedEnv,
+        // Read for market-data's quality_checks.enabled switch.
+        CONTROLLER_API_URL: cdk.Fn.importValue('ControllerApiUrl'),
+        CONTROLLER_API_KEY_ID: cdk.Fn.importValue('ControllerServiceConfigApiKeyId'),
+      },
     });
     this.qualityCheckLambda = qualityCheckLambda.lambdaFunction;
+    this.qualityCheckLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['apigateway:GET'],
+      resources: [`arn:aws:apigateway:${this.region}::/apikeys/${cdk.Fn.importValue('ControllerServiceConfigApiKeyId')}`],
+    }));
 
-    props.mergedBucket.grantRead(this.qualityCheckLambda);
+    props.finalBucket.grantRead(this.qualityCheckLambda);
     props.qualityIssuesTable.grantReadWriteData(this.qualityCheckLambda);
     props.dailyListingStatisticsTable.grantReadWriteData(this.qualityCheckLambda);
     this.qualityCheckLambda.addToRolePolicy(registryKeyPolicy);
 
-    this.qualityCheckLambda.addEventSource(new lambdaEventSources.SqsEventSource(props.qualityCheckQueue, {
-      batchSize: 1_000,
-      maxBatchingWindow: cdk.Duration.minutes(3),
-      // The handler returns the messages behind failed keys, so only those retry and dead-letter.
-      reportBatchItemFailures: true,
-    }));
-
+    // No event source: quality checks are off (see StorageStack). The handler also honours market-data's
+    // quality_checks.enabled once re-wired.
     const qualityBackfillLambda = new JavaLambda(this, `QualityBackfillLambda-${LAMBDAS_VERSION}`, {
       name: `QualityBackfill-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.quality.QualityBackfillLambdaHandler',
@@ -67,7 +66,7 @@ export class QualityCheckStack extends cdk.Stack {
     });
     this.qualityBackfillLambda = qualityBackfillLambda.lambdaFunction;
 
-    props.mergedBucket.grantRead(this.qualityBackfillLambda);
+    props.finalBucket.grantRead(this.qualityBackfillLambda);
     props.qualityIssuesTable.grantReadWriteData(this.qualityBackfillLambda);
     props.dailyListingStatisticsTable.grantReadWriteData(this.qualityBackfillLambda);
     this.qualityBackfillLambda.addToRolePolicy(registryKeyPolicy);
@@ -79,23 +78,18 @@ export class QualityCheckStack extends cdk.Stack {
     });
     this.qualityInvestigationLambda = qualityInvestigationLambda.lambdaFunction;
 
-    props.mergedBucket.grantRead(this.qualityInvestigationLambda);
+    props.finalBucket.grantRead(this.qualityInvestigationLambda);
     props.qualityIssuesTable.grantReadData(this.qualityInvestigationLambda);
     props.dailyListingStatisticsTable.grantReadData(this.qualityInvestigationLambda);
     this.qualityInvestigationLambda.addToRolePolicy(registryKeyPolicy);
 
-    const bboTimelineLambda = new JavaLambda(this, `BboTimelineLambda-${LAMBDAS_VERSION}`, {
+    // Retired with its handler; the backend stack that deploys after this one still imports it, so it stays one
+    // release, invoked by nothing. The next release removes it.
+    const retiredBboTimeline = new JavaLambda(this, `BboTimelineLambda-${LAMBDAS_VERSION}`, {
       name: `BboTimeline-${LAMBDAS_VERSION}`,
       classPath: 'group.gnometrading.bbo.BboTimelineLambdaHandler',
-      environment: {
-        FINAL_BUCKET_NAME: props.finalBucket.bucketName,
-        STAGE: props.config.account.stage,
-        REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
-      },
-    });
-    this.bboTimelineLambda = bboTimelineLambda.lambdaFunction;
-
-    props.finalBucket.grantRead(this.bboTimelineLambda);
-    this.bboTimelineLambda.addToRolePolicy(registryKeyPolicy);
+    }).lambdaFunction;
+    this.exportValue(retiredBboTimeline.functionArn);
+    this.exportValue(retiredBboTimeline.functionName);
   }
 }
