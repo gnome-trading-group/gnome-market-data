@@ -10,6 +10,7 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as path from 'path';
 import * as fs from 'fs';
 import { Construct } from 'constructs';
+import { lookupPlatformNetwork, PRIMARY_REGION } from '@gnome-trading-group/gnome-shared-cdk';
 import { MarketDataConfig } from "../config";
 
 /** CloudWatch metrics namespace for collector metrics */
@@ -28,8 +29,8 @@ export interface CollectorRegionalStackProps extends cdk.StackProps {
 }
 
 export class CollectorRegionalStack extends cdk.Stack {
-  public readonly vpc: ec2.Vpc;
-  public readonly securityGroup: ec2.SecurityGroup;
+  public readonly vpc: ec2.IVpc;
+  public readonly securityGroup: ec2.ISecurityGroup;
   public readonly cluster: ecs.Cluster;
   public readonly taskDefinitionFamily: string;
   public readonly taskDefinitionArn: string;
@@ -41,9 +42,16 @@ export class CollectorRegionalStack extends cdk.Stack {
 
     this.deploymentRegion = props.deploymentRegion;
 
-    this.vpc = new ec2.Vpc(this, 'CollectorEcsVpc', {
+    // Collectors and shards run in the platform network (gnome-shared-infra).
+    ({ vpc: this.vpc, securityGroup: this.securityGroup } = lookupPlatformNetwork(this));
+
+    // The collectors' old network. The backend stack imported its subnets and security group, and it deploys after
+    // this one, so an export it still imports can't be deleted yet: in the primary region they are kept as exports for
+    // one release (the other regions' cross-region exports have their strong-ref tags removed by hand before that
+    // release instead), then this VPC and its exports are deleted.
+    const retiredVpc = new ec2.Vpc(this, 'CollectorEcsVpc', {
       maxAzs: 2,
-      natGateways: 0, // Avoid NAT Gateway costs
+      natGateways: 0,
       subnetConfiguration: [
         {
           name: 'PublicSubnet',
@@ -51,12 +59,17 @@ export class CollectorRegionalStack extends cdk.Stack {
         },
       ],
     });
-
-    this.securityGroup = new ec2.SecurityGroup(this, 'CollectorSecurityGroup', {
-      vpc: this.vpc,
+    const retiredSecurityGroup = new ec2.SecurityGroup(this, 'CollectorSecurityGroup', {
+      vpc: retiredVpc,
       description: 'Security group for collector Fargate tasks',
       allowAllOutbound: true,
     });
+    if (props.deploymentRegion === PRIMARY_REGION) {
+      this.exportValue(retiredSecurityGroup.securityGroupId);
+      for (const subnet of retiredVpc.publicSubnets) {
+        this.exportValue(subnet.subnetId);
+      }
+    }
 
     this.collectorLogGroup = new logs.LogGroup(this, 'CollectorEcsLogGroup', {
       logGroupName: `/ecs/collector-${props.deploymentRegion}`,

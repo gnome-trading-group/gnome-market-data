@@ -4,7 +4,7 @@ import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from "constructs";
-import { Stage } from "@gnome-trading-group/gnome-shared-cdk";
+import { platformRegions, Stage } from "@gnome-trading-group/gnome-shared-cdk";
 import { CONFIGS, GITHUB_BRANCH, GITHUB_REPO, MarketDataConfig } from "./config";
 import { BackendStack, CollectorRegionConfig } from "./stacks/backend-stack";
 import { StorageStack } from "./stacks/storage-stack";
@@ -18,7 +18,7 @@ import { InventoryProcessorStack } from "./stacks/inventory-processor-stack";
 import { QualityCheckStack } from "./stacks/quality-check-stack";
 
 /** Regions where collectors can be deployed */
-export const COLLECTOR_REGIONS = ["us-east-1", "ap-northeast-1", "eu-west-1"];
+export const COLLECTOR_REGIONS = platformRegions();
 
 class AppStage extends cdk.Stage {
   constructor(scope: Construct, id: string, config: MarketDataConfig) {
