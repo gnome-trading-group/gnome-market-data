@@ -24,21 +24,12 @@ public record MarketDataConfig(
         String rollToVersion,
         int handoffMinutes,
         int emptyShardMinutes,
-        Alerts alerts,
-        QualityChecks qualityChecks) {
+        Alerts alerts) {
 
     /** How long a condition lasts before the reconciler alerts on it. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Alerts(int notLiveMinutes, int staleMinutes, int shardDownMinutes) {}
-
-    /**
-     * A second switch for quality checks on each final minute. They have no trigger today (see StorageStack), so this
-     * only matters once that wiring is restored.
-     */
-    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record QualityChecks(boolean enabled) {}
 
     public static final MarketDataConfig DEFAULTS = new MarketDataConfig(
             900,
@@ -48,6 +39,5 @@ public record MarketDataConfig(
             null,
             2,
             10,
-            new Alerts(10, 5, 5),
-            new QualityChecks(true));
+            new Alerts(10, 5, 5));
 }

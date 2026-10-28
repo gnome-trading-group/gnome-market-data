@@ -13,10 +13,6 @@ interface BackendStackProps extends cdk.StackProps {
   finalBucket: s3.IBucket;
   metadataBucket: s3.IBucket;
   coverageTable: dynamodb.ITable;
-  qualityIssuesTable: dynamodb.ITable;
-  dailyListingStatisticsTable: dynamodb.ITable;
-  qualityBackfillLambda: lambda.IFunction;
-  qualityInvestigationLambda: lambda.IFunction;
   collectionRulesTable: dynamodb.ITable;
   collectionTargetsTable: dynamodb.ITable;
   collectionShardsTable: dynamodb.ITable;
@@ -145,7 +141,6 @@ export class BackendStack extends cdk.Stack {
           FINAL_BUCKET_NAME: props.finalBucket.bucketName,
           METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
           COVERAGE_TABLE_NAME: props.coverageTable.tableName,
-          QUALITY_ISSUES_TABLE_NAME: props.qualityIssuesTable.tableName,
         },
       });
 
@@ -153,7 +148,6 @@ export class BackendStack extends cdk.Stack {
       props.finalBucket.grantRead(fn);
       props.metadataBucket.grantRead(fn);
       props.coverageTable.grantReadData(fn);
-      props.qualityIssuesTable.grantReadWriteData(fn);
 
       return fn;
     };
@@ -183,114 +177,8 @@ export class BackendStack extends cdk.Stack {
       );
     };
 
-    const qualityIssuesEndpoints: EndpointConfig[] = [
-      {
-        name: "ListQualityIssues",
-        path: "quality-issues/list",
-        method: "GET",
-        handlerPath: "quality-issues/list",
-      },
-      {
-        name: "GetQualityIssuesByListing",
-        path: "quality-issues/list/{listingId}",
-        method: "GET",
-        handlerPath: "quality-issues/get-by-listing",
-      },
-      {
-        name: "UpdateQualityIssues",
-        path: "quality-issues/update",
-        method: "POST",
-        handlerPath: "quality-issues/update",
-      },
-    ];
-
     gapsEndpoints.forEach(createMarketDataEndpoint);
     coverageEndpoints.forEach(createMarketDataEndpoint);
-    qualityIssuesEndpoints.forEach(createMarketDataEndpoint);
-
-    // Listing statistics endpoint — read-only, only needs dailyListingStatisticsTable
-    const listingStatsLambda = new lambda.Function(this, "GetListingStatisticsFunction", {
-      runtime: lambda.Runtime.PYTHON_3_13,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/functions/listing-statistics/get"),
-      layers: [commonLayer],
-      timeout: cdk.Duration.seconds(30),
-      environment: {
-        LISTING_STATISTICS_TABLE_NAME: props.dailyListingStatisticsTable.tableName,
-      },
-    });
-    props.dailyListingStatisticsTable.grantReadData(listingStatsLambda);
-
-    const listingStatsResource = this.api.root
-      .addResource("listing-statistics")
-      .addResource("{listingId}");
-    listingStatsResource.addMethod(
-      "GET",
-      new apigateway.LambdaIntegration(listingStatsLambda),
-      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
-    );
-
-    const listingStatsHistoryLambda = new lambda.Function(this, "GetListingStatisticsHistoryFunction", {
-      runtime: lambda.Runtime.PYTHON_3_13,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/functions/listing-statistics/history"),
-      layers: [commonLayer],
-      timeout: cdk.Duration.seconds(30),
-      environment: {
-        LISTING_STATISTICS_TABLE_NAME: props.dailyListingStatisticsTable.tableName,
-      },
-    });
-    props.dailyListingStatisticsTable.grantReadData(listingStatsHistoryLambda);
-    listingStatsResource.addResource("history").addMethod(
-      "GET",
-      new apigateway.LambdaIntegration(listingStatsHistoryLambda),
-      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
-    );
-
-    // Quality backfill trigger — async invocation of the Java backfill Lambda
-    const qualityBackfillTriggerLambda = new lambda.Function(this, "TriggerQualityBackfillFunction", {
-      runtime: lambda.Runtime.PYTHON_3_13,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/functions/quality-issues/backfill"),
-      layers: [commonLayer],
-      timeout: cdk.Duration.seconds(30),
-      environment: {
-        QUALITY_BACKFILL_FUNCTION_NAME: props.qualityBackfillLambda.functionName,
-      },
-    });
-    props.qualityBackfillLambda.grantInvoke(qualityBackfillTriggerLambda);
-
-    const backfillResource = this.api.root
-      .getResource("quality-issues")!
-      .addResource("backfill");
-    backfillResource.addMethod(
-      "POST",
-      new apigateway.LambdaIntegration(qualityBackfillTriggerLambda),
-      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
-    );
-
-    // Quality issue minute investigation — synchronous invocation of the Java investigation Lambda
-    const qualityInvestigateLambda = new lambda.Function(this, "InvestigateQualityIssueFunction", {
-      runtime: lambda.Runtime.PYTHON_3_13,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/functions/quality-issues/investigate"),
-      layers: [commonLayer],
-      timeout: cdk.Duration.seconds(60),
-      environment: {
-        INVESTIGATION_FUNCTION_NAME: props.qualityInvestigationLambda.functionName,
-      },
-    });
-    props.qualityInvestigationLambda.grantInvoke(qualityInvestigateLambda);
-
-    const investigateResource = this.api.root
-      .getResource("quality-issues")!
-      .addResource("investigate")
-      .addResource("{listingId}");
-    investigateResource.addMethod(
-      "GET",
-      new apigateway.LambdaIntegration(qualityInvestigateLambda),
-      { apiKeyRequired: false, authorizationType: apigateway.AuthorizationType.COGNITO, authorizer },
-    );
 
     new cdk.CfnOutput(this, "ApiUrl", {
       value: this.api.url,

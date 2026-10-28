@@ -7,8 +7,6 @@ import group.gnometrading.collection.aws.DynamoStore;
 import group.gnometrading.common.config.MarketDataServiceConfig;
 import group.gnometrading.constants.Stage;
 import group.gnometrading.inventory.CoverageRecord;
-import group.gnometrading.quality.model.HourlyListingStatistic;
-import group.gnometrading.quality.model.QualityIssue;
 import group.gnometrading.resources.Properties;
 import java.net.http.HttpClient;
 import java.time.Clock;
@@ -120,10 +118,6 @@ public final class Dependencies {
 
     // ----- buckets and tables -----
 
-    public String getFinalBucketName() {
-        return env("FINAL_BUCKET_NAME");
-    }
-
     public String getMetadataBucketName() {
         return env("METADATA_BUCKET_NAME");
     }
@@ -131,20 +125,6 @@ public final class Dependencies {
     public DynamoDbTable<CoverageRecord> getCoverageTable() {
         return once("coverageTable", () -> getDynamoDbEnhancedClient()
                 .table(env("COVERAGE_TABLE_NAME"), TableSchema.fromBean(CoverageRecord.class)));
-    }
-
-    public DynamoDbTable<QualityIssue> getQualityIssuesTable() {
-        return once("qualityIssuesTable", () -> getDynamoDbEnhancedClient()
-                .table(env("QUALITY_ISSUES_TABLE_NAME"), TableSchema.fromBean(QualityIssue.class)));
-    }
-
-    public String getListingStatisticsTableName() {
-        return env("LISTING_STATISTICS_TABLE_NAME");
-    }
-
-    public DynamoDbTable<HourlyListingStatistic> getHourlyListingStatisticsTable() {
-        return once("hourlyListingStatisticsTable", () -> getDynamoDbEnhancedClient()
-                .table(getListingStatisticsTableName(), TableSchema.fromBean(HourlyListingStatistic.class)));
     }
 
     // ----- collection -----

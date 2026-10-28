@@ -12,7 +12,6 @@ import { CollectionRegionalStack } from "./stacks/collection-regional-stack";
 import { ReconcilerStack } from "./stacks/reconciler-stack";
 import { MonitoringStack } from "./stacks/monitoring-stack";
 import { InventoryProcessorStack } from "./stacks/inventory-processor-stack";
-import { QualityCheckStack } from "./stacks/quality-check-stack";
 
 /** Regions shards run in. */
 export const COLLECTION_REGIONS = platformRegions();
@@ -53,22 +52,11 @@ class AppStage extends cdk.Stage {
       metadataBucket: storageStack.metadataBucket,
     });
 
-    const qualityCheckStack = new QualityCheckStack(this, "MarketDataQualityCheckStack", {
-      finalBucket: storageStack.finalBucket,
-      qualityIssuesTable: storageStack.qualityIssuesTable,
-      dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
-      config,
-    });
-
     const backendStack = new BackendStack(this, "MarketDataBackendStack", {
       gapsTable: storageStack.gapsTable,
       finalBucket: storageStack.finalBucket,
       metadataBucket: storageStack.metadataBucket,
       coverageTable: storageStack.coverageTable,
-      qualityIssuesTable: storageStack.qualityIssuesTable,
-      dailyListingStatisticsTable: storageStack.dailyListingStatisticsTable,
-      qualityBackfillLambda: qualityCheckStack.qualityBackfillLambda,
-      qualityInvestigationLambda: qualityCheckStack.qualityInvestigationLambda,
       collectionRulesTable: storageStack.collectionRulesTable,
       collectionTargetsTable: storageStack.collectionTargetsTable,
       collectionShardsTable: storageStack.collectionShardsTable,
@@ -90,7 +78,6 @@ class AppStage extends cdk.Stage {
       api: backendStack.api,
       reconcilerLambda: reconcilerStack.reconcilerLambda,
       inventoryProcessorLambda: inventoryProcessorStack.processorFunction,
-      qualityCheckLambda: qualityCheckStack.qualityCheckLambda,
       queues: storageStack.monitoredQueues,
     });
   }

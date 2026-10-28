@@ -1,7 +1,6 @@
 package group.gnometrading.collection.aws;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -41,14 +40,13 @@ class ServiceConfigSettingsTest {
         assertEquals(900, json.get("max_streams_per_shard").asInt());
         assertTrue(json.get("roll_to_version").isNull(), "present, so the stored config shows the key");
         assertEquals(10, json.get("alerts").get("not_live_minutes").asInt());
-        assertTrue(json.get("quality_checks").get("enabled").asBoolean());
     }
 
     @Test
     void aStoredConfigOverridesOnlyWhatItSets() throws Exception {
         MarketDataConfig config =
                 serviceConfig.parse(MAPPER.readTree("{\"roll_to_version\": \"1.24.0\", \"max_streams_per_shard\": 400,"
-                        + " \"alerts\": {\"stale_minutes\": 2}, \"quality_checks\": {\"enabled\": false},"
+                        + " \"alerts\": {\"stale_minutes\": 2},"
                         + " \"something_removed\": 1}"));
         Settings settings = ServiceConfigSettings.of(config, () -> "1.23.0");
 
@@ -59,7 +57,6 @@ class ServiceConfigSettingsTest {
         assertEquals(
                 TimeUnit.MINUTES.toNanos(10), settings.notLiveAlertNanos(), "the rest of alerts keeps its defaults");
         assertEquals(Map.of("HYPERLIQUID", 0), settings.endedRetireGraceMinutes());
-        assertFalse(config.qualityChecks().enabled());
     }
 
     @Test

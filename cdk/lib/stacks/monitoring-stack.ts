@@ -11,7 +11,6 @@ export interface MonitoringStackProps extends cdk.StackProps {
   api: apigateway.RestApi;
   reconcilerLambda: lambda.Function;
   inventoryProcessorLambda: lambda.Function;
-  qualityCheckLambda: lambda.Function;
   queues: MonitoredQueue[];
 }
 
@@ -62,12 +61,6 @@ export class MonitoringStack extends cdk.Stack {
         lambdaFunction: props.inventoryProcessorLambda,
         humanReadableName: 'Inventory Processor Lambda',
         alarmFriendlyName: 'InventoryProcessorLambda',
-        ...lambdaAlarms,
-      })
-      .monitorLambdaFunction({
-        lambdaFunction: props.qualityCheckLambda,
-        humanReadableName: 'Quality Check Lambda',
-        alarmFriendlyName: 'QualityCheckLambda',
         ...lambdaAlarms,
       });
 

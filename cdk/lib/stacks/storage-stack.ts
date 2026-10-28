@@ -35,9 +35,6 @@ export class StorageStack extends cdk.Stack {
   public readonly metadataBucket: s3.Bucket;
   public readonly exchangeRawBucket: s3.Bucket;
   public readonly inventoryQueue: sqs.Queue;
-  public readonly qualityIssuesTable: dynamodb.Table;
-  public readonly dailyListingStatisticsTable: dynamodb.Table;
-  public readonly qualityCheckQueue: sqs.Queue;
   // Each pipeline queue with its dead-letter queue and how old its oldest message may get, for the monitoring stack.
   public readonly monitoredQueues: MonitoredQueue[] = [];
 
@@ -136,52 +133,13 @@ export class StorageStack extends cdk.Stack {
       { name: "from_ns", type: dynamodb.AttributeType.NUMBER },
     );
 
-    this.qualityIssuesTable = new dynamodb.Table(this, "QualityIssuesTable", {
-      tableName: "market-data-quality-issues",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "issueId", type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-
-    this.qualityIssuesTable.addGlobalSecondaryIndex({
-      indexName: "status-timestamp-index",
-      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-    });
-
-    this.qualityIssuesTable.addGlobalSecondaryIndex({
-      indexName: "ruleType-timestamp-index",
-      partitionKey: { name: "ruleType", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-    });
-
-    this.dailyListingStatisticsTable = new dynamodb.Table(this, "DailyListingStatisticsTable", {
-      tableName: "market-data-listing-daily-statistics",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-
-    this.qualityCheckQueue = this.monitoredQueue('QualityCheckQueue', 'market-data-quality-check-queue', cdk.Duration.minutes(15), {
-      visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.days(4),
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-    });
-
     this.inventoryQueue = this.monitoredQueue('InventoryQueue', 'market-data-inventory-queue', cdk.Duration.minutes(15), {
       visibilityTimeout: cdk.Duration.minutes(15),
       retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
-    // Quality checks are off (2026-10-27: not worth their cost yet). Re-enable by sending the final bucket's new objects
-    // to this.qualityCheckQueue and giving QualityCheckStack's Lambda its SQS event source back.
-
-    this.retireOldPipeline(props);
+    this.retireQualityChecks();
 
     this.metadataBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
@@ -191,97 +149,54 @@ export class StorageStack extends cdk.Stack {
   }
 
   /**
-   * The pipeline before Phase 6 (merger, transformer, gap detector, per-listing collectors, raw and merged buckets),
-   * kept unused for one release: the stacks that imported these deploy after this one, and an export still imported
-   * can't be deleted. The next release removes all of it; the raw and merged buckets are retained (empty and delete
-   * them by hand).
+   * Quality checks, removed (2026-10-28): kept unused for one release, because the stacks that import these deploy
+   * after this one (backend, monitoring) or are deleted by hand (MarketDataQualityCheckStack), and an export still
+   * imported can't be deleted. The next release removes all of it.
    */
-  private retireOldPipeline(props: StorageStackProps) {
-    const rawBucket = new s3.Bucket(this, 'CollectorRawBucket', {
-      bucketName: `gnome-market-data-raw-${props.config.account.stage}`,
-    });
-    const mergedBucket = new s3.Bucket(this, 'CollectorArchiveBucket', {
-      bucketName: `gnome-market-data-merged-${props.config.account.stage}`,
-    });
-    const collectorsTable = new dynamodb.Table(this, "MarketDataCollectorsTable", {
-      tableName: "market-data-collectors",
+  private retireQualityChecks() {
+    const qualityIssuesTable = new dynamodb.Table(this, "QualityIssuesTable", {
+      tableName: "market-data-quality-issues",
       partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "issueId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       pointInTimeRecovery: true,
     });
-
-    const transformJobsTable = new dynamodb.Table(this, "MarketDataTransformJobsTable", {
-      tableName: "market-data-transform-jobs",
-      partitionKey: { name: "jobId", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-      timeToLiveAttribute: "expiresAt",
-    });
-
-    // Used for the lambda that process jobs
-    transformJobsTable.addGlobalSecondaryIndex({
-      indexName: "schemaType-status-index",
-      partitionKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "status", type: dynamodb.AttributeType.STRING },
-    });
-
-    // Used for /transform-jobs/search
-    transformJobsTable.addGlobalSecondaryIndex({
-      indexName: "listingId-schemaType-index",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "schemaType", type: dynamodb.AttributeType.STRING },
-    });
-
-    // Used for /transform-jobs/list
-    transformJobsTable.addGlobalSecondaryIndex({
+    qualityIssuesTable.addGlobalSecondaryIndex({
       indexName: "status-timestamp-index",
       partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
     });
-
-    const mergerQueue = this.retiredQueue('MergerQueue', 'market-data-merger-queue', cdk.Duration.minutes(15), {
+    qualityIssuesTable.addGlobalSecondaryIndex({
+      indexName: "ruleType-timestamp-index",
+      partitionKey: { name: "ruleType", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+    });
+    const dailyListingStatisticsTable = new dynamodb.Table(this, "DailyListingStatisticsTable", {
+      tableName: "market-data-listing-daily-statistics",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+    });
+    const qualityCheckQueue = this.retiredQueue('QualityCheckQueue', 'market-data-quality-check-queue', {
       visibilityTimeout: cdk.Duration.minutes(15),
       retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
-    const transformerQueue = this.retiredQueue('TransformerQueue', 'market-data-transformer-queue', cdk.Duration.minutes(15), {
-      visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.days(4),
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-    });
-
-    const gapQueue = this.retiredQueue('GapQueue', 'market-data-gap-queue', cdk.Duration.minutes(30), {
-      visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.days(4),
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-      deliveryDelay: cdk.Duration.minutes(15),
-    });
-
-    for (const bucket of [rawBucket, mergedBucket]) {
-      this.exportValue(bucket.bucketName);
-      this.exportValue(bucket.bucketArn);
-    }
-    for (const table of [collectorsTable, transformJobsTable]) {
+    for (const table of [qualityIssuesTable, dailyListingStatisticsTable]) {
       this.exportValue(table.tableName);
       this.exportValue(table.tableArn);
     }
-    for (const queue of [mergerQueue, transformerQueue, gapQueue]) {
-      this.exportValue(queue.queueArn);
-      this.exportValue(queue.queueName);
-      this.exportValue(queue.deadLetterQueue!.queue.queueName);
-    }
-    // Still imported by stacks that deploy after this one or are deleted by hand: the quality queue by the quality
-    // check stack (which no longer reads it), the exchange-raw bucket by the old us-east-1 collector stack.
-    this.exportValue(this.qualityCheckQueue.queueArn);
-    this.exportValue(this.exchangeRawBucket.bucketName);
+    this.exportValue(qualityCheckQueue.queueArn);
+    this.exportValue(qualityCheckQueue.queueName);
+    this.exportValue(qualityCheckQueue.deadLetterQueue!.queue.queueName);
   }
 
   /** A queue as monitoredQueue builds it (same ids, so the same resources), without its alarms. */
-  private retiredQueue(id: string, name: string, _maxAge: cdk.Duration, props: sqs.QueueProps): sqs.Queue {
+  private retiredQueue(id: string, name: string, props: sqs.QueueProps): sqs.Queue {
     const deadLetterQueue = new sqs.Queue(this, `${id}DeadLetter`, {
       queueName: `${name}-dlq`,
       retentionPeriod: DEAD_LETTER_RETENTION,
