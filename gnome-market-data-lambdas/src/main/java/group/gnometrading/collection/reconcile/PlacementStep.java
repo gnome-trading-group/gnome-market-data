@@ -95,8 +95,8 @@ final class PlacementStep {
     private static List<ShardLoad> loads(final Tick tick) {
         final List<ShardLoad> loads = new ArrayList<>();
         for (ShardRecord shard : tick.shards.values()) {
-            final ShardLoad load = new ShardLoad(
-                    shard.shardId(), shard.partition(), shard.state() == ShardRecord.State.ACTIVE, shard.accounts());
+            final ShardLoad load =
+                    new ShardLoad(shard.shardId(), shard.partition(), takesStreams(tick, shard), shard.accounts());
             final List<Integer> carried = new ArrayList<>(shard.streams());
             carried.addAll(shard.draining());
             for (int streamId : carried) {
@@ -108,6 +108,15 @@ final class PlacementStep {
             loads.add(load);
         }
         return loads;
+    }
+
+    /**
+     * An ACTIVE shard takes streams; during a roll only one already on the version rolled to, so a stream leaving a
+     * rolling shard moves once, not onto another shard that will roll next.
+     */
+    private static boolean takesStreams(final Tick tick, final ShardRecord shard) {
+        final String rollTo = tick.config.rollToVersion();
+        return shard.state() == ShardRecord.State.ACTIVE && (rollTo == null || rollTo.equals(shard.version()));
     }
 
     /**

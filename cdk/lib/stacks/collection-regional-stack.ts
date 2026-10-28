@@ -22,7 +22,10 @@ export interface CollectionRegionalStackProps extends cdk.StackProps {
 
 // What every shard host runs: 1 vCPU, 8 GB (decision D4; the 6-0 capacity test ran 1,000 streams on one).
 const ON_DEMAND_TYPE = "r7a.medium";
-// Spot takes any 8 GB type a shard runs on, so capacity is there when r7a.medium Spot isn't.
+// Spot always takes the cheapest pool with capacity (lowest-price): r7a.medium, about $0.022/h against $0.035-0.05/h
+// for the 2 vCPU 8 GB types, which are here only as fallbacks for when no r7a.medium is left in a zone. A reclaimed
+// research shard is replaced within minutes and its minutes recorded as a gap (decision D5); that is cheaper than
+// paying for steadier pools.
 const SPOT_TYPES = ["r7a.medium", "m7a.large", "m6a.large"];
 const MAX_HOSTS = 40;
 
@@ -89,7 +92,7 @@ export class CollectionRegionalStack extends cdk.Stack {
         instancesDistribution: {
           onDemandBaseCapacity: 0,
           onDemandPercentageAboveBaseCapacity: 0,
-          spotAllocationStrategy: autoscaling.SpotAllocationStrategy.PRICE_CAPACITY_OPTIMIZED,
+          spotAllocationStrategy: autoscaling.SpotAllocationStrategy.LOWEST_PRICE,
         },
       },
       minCapacity: 0,

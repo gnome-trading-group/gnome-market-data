@@ -1,5 +1,3 @@
-import os
-
 import boto3
 from utils import lambda_handler
 
@@ -21,4 +19,8 @@ def handler(shardId: str, region: str, taskId: str, limit: int = 200):
         limit=min(limit, 1000),
         startFromHead=False,
     )
-    return {'shardId': shardId, 'lines': [event['message'] for event in response.get('events', [])]}
+    return {
+        'shardId': shardId,
+        'taskId': taskId,
+        'events': [{'timestamp': e['timestamp'], 'message': e['message']} for e in response.get('events', [])],
+    }

@@ -40,6 +40,8 @@ export class JavaLambda extends Construct {
       buildSecrets: {
         MAVEN_CREDENTIALS: 'env=MAVEN_CREDENTIALS',
       },
+      // The functions run on x86_64; an image built on an arm64 machine would fail with Runtime.InvalidEntrypoint.
+      platform: ecrAssets.Platform.LINUX_AMD64,
     });
 
     this.lambdaFunction = new lambda.DockerImageFunction(this, `${props.name}JavaLambda`, {
@@ -98,8 +100,7 @@ RUN --mount=type=secret,id=MAVEN_CREDENTIALS \\
     export MAVEN_CREDENTIALS=$(cat /run/secrets/MAVEN_CREDENTIALS) && \\
     export GITHUB_ACTOR=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_ACTOR') && \\
     export GITHUB_TOKEN=$(echo $MAVEN_CREDENTIALS | jq -r '.GITHUB_TOKEN') && \\
-    mvn clean package -s settings.xml && \\
-    mvn dependency:copy-dependencies -DincludeScope=runtime -pl gnome-market-data-lambdas -s settings.xml
+    mvn clean package dependency:copy-dependencies -DincludeScope=runtime -s settings.xml
 
 # Runtime stage - ubuntu:24.04 for GLIBC requirements
 FROM ubuntu:24.04

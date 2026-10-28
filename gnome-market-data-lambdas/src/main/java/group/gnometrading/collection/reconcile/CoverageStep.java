@@ -2,6 +2,7 @@ package group.gnometrading.collection.reconcile;
 
 import group.gnometrading.collection.model.Interval;
 import group.gnometrading.collection.model.ShardRecord;
+import group.gnometrading.collection.model.StreamState;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.model.TaskStatus;
 import group.gnometrading.collection.ports.Statuses;
@@ -78,14 +79,45 @@ final class CoverageStep {
         }
         final Set<String> tasks = new HashSet<>(openByTask.keySet());
         tasks.addAll(statusByTask.keySet());
+        final Set<Integer> assigned = new HashSet<>(shard.streams());
+        assigned.addAll(shard.draining());
         final Map<Integer, Seen> byStream = new HashMap<>();
+        // Each task's newest status, for the streams it shows covered: an open interval's stored end trails (it is
+        // written only every few minutes), the status doesn't.
+        for (TaskStatus status : statusByTask.values()) {
+            for (StreamState stream : status.streams()) {
+                if (Tick.COVERED.contains(stream.state())) {
+                    byStream.merge(
+                            stream.streamId(), new Seen(Long.MAX_VALUE, status.writtenAtNanos(), null), Seen::merge);
+                }
+            }
+        }
         for (String task : tasks) {
             final CoverageTracker.Result result = CoverageTracker.observe(
-                    shard.shardId(), task, openByTask.getOrDefault(task, List.of()), statusByTask.get(task), tick.now);
+                    shard.shardId(),
+                    task,
+                    openByTask.getOrDefault(task, List.of()),
+                    statusByTask.get(task),
+                    assigned,
+                    tick.now);
             result.writes().forEach(store::putInterval);
             record(result, byStream);
+            stillOpen(openByTask.getOrDefault(task, List.of()), result, byStream);
         }
         return byStream;
+    }
+
+    /** Open intervals this tick didn't write (an extension is written only every few minutes) and didn't close. */
+    private static void stillOpen(
+            final List<Interval> open, final CoverageTracker.Result result, final Map<Integer, Seen> byStream) {
+        final Set<Integer> written = new HashSet<>();
+        result.writes().forEach(interval -> written.add(interval.streamId()));
+        for (Interval interval : open) {
+            if (!written.contains(interval.streamId())) {
+                byStream.merge(
+                        interval.streamId(), new Seen(interval.fromNanos(), interval.toNanos(), null), Seen::merge);
+            }
+        }
     }
 
     private static void record(final CoverageTracker.Result result, final Map<Integer, Seen> byStream) {

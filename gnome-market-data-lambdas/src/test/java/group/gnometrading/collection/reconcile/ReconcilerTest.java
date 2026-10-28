@@ -57,6 +57,9 @@ class ReconcilerTest {
     private final String version = "1.23.0";
     // Set to roll: until then a newer release changes nothing for running shards.
     private String rollTo;
+    private int maxStreamsPerShard = 500;
+    // Stream ids asked of the registry, per lookup.
+    private final List<Integer> streamLookups = new ArrayList<>();
     // A shard whose service calls throw, as when its region's base task definition isn't deployed.
     private String failingShard;
 
@@ -137,6 +140,7 @@ class ReconcilerTest {
             new Registry() {
                 @Override
                 public Map<Integer, StreamInfo> streams(final Collection<Integer> ids) {
+                    streamLookups.add(ids.size());
                     return ids.stream().filter(streams::containsKey).collect(Collectors.toMap(id -> id, streams::get));
                 }
 
@@ -186,7 +190,7 @@ class ReconcilerTest {
                 }
             },
             () -> new Settings(
-                    500,
+                    maxStreamsPerShard,
                     5,
                     Map.of(),
                     rollTo == null ? version : rollTo,
@@ -520,6 +524,35 @@ class ReconcilerTest {
         reconciler.tick(T0 + 8 * MINUTE);
         assertEquals(ShardRecord.State.DELETED, shards.get("use1-1").state(), "drained, then deleted");
         assertEquals(Set.of("use1-2@1.24.0"), services);
+    }
+
+    @Test
+    void aRollMovesStreamsOnlyOntoShardsAlreadyOnTheNewVersion() {
+        maxStreamsPerShard = 2;
+        wantStreams(1, 2, 3);
+        reconciler.tick(T0);
+        assertEquals(List.of(1, 2), shards.get("use1-1").streams());
+        assertEquals(List.of(3), shards.get("use1-2").streams(), "room for one more");
+        rollTo = "1.24.0";
+
+        reconciler.tick(T0 + MINUTE);
+
+        assertEquals(ShardRecord.State.DRAINING, shards.get("use1-1").state());
+        assertEquals(List.of(3), shards.get("use1-2").streams(), "an old-version shard takes nothing during the roll");
+        assertEquals(List.of(1, 2), shards.get("use1-3").streams());
+        assertEquals("1.24.0", shards.get("use1-3").version());
+    }
+
+    @Test
+    void streamInfoIsReadOnceEveryFewMinutesNotEveryTick() {
+        wantStreams(1, 2);
+        reconciler.tick(T0);
+        reconciler.tick(T0 + MINUTE);
+        reconciler.tick(T0 + 2 * MINUTE);
+        assertEquals(List.of(2), streamLookups, "the next ticks reuse what the first read");
+
+        reconciler.tick(T0 + 5 * MINUTE);
+        assertEquals(List.of(2, 2), streamLookups);
     }
 
     @Test

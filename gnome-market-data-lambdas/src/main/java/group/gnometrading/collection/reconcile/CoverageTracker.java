@@ -18,10 +18,14 @@ import java.util.concurrent.TimeUnit;
  *
  * <ul>
  *   <li>An interval opens when the task's transitions show the stream became covered, else at the status's time.
- *   <li>Each status extends it to the status's time; it splits at UTC midnight, so a day's coverage is one query.
+ *   <li>Statuses extend it to their time, written at most every {@link #EXTEND_EVERY_NANOS} (each write is a
+ *       DynamoDB write per stream, the system's second-largest cost) and at UTC midnight, where it splits so a day's
+ *       coverage is one query. Its stored end can so trail by that much; closes use the task's status instead.
  *   <li>It closes when the stream stops being covered or leaves the task, at the transition's time if the task kept it,
  *       else at the last time it was confirmed; and at the last confirmed time, as {@link #TASK_LOST}, once the task's
- *       status is older than {@link #TASK_LOST_NANOS}.
+ *       status is older than {@link #TASK_LOST_NANOS}. A stream that left a task the shard still assigns it to closes
+ *       as {@link #TASK_STOPPED} (the task stopped with it, its replacement takes over); one the shard no longer has,
+ *       as {@link #REMOVED}.
  * </ul>
  *
  * <p>Pure: open intervals and a status in, interval writes and coverage changes out.
@@ -31,6 +35,8 @@ public final class CoverageTracker {
     public static final long TASK_LOST_NANOS = TimeUnit.MINUTES.toNanos(5);
     public static final String TASK_LOST = "TASK_LOST";
     public static final String REMOVED = "REMOVED";
+    public static final String TASK_STOPPED = "TASK_STOPPED";
+    public static final long EXTEND_EVERY_NANOS = TimeUnit.MINUTES.toNanos(10);
     private static final long DAY_NANOS = TimeUnit.DAYS.toNanos(1);
     private static final Set<String> COVERED = Set.of("LIVE", "SUSPECT", "EMPTY");
 
@@ -42,18 +48,22 @@ public final class CoverageTracker {
 
     private CoverageTracker() {}
 
-    /** Applies {@code status} (null: none was found) to the task's {@code open} intervals. */
+    /**
+     * Applies {@code status} (null: none was found) to the task's {@code open} intervals; {@code assigned} are the
+     * streams the shard's item holds now.
+     */
     public static Result observe(
             final String shardId,
             final String taskId,
             final List<Interval> open,
             final TaskStatus status,
+            final Set<Integer> assigned,
             final long nowNanos) {
         final List<Interval> writes = new ArrayList<>();
         final List<Change> changes = new ArrayList<>();
         if (status == null || nowNanos - status.writtenAtNanos() > TASK_LOST_NANOS) {
             for (Interval interval : open) {
-                close(interval, interval.toNanos(), TASK_LOST, writes, changes);
+                close(interval, lastConfirmed(interval, status), TASK_LOST, writes, changes);
             }
             return new Result(writes, changes);
         }
@@ -64,8 +74,9 @@ public final class CoverageTracker {
         for (StreamState stream : status.streams()) {
             observeStream(shardId, taskId, stream, openByStream.remove(stream.streamId()), status, writes, changes);
         }
-        for (Interval removed : openByStream.values()) {
-            close(removed, lastChange(status, removed.streamId(), false, removed.toNanos()), REMOVED, writes, changes);
+        for (Interval left : openByStream.values()) {
+            final String reason = assigned.contains(left.streamId()) ? TASK_STOPPED : REMOVED;
+            close(left, lastChange(status, left.streamId(), false, left.toNanos()), reason, writes, changes);
         }
         return new Result(writes, changes);
     }
@@ -81,7 +92,9 @@ public final class CoverageTracker {
         final long now = status.writtenAtNanos();
         final boolean covered = COVERED.contains(stream.state());
         if (covered && current != null) {
-            extend(current, now, writes);
+            if (now - current.toNanos() >= EXTEND_EVERY_NANOS || now >= nextMidnight(current)) {
+                extend(current, now, writes);
+            }
         } else if (covered) {
             final long from = lastChange(status, stream.streamId(), true, now);
             writes.add(new Interval(stream.streamId(), from, now, shardId, taskId, true, null));
@@ -96,10 +109,26 @@ public final class CoverageTracker {
         }
     }
 
+    private static long nextMidnight(final Interval interval) {
+        return (interval.fromNanos() / DAY_NANOS + 1) * DAY_NANOS;
+    }
+
+    /** The last moment the stream is known covered: its task's newest status if that still showed it covered. */
+    private static long lastConfirmed(final Interval interval, final TaskStatus status) {
+        if (status != null) {
+            for (StreamState stream : status.streams()) {
+                if (stream.streamId() == interval.streamId() && COVERED.contains(stream.state())) {
+                    return Math.max(interval.toNanos(), status.writtenAtNanos());
+                }
+            }
+        }
+        return interval.toNanos();
+    }
+
     /** Extends to {@code now}, splitting at each UTC midnight passed since the interval opened. */
     private static void extend(final Interval interval, final long now, final List<Interval> writes) {
         Interval current = interval;
-        long midnight = (current.fromNanos() / DAY_NANOS + 1) * DAY_NANOS;
+        long midnight = nextMidnight(current);
         while (now >= midnight) {
             writes.add(current.closeAt(midnight, "MIDNIGHT"));
             current = new Interval(

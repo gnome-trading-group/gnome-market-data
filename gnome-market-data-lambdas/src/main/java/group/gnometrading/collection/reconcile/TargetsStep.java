@@ -5,16 +5,31 @@ import group.gnometrading.collection.model.StreamInfo;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Registry;
 import group.gnometrading.collection.ports.Store;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
-/** Rules become targets ({@link Evaluation}); retired ones are dropped, which takes them off their shards. */
+/**
+ * Rules become targets ({@link Evaluation}); retired ones are dropped, which takes them off their shards.
+ *
+ * <p>What the registry says of each stream is kept for {@link #STREAM_INFO_TTL_NANOS} between ticks: a stream rarely
+ * changes, and reading every target every minute is most of the reconciler's load on the registry. Streams of a source
+ * whose ended subjects retire at once (an ended grace of 0, e.g. Hyperliquid, which drops a connection holding an
+ * expired market) are read every tick.
+ */
 final class TargetsStep {
+
+    static final long STREAM_INFO_TTL_NANOS = TimeUnit.MINUTES.toNanos(5);
+
+    private record Cached(StreamInfo info, long readAtNanos) {}
 
     private final Store store;
     private final Registry registry;
+    // Lives as long as the Lambda's container: a cold start reads everything once.
+    private final Map<Integer, Cached> cache = new HashMap<>();
 
     TargetsStep(final Store store, final Registry registry) {
         this.store = store;
@@ -25,7 +40,7 @@ final class TargetsStep {
         final List<Rule> rules = store.activeRules();
         final Set<Integer> ids = new HashSet<>(tick.targets.keySet());
         rules.forEach(rule -> ids.addAll(rule.streamIds()));
-        final Map<Integer, StreamInfo> streams = registry.streams(ids);
+        final Map<Integer, StreamInfo> streams = streams(tick, ids);
         final Evaluation evaluation =
                 new Evaluation(tick.config.defaultRetireGraceMinutes(), tick.config.endedRetireGraceMinutes());
         for (Target changed :
@@ -38,5 +53,32 @@ final class TargetsStep {
                 tick.retired++;
             }
         }
+    }
+
+    private Map<Integer, StreamInfo> streams(final Tick tick, final Set<Integer> ids) {
+        cache.keySet().retainAll(ids);
+        final Set<Integer> stale = new HashSet<>();
+        for (int id : ids) {
+            final Cached cached = cache.get(id);
+            if (cached == null
+                    || tick.now - cached.readAtNanos() >= STREAM_INFO_TTL_NANOS
+                    || tick.config
+                                    .endedRetireGraceMinutes()
+                                    .getOrDefault(cached.info().source(), -1)
+                            == 0) {
+                stale.add(id);
+            }
+        }
+        if (!stale.isEmpty()) {
+            registry.streams(stale).forEach((id, info) -> cache.put(id, new Cached(info, tick.now)));
+        }
+        final Map<Integer, StreamInfo> streams = new HashMap<>();
+        for (int id : ids) {
+            final Cached cached = cache.get(id);
+            if (cached != null) {
+                streams.put(id, cached.info());
+            }
+        }
+        return streams;
     }
 }

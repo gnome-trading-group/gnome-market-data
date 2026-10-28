@@ -11,6 +11,9 @@ class CustomEncoder(json.JSONEncoder):
             return float(obj)
         if isinstance(obj, datetime.datetime):
             return obj.isoformat()
+        # DynamoDB string and number sets come back as Python sets.
+        if isinstance(obj, (set, frozenset)):
+            return sorted(obj)
         return super().default(obj)
 
 

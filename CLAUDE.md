@@ -42,14 +42,16 @@ holes historical data; live trading does not depend on it.
   - `storage-stack`: buckets, DynamoDB tables (incl. `collection-*`), queues + DLQs, S3 wiring; `retireOldPipeline`
     keeps the pre-Phase-6 resources one release (see Operations)
   - `collection-regional-stack`: per region, cluster `CollectionCluster-<region>` in the platform network, on-demand and
-    Spot capacity providers (`r7a.medium`, one shard per host, host networking), base task definition
+    Spot capacity providers (one shard per host, host networking; `SPOT_TYPES` r7a.medium then m7a.large/m6a.large,
+    lowest-price allocation), base task definition
     `collection-shard-<region>`, roles, log group `/collection/shards-<region>`. `collectionNames()` must match
     `EcsServices`.
   - `reconciler-stack`: FIFO wake-up queue `collection-reconciler.fifo`, 1-minute schedule, the Reconciler Lambda
-    (reserved concurrency 1)
+    (reserved concurrency 1, 1024 MB, 2-minute timeout; the queue's visibility must stay at least the timeout)
   - `backend-stack`: API Gateway + Python Lambdas, Cognito auth
   - `inventory-processor-stack`, `quality-check-stack`, `monitoring-stack`
-- `cdk/lib/constructs/java-lambda.ts`: shared Java Lambda (2048 MB default, 15 min timeout, JSON logs, one-month retention).
+- `cdk/lib/constructs/java-lambda.ts`: shared Java Lambda (2048 MB default, 15 min timeout, JSON logs, one-month retention). Images are pinned to
+  `linux/amd64`: one built on an arm64 Mac otherwise fails with `Runtime.InvalidEntrypoint`.
 - `cdk/lambda/`: Python API handlers (`functions/{collection,gaps,coverage,quality-issues,listing-statistics}`) and the
   `common` layer (`utils.lambda_handler`, `collection.py`).
 - `cdk/lib/stacks/shard-start.sh`: the shard container entrypoint. `shard-docker/` and `java-lambda-docker/` are
@@ -92,6 +94,13 @@ holes historical data; live trading does not depend on it.
 - The registry key comes only from `REGISTRY_API_KEY_ID` (the registry's `RegistryApiKeyId` export); `market-data.<stage>.properties` holds just `registry.url`.
 - The Java stacks import the `RegistryApiKeyArn`, `RegistryApiKeyId` and `UserPoolId` exports from other repos' stacks, and the reconciler and quality stacks `ControllerApiUrl` and `ControllerServiceConfigApiKeyId` (gnome-controller).
 - These Lambdas are batch code and allocate freely. The zero-allocation hot-path rule applies to the shards (gnome-orchestrator), not here.
+
+- Collection coverage: a stream's open interval is extended in `market-data-collection-coverage` only every 10
+  minutes or at UTC midnight (`CoverageTracker.EXTEND_EVERY_NANOS`), not every tick; it is closed at the last status
+  that still covered the stream (`TASK_STOPPED` if the shard still assigns it, `REMOVED` otherwise).
+- `TargetsStep` caches registry stream info for 5 minutes; streams whose source retires them with no grace are
+  re-read every tick. Stream liveness is the registry's `COALESCE(stream.active, listing.active)`.
+- During a roll (`roll_to_version` set), placement only uses shards already on that version.
 
 ## Operations
 

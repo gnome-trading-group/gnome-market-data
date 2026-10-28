@@ -63,6 +63,8 @@ export class ReconcilerStack extends cdk.Stack {
       },
       // One tick at a time: every tick is a full read-modify-write of targets and shards.
       reservedConcurrentExecutions: 1,
+      // A tick used 376 MB at 50 streams; 1 GB leaves room as targets grow at half the cost of the 2 GB default.
+      memorySize: 1024,
       timeout: cdk.Duration.minutes(2),
     });
     this.reconcilerLambda = reconciler.lambdaFunction;

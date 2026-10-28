@@ -10,6 +10,7 @@ import group.gnometrading.collection.model.TaskStatus;
 import group.gnometrading.collection.model.Transition;
 import group.gnometrading.collection.reconcile.CoverageTracker.Change;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +31,7 @@ class CoverageTrackerTest {
     }
 
     private static CoverageTracker.Result observe(final List<Interval> open, final TaskStatus status, final long now) {
-        return CoverageTracker.observe("s1", "task-1", open, status, now);
+        return CoverageTracker.observe("s1", "task-1", open, status, Set.of(), now);
     }
 
     @Test
@@ -49,13 +50,35 @@ class CoverageTrackerTest {
     }
 
     @Test
-    void eachStatusExtendsTheOpenInterval() {
-        TaskStatus status = status(T0 + 30 * SECOND, List.of(new StreamState(7, "SUSPECT")), List.of());
+    void anOpenIntervalIsExtendedOnlyEveryFewMinutes() {
+        long every = CoverageTracker.EXTEND_EVERY_NANOS;
+        TaskStatus soon = status(T0 + 30 * SECOND, List.of(new StreamState(7, "SUSPECT")), List.of());
+        TaskStatus later = status(T0 + every, List.of(new StreamState(7, "SUSPECT")), List.of());
 
-        CoverageTracker.Result result = observe(List.of(open(7, T0, T0 + 15 * SECOND)), status, T0 + 31 * SECOND);
+        assertTrue(
+                observe(List.of(open(7, T0, T0)), soon, T0 + 31 * SECOND)
+                        .writes()
+                        .isEmpty(),
+                "too soon to rewrite");
+        CoverageTracker.Result result = observe(List.of(open(7, T0, T0)), later, T0 + every + SECOND);
 
-        assertEquals(List.of(open(7, T0, T0 + 30 * SECOND)), result.writes(), "suspect is still covered");
+        assertEquals(List.of(open(7, T0, T0 + every)), result.writes(), "suspect is still covered");
         assertTrue(result.changes().isEmpty());
+    }
+
+    @Test
+    void anOpenIntervalIsStillSplitAtMidnightWhateverItsLastWrite() {
+        long midnight = (T0 / DAY + 1) * DAY;
+        TaskStatus status = status(midnight + 5 * SECOND, List.of(new StreamState(7, "LIVE")), List.of());
+
+        CoverageTracker.Result result =
+                observe(List.of(open(7, midnight - 60 * SECOND, midnight - 2 * SECOND)), status, midnight + 6 * SECOND);
+
+        assertEquals(midnight, result.writes().get(0).toNanos());
+        assertEquals("MIDNIGHT", result.writes().get(0).closeReason());
+        assertEquals(
+                List.of(open(7, midnight, midnight + 5 * SECOND)),
+                result.writes().subList(1, 2));
     }
 
     @Test
@@ -76,11 +99,13 @@ class CoverageTrackerTest {
 
     @Test
     void aQuietOrEmptyStreamIsStillCovered() {
-        TaskStatus status = status(T0 + 30 * SECOND, List.of(new StreamState(7, "EMPTY")), List.of());
+        long at = T0 + CoverageTracker.EXTEND_EVERY_NANOS;
+        TaskStatus status = status(at, List.of(new StreamState(7, "EMPTY")), List.of());
 
-        CoverageTracker.Result result = observe(List.of(open(7, T0, T0 + 15 * SECOND)), status, T0 + 31 * SECOND);
+        CoverageTracker.Result result = observe(List.of(open(7, T0, T0)), status, at + SECOND);
 
         assertTrue(result.writes().get(0).open(), "the venue has no book for it: nothing missed");
+        assertTrue(result.changes().isEmpty());
     }
 
     @Test
@@ -92,6 +117,19 @@ class CoverageTrackerTest {
 
         assertEquals(T0 + 20 * SECOND, result.writes().get(0).toNanos());
         assertEquals(CoverageTracker.REMOVED, result.writes().get(0).closeReason());
+    }
+
+    @Test
+    void aLostTasksIntervalClosesAtItsLastStatusNotItsTrailingStoredEnd() {
+        TaskStatus last = status(T0 + 4 * 60 * SECOND, List.of(new StreamState(7, "LIVE")), List.of());
+
+        CoverageTracker.Result result = observe(
+                List.of(open(7, T0 - 60 * SECOND, T0)),
+                last,
+                T0 + 4 * 60 * SECOND + CoverageTracker.TASK_LOST_NANOS + SECOND);
+
+        assertEquals(T0 + 4 * 60 * SECOND, result.writes().get(0).toNanos(), "the stored end trailed by 4 minutes");
+        assertEquals(CoverageTracker.TASK_LOST, result.writes().get(0).closeReason());
     }
 
     @Test
@@ -131,5 +169,15 @@ class CoverageTrackerTest {
         assertEquals(
                 T0 + 15 * SECOND,
                 observe(List.of(), status, T0 + 16 * SECOND).writes().get(0).fromNanos());
+    }
+
+    @Test
+    void aStreamGoneFromATaskTheShardStillAssignsItClosesAsTaskStopped() {
+        TaskStatus stopping = status(T0 + 30 * SECOND, List.of(), List.of());
+
+        CoverageTracker.Result result = CoverageTracker.observe(
+                "s1", "task-1", List.of(open(7, T0, T0 + 15 * SECOND)), stopping, Set.of(7), T0 + 31 * SECOND);
+
+        assertEquals(CoverageTracker.TASK_STOPPED, result.writes().get(0).closeReason());
     }
 }

@@ -17,8 +17,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The registry as the reconciler reads it, three uncached calls a tick however many streams there are: the targets'
- * streams in bulk ({@code active} following each listing), every source's capacity and every market-data account.
+ * The registry as the reconciler reads it: streams in bulk ({@code active} following each listing, so an ended market
+ * reads as not live; the reconciler keeps these a few minutes, see {@code TargetsStep}), every source's capacity and
+ * every market-data account, the last two each tick.
  */
 public final class RegistryAdapter implements Registry {
 
