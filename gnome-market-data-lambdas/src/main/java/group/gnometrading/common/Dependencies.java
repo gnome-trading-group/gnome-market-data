@@ -6,16 +6,12 @@ import group.gnometrading.SecurityMaster;
 import group.gnometrading.collection.aws.DynamoStore;
 import group.gnometrading.common.config.MarketDataServiceConfig;
 import group.gnometrading.constants.Stage;
-import group.gnometrading.inventory.CoverageRecord;
 import group.gnometrading.resources.Properties;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
-import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
-import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
-import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.apigateway.ApiGatewayClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -72,12 +68,6 @@ public final class Dependencies {
         return once("dynamo", DynamoDbClient::create);
     }
 
-    public DynamoDbEnhancedClient getDynamoDbEnhancedClient() {
-        return once("dynamoEnhanced", () -> DynamoDbEnhancedClient.builder()
-                .dynamoDbClient(getDynamoDbClient())
-                .build());
-    }
-
     /** The registry's security master, signed in with the key {@code REGISTRY_API_KEY_ID} names. */
     public SecurityMaster getSecurityMaster() {
         return once("securityMaster", () -> {
@@ -120,11 +110,6 @@ public final class Dependencies {
 
     public String getMetadataBucketName() {
         return env("METADATA_BUCKET_NAME");
-    }
-
-    public DynamoDbTable<CoverageRecord> getCoverageTable() {
-        return once("coverageTable", () -> getDynamoDbEnhancedClient()
-                .table(env("COVERAGE_TABLE_NAME"), TableSchema.fromBean(CoverageRecord.class)));
     }
 
     // ----- collection -----

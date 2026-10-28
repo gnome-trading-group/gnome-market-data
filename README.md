@@ -5,7 +5,7 @@ Multi-module Maven project containing the core data types and Lambda functions f
 ## Modules
 
 - **gnome-market-data-core** — Shared data types and utilities, published to GitHub Packages on each release.
-- **gnome-market-data-lambdas** — Lambda function implementations (Merger, Transformer, Gap Detector, Inventory Processor). Built from source during AWS deployment — not published to Maven.
+- **gnome-market-data-lambdas** — Lambda function implementations (the collection reconciler). Built from source during AWS deployment — not published to Maven.
 
 ## CI/CD Flow
 

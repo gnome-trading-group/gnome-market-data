@@ -1,7 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
-import * as s3notifications from "aws-cdk-lib/aws-s3-notifications";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import { MarketDataConfig } from "../config";
@@ -10,21 +9,7 @@ export interface StorageStackProps extends cdk.StackProps {
   config: MarketDataConfig;
 }
 
-export interface MonitoredQueue {
-  name: string;
-  queue: sqs.IQueue;
-  deadLetterQueue: sqs.IQueue;
-  maxAge: cdk.Duration;
-}
-
-// A message that fails three receives (one bad key, not the whole batch: the handlers report item failures) is set
-// aside for two weeks instead of retrying until it expires.
-const MAX_RECEIVES = 3;
-const DEAD_LETTER_RETENTION = cdk.Duration.days(14);
-
 export class StorageStack extends cdk.Stack {
-  public readonly gapsTable: dynamodb.Table;
-  public readonly coverageTable: dynamodb.Table;
   // The collection control plane (Phase 6): what to collect, where it runs, and what was collected when.
   public readonly collectionRulesTable: dynamodb.Table;
   public readonly collectionTargetsTable: dynamodb.Table;
@@ -34,9 +19,6 @@ export class StorageStack extends cdk.Stack {
   public readonly finalBucket: s3.Bucket;
   public readonly metadataBucket: s3.Bucket;
   public readonly exchangeRawBucket: s3.Bucket;
-  public readonly inventoryQueue: sqs.Queue;
-  // Each pipeline queue with its dead-letter queue and how old its oldest message may get, for the monitoring stack.
-  public readonly monitoredQueues: MonitoredQueue[] = [];
 
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
@@ -56,43 +38,6 @@ export class StorageStack extends cdk.Stack {
       lifecycleRules: [{
         expiration: cdk.Duration.days(30),
       }],
-    });
-
-    this.finalBucket.addInventory({
-      inventoryId: 'market-data-inventory',
-      format: s3.InventoryFormat.CSV,
-      frequency: s3.InventoryFrequency.DAILY,
-      optionalFields: [
-        "Size",
-      ],
-      destination: {
-        bucket: this.metadataBucket,
-        prefix: 'market-data-inventory',
-      },
-    });
-
-    this.gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
-      tableName: "market-data-gaps",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-
-    this.gapsTable.addGlobalSecondaryIndex({
-      indexName: "status-timestamp-index",
-      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-    });
-
-    this.coverageTable = new dynamodb.Table(this, "CoverageTable", {
-      tableName: "market-data-coverage",
-      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
     });
 
     this.collectionRulesTable = this.collectionTable("CollectionRulesTable", "collection-rules", {
@@ -133,17 +78,59 @@ export class StorageStack extends cdk.Stack {
       { name: "from_ns", type: dynamodb.AttributeType.NUMBER },
     );
 
-    this.inventoryQueue = this.monitoredQueue('InventoryQueue', 'market-data-inventory-queue', cdk.Duration.minutes(15), {
+    this.retireInventoryCoverage();
+  }
+
+  /**
+   * The inventory-based coverage and per-minute gaps, retired 2026-10-28 (Phase 7b) for collection coverage and gaps:
+   * kept unused for one release, because the stacks that import them deploy after this one (backend, monitoring) or
+   * are deleted by hand (MarketDataInventoryProcessorStack), and an export still imported can't be deleted. The next
+   * release removes all of it. The final bucket's S3 inventory and its notification are already gone.
+   */
+  private retireInventoryCoverage() {
+    const gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
+      tableName: "market-data-gaps",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+    });
+    gapsTable.addGlobalSecondaryIndex({
+      indexName: "status-timestamp-index",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
+    });
+    const coverageTable = new dynamodb.Table(this, "CoverageTable", {
+      tableName: "market-data-coverage",
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+    });
+    const inventoryDeadLetter = new sqs.Queue(this, "InventoryQueueDeadLetter", {
+      queueName: "market-data-inventory-queue-dlq",
+      retentionPeriod: cdk.Duration.days(14),
+    });
+    const inventoryQueue = new sqs.Queue(this, "InventoryQueue", {
+      queueName: "market-data-inventory-queue",
       visibilityTimeout: cdk.Duration.minutes(15),
       retentionPeriod: cdk.Duration.days(4),
       receiveMessageWaitTime: cdk.Duration.seconds(20),
+      deadLetterQueue: { queue: inventoryDeadLetter, maxReceiveCount: 3 },
     });
 
-    this.metadataBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3notifications.SqsDestination(this.inventoryQueue),
-      { prefix: 'market-data-inventory/', suffix: '.csv.gz' }
-    );
+    for (const table of [gapsTable, coverageTable]) {
+      this.exportValue(table.tableName);
+      this.exportValue(table.tableArn);
+    }
+    this.exportValue(inventoryQueue.queueArn);
+    this.exportValue(inventoryQueue.queueName);
+    this.exportValue(inventoryDeadLetter.queueName);
+    // The backend read the final bucket only for the retired routes.
+    this.exportValue(this.finalBucket.bucketName);
+    this.exportValue(this.finalBucket.bucketArn);
   }
 
   private collectionTable(
@@ -162,17 +149,4 @@ export class StorageStack extends cdk.Stack {
     });
   }
 
-  private monitoredQueue(id: string, name: string, maxAge: cdk.Duration, props: sqs.QueueProps): sqs.Queue {
-    const deadLetterQueue = new sqs.Queue(this, `${id}DeadLetter`, {
-      queueName: `${name}-dlq`,
-      retentionPeriod: DEAD_LETTER_RETENTION,
-    });
-    const queue = new sqs.Queue(this, id, {
-      ...props,
-      queueName: name,
-      deadLetterQueue: { queue: deadLetterQueue, maxReceiveCount: MAX_RECEIVES },
-    });
-    this.monitoredQueues.push({ name, queue, deadLetterQueue, maxAge });
-    return queue;
-  }
 }

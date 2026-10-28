@@ -4,14 +4,11 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import { Construct } from 'constructs';
 import { DefaultDashboardFactory, MonitoringFacade, noopAction } from "cdk-monitoring-constructs";
 import { MarketDataConfig } from "../config";
-import { MonitoredQueue } from "./storage-stack";
 
 export interface MonitoringStackProps extends cdk.StackProps {
   config: MarketDataConfig;
   api: apigateway.RestApi;
   reconcilerLambda: lambda.Function;
-  inventoryProcessorLambda: lambda.Function;
-  queues: MonitoredQueue[];
 }
 
 export class MonitoringStack extends cdk.Stack {
@@ -35,12 +32,6 @@ export class MonitoringStack extends cdk.Stack {
       },
     });
 
-    const lambdaAlarms: Record<string, any> = {
-      addFaultCountAlarm: {
-        Error: { maxErrorCount: 0, },
-      },
-    };
-
     monitoring
       .monitorApiGateway({
         api: props.api,
@@ -56,28 +47,6 @@ export class MonitoringStack extends cdk.Stack {
         addFaultCountAlarm: {
           Error: { maxErrorCount: 2 },
         },
-      })
-      .monitorLambdaFunction({
-        lambdaFunction: props.inventoryProcessorLambda,
-        humanReadableName: 'Inventory Processor Lambda',
-        alarmFriendlyName: 'InventoryProcessorLambda',
-        ...lambdaAlarms,
       });
-
-    // A dead-lettered message is work the pipeline gave up on; an old one is work it has stopped keeping up with.
-    for (const { name, queue, deadLetterQueue, maxAge } of props.queues) {
-      monitoring.monitorSqsQueueWithDlq({
-        queue,
-        deadLetterQueue,
-        humanReadableName: name,
-        alarmFriendlyName: name,
-        addDeadLetterQueueMaxSizeAlarm: {
-          Error: { maxMessageCount: 0 },
-        },
-        addQueueMaxMessageAgeAlarm: {
-          Warning: { maxAgeInSeconds: maxAge.toSeconds() },
-        },
-      });
-    }
   }
 }

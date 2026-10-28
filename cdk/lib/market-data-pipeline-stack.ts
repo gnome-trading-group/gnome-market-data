@@ -11,7 +11,6 @@ import { StorageStack } from "./stacks/storage-stack";
 import { CollectionRegionalStack } from "./stacks/collection-regional-stack";
 import { ReconcilerStack } from "./stacks/reconciler-stack";
 import { MonitoringStack } from "./stacks/monitoring-stack";
-import { InventoryProcessorStack } from "./stacks/inventory-processor-stack";
 
 /** Regions shards run in. */
 export const COLLECTION_REGIONS = platformRegions();
@@ -53,10 +52,7 @@ class AppStage extends cdk.Stage {
     });
 
     const backendStack = new BackendStack(this, "MarketDataBackendStack", {
-      gapsTable: storageStack.gapsTable,
-      finalBucket: storageStack.finalBucket,
       metadataBucket: storageStack.metadataBucket,
-      coverageTable: storageStack.coverageTable,
       collectionRulesTable: storageStack.collectionRulesTable,
       collectionTargetsTable: storageStack.collectionTargetsTable,
       collectionShardsTable: storageStack.collectionShardsTable,
@@ -66,19 +62,10 @@ class AppStage extends cdk.Stage {
       collectionRegions: COLLECTION_REGIONS,
     });
 
-    const inventoryProcessorStack = new InventoryProcessorStack(this, "MarketDataInventoryProcessorStack", {
-      metadataBucket: storageStack.metadataBucket,
-      coverageTable: storageStack.coverageTable,
-      inventoryQueue: storageStack.inventoryQueue,
-      config,
-    });
-
     new MonitoringStack(this, "MarketDataMonitoringStack", {
       config,
       api: backendStack.api,
       reconcilerLambda: reconcilerStack.reconcilerLambda,
-      inventoryProcessorLambda: inventoryProcessorStack.processorFunction,
-      queues: storageStack.monitoredQueues,
     });
   }
 }

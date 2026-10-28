@@ -32,8 +32,6 @@ holes historical data; live trading does not depend on it.
       scale-down, delete), `PlacementStep` (via `Placement`), `PersistStep`, `AlertStep`.
     - `aws/`: the ports' adapters (`DynamoStore`, `S3Statuses`, `EcsServices`, `EventBridgeAlerts`,
       `RegistryAdapter`, `ServiceConfigSettings`).
-  - `inventory/`: the daily S3 inventory of final → `market-data-coverage` (which minute files exist; not collection
-    coverage).
   - `common/`: `Dependencies` (every client, table and env var, built lazily once per execution environment; handlers
     take what they need from it and read no env vars themselves), `SqsBatch`, `S3Utils`; `common/config/`:
     `MarketDataConfig` + `MarketDataServiceConfig` (the Service Config entry `market-data`, typed, defaults sent as
@@ -51,10 +49,10 @@ holes historical data; live trading does not depend on it.
   - `backend-stack`: API Gateway + Python Lambdas behind gnome-shared-cdk's `GnomeApiAuthorizer`: people by Cognito
     ID token on every route; services by the API's own key (`market-data-api-key`, mirrored to Secrets Manager
     `gnome/api-keys/market-data`) on `collection/rules` only
-  - `inventory-processor-stack`, `monitoring-stack`
+  - `monitoring-stack`: the reconciler's fault alarm
 - `cdk/lib/constructs/java-lambda.ts`: shared Java Lambda (2048 MB default, 15 min timeout, JSON logs, one-month retention). Images are pinned to
   `linux/amd64`: one built on an arm64 Mac otherwise fails with `Runtime.InvalidEntrypoint`.
-- `cdk/lambda/`: Python API handlers (`functions/{collection,gaps,coverage}`) and the
+- `cdk/lambda/`: Python API handlers (`functions/collection/*`) and the
   `common` layer (`utils.lambda_handler`, `collection.py`, `collection_rules.py`: rule types' schemas, validation,
   storage and preview selection).
 - `cdk/lib/stacks/shard-start.sh`: the shard container entrypoint. `shard-docker/` and `java-lambda-docker/` are
@@ -69,8 +67,10 @@ holes historical data; live trading does not depend on it.
   - venue frames (exchange-raw bucket, 30-day expiry): `{streamId}/raw/{YYYY}/{MM}/{DD}/{hh}/{mm}/{uuid}.zst`
   - `StreamEntry.parse` returns empty for any other key, and handlers skip such keys instead of failing the batch.
 - A minute file is zstd over concatenated SBE messages and may mix schema versions. `StreamEntry.decode` migrates each message to the current version, so always read files through it.
-- Data is keyed by `streamId`. The old `market-data-gaps` and `market-data-coverage` rows are keyed by `listingId`, mapped through the registry `SecurityMaster`. An unknown stream is logged and skipped.
-- Buckets per stage: final `gnome-market-data-<stage>`, `-metadata-` (inventories, shard statuses under
+- Data is keyed by `streamId`. Coverage is collection coverage only (`collection-coverage` intervals,
+  `collection-gaps`, `GET collection/coverage/{streamId}`): what shards collected, not which files exist, so data
+  imported by hand would not show.
+- Buckets per stage: final `gnome-market-data-<stage>`, `-metadata-` (shard statuses under
   `collection/`, 1-day expiry there), `-exchange-raw-` (venue frames, 30-day expiry).
 - Writing: each minute is written once, by one shard, with a conditional put (`If-None-Match: *`); the first writer
   keeps it. There is no merger and no raw copy.
@@ -119,14 +119,13 @@ holes historical data; live trading does not depend on it.
 - Deploys:
   - Push to `main` → `bump-and-deploy` runs the maven release (`major:` bumps major, `feat:` minor, anything else patch), publishes to GitHub Packages and tags.
   - The tag → `push-release` force-pushes `release`. `MarketDataPipeline` (InfraPipelines account) builds from `release`: Dev stage → `ApproveProd` manual step → Prod stage.
-  - Each stage deploys, prefixed `Dev-` or `Prod-`: `MarketDataStorageStack`, `CollectionRegionalStack-{us-east-1,ap-northeast-1,eu-west-1}`, `MarketDataReconcilerStack`, `MarketDataBackendStack`, `MarketDataInventoryProcessorStack`, `MarketDataMonitoringStack`.
+  - Each stage deploys, prefixed `Dev-` or `Prod-`: `MarketDataStorageStack`, `CollectionRegionalStack-{us-east-1,ap-northeast-1,eu-west-1}`, `MarketDataReconcilerStack`, `MarketDataBackendStack`, `MarketDataMonitoringStack`.
   - The pipeline never deletes a stack removed from the app; delete it by hand once nothing imports from it.
   - Lambdas build core from source in the pipeline. gnome-backtest picks up a core change only after a release and a version bump there.
 - What runs (Java function names are `<Stage>-MarketData<X>Stack-<Name>-v1`):
   - Shards: one ECS service `shard-<id>` per shard in `CollectionCluster-<region>`, created and deleted by the
     reconciler. Status every 15 s to `s3://gnome-market-data-metadata-<stage>/collection/shards/<id>/status/<task>.json`.
   - Reconciler: `collection-reconciler.fifo` (rule changes, `POST collection/triggers`, the 1-minute schedule) → one tick.
-  - InventoryProcessor: daily S3 inventory (CSV) of the final bucket → metadata `market-data-inventory/*.csv.gz` → `market-data-inventory-queue` (batch 1) → `market-data-coverage`.
 - Logs: Lambdas `/aws/lambda/<function name>` (JSON); shards `/collection/shards-<region>` in that region, stream
   `shard/ShardContainer/<task>`, one-week retention (also `GET collection/shards/{id}/logs`).
 - Alerts: the reconciler raises `COLLECTOR_SHARD_DOWN`, `STREAM_NOT_LIVE`, `STREAM_STALE`, `COLLECTION_BUDGET` on the
@@ -134,6 +133,8 @@ holes historical data; live trading does not depend on it.
   alerting stack raises `CLOUDWATCH_ALARM` for:
   - `MarketData--ReconcilerLambda-Fault-Count-Error` (RECONCILER_FAILING): 3+ failed ticks in the period. Read
     `/aws/lambda/<Stage>-MarketDataReconcilerStack-Reconciler-v1`.
-  - `MarketData--InventoryProcessorLambda-…`: any Lambda error.
-  - `MarketData--market-data-inventory-queue-DLQ-…` / `-Queue-Message-Age-…`: dead-lettered or stale work.
+- Retired in this release (Phase 7b), removed in the next: the inventory-based coverage. `market-data-gaps`,
+  `market-data-coverage`, `market-data-inventory-queue` (+ DLQ) stay one release (`StorageStack.retireInventoryCoverage`)
+  for the stacks that still import them; after this release deploys, delete `<Stage>-MarketDataInventoryProcessorStack`
+  by hand, then the next release drops the pins.
 - Runbooks: gnome-registry `docs/runbooks/cloudwatch/MarketData.md` and `docs/runbooks/alerts/<TYPE>.md`.

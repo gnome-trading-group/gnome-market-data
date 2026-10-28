@@ -11,10 +11,7 @@ import { API_KEY_SECRET_NAMES, ApiKeySecret, CallerKind, GnomeApiAuthorizer } fr
 import { Construct } from "constructs";
 
 interface BackendStackProps extends cdk.StackProps {
-  gapsTable: dynamodb.ITable;
-  finalBucket: s3.IBucket;
   metadataBucket: s3.IBucket;
-  coverageTable: dynamodb.ITable;
   collectionRulesTable: dynamodb.ITable;
   collectionTargetsTable: dynamodb.ITable;
   collectionShardsTable: dynamodb.ITable;
@@ -22,13 +19,6 @@ interface BackendStackProps extends cdk.StackProps {
   collectionGapsTable: dynamodb.ITable;
   reconcilerQueue: sqs.IQueue;
   collectionRegions: string[];
-}
-
-interface EndpointConfig {
-  name: string;
-  path: string;
-  method: string;
-  handlerPath: string;
 }
 
 export class BackendStack extends cdk.Stack {
@@ -66,10 +56,6 @@ export class BackendStack extends cdk.Stack {
     new ApiKeySecret(this, "MarketDataApiKeySecret", { apiKey, secretName: API_KEY_SECRET_NAMES.MARKET_DATA });
     // One authorizer for every route: people by Cognito ID token, services by the key above, bots by access token.
     const auth = new GnomeApiAuthorizer(this, "Authorizer", { userPool, apiKeys: [apiKey] });
-    const personOnly: apigateway.MethodOptions = {
-      authorizationType: apigateway.AuthorizationType.CUSTOM,
-      authorizer: auth.authorizerFor([CallerKind.PERSON]),
-    };
 
     // Custom layer for other dependencies (requests, websocket-client)
     const commonLayer = new lambda.LayerVersion(this, "CommonLayer", {
@@ -92,83 +78,6 @@ export class BackendStack extends cdk.Stack {
     };
 
     this.collectionRoutes(props, commonLayer, route);
-
-    const gapsEndpoints: EndpointConfig[] = [
-      {
-        name: "ListGaps",
-        path: "gaps/list",
-        method: "GET",
-        handlerPath: "gaps/list",
-      },
-      {
-        name: "GetGapsByListing",
-        path: "gaps/list/{listingId}",
-        method: "GET",
-        handlerPath: "gaps/get-by-listing",
-      },
-      {
-        name: "UpdateGaps",
-        path: "gaps/update",
-        method: "POST",
-        handlerPath: "gaps/update",
-      },
-    ];
-
-    const coverageEndpoints: EndpointConfig[] = [
-      {
-        name: "GetCoverageSummary",
-        path: "coverage/summary",
-        method: "GET",
-        handlerPath: "coverage/summary",
-      },
-      {
-        name: "GetCoverageByStream",
-        path: "coverage/stream/{streamId}",
-        method: "GET",
-        handlerPath: "coverage/get-by-stream",
-      },
-    ];
-
-    const createMarketDataLambda = (name: string, handlerPath: string): lambda.Function => {
-      const fn = new lambda.Function(this, name, {
-        runtime: lambda.Runtime.PYTHON_3_13,
-        handler: "index.handler",
-        code: lambda.Code.fromAsset(`lambda/functions/${handlerPath}`),
-        layers: [commonLayer],
-        timeout: cdk.Duration.seconds(30),
-        environment: {
-          GAPS_TABLE_NAME: props.gapsTable.tableName,
-          FINAL_BUCKET_NAME: props.finalBucket.bucketName,
-          METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
-          COVERAGE_TABLE_NAME: props.coverageTable.tableName,
-        },
-      });
-
-      props.gapsTable.grantReadWriteData(fn);
-      props.finalBucket.grantRead(fn);
-      props.metadataBucket.grantRead(fn);
-      props.coverageTable.grantReadData(fn);
-
-      return fn;
-    };
-
-    const createMarketDataEndpoint = (config: EndpointConfig) => {
-      const fn = createMarketDataLambda(
-        `${config.name}Function`,
-        config.handlerPath
-      );
-
-      const pathParts = config.path.split('/').filter(Boolean);
-      let resource = this.api.root;
-      for (const part of pathParts) {
-        resource = resource.getResource(part) || resource.addResource(part);
-      }
-
-      resource.addMethod(config.method, new apigateway.LambdaIntegration(fn), personOnly);
-    };
-
-    gapsEndpoints.forEach(createMarketDataEndpoint);
-    coverageEndpoints.forEach(createMarketDataEndpoint);
 
     new cdk.CfnOutput(this, "ApiUrl", {
       value: this.api.url,
@@ -253,6 +162,7 @@ export class BackendStack extends cdk.Stack {
     const coverage = handler("CollectionCoverageFunction", "coverage");
     props.collectionCoverageTable.grantReadData(coverage);
     props.collectionGapsTable.grantReadData(coverage);
+    props.collectionTargetsTable.grantReadData(coverage);
     route("collection/coverage/{streamId}", "GET", coverage);
   }
 }
