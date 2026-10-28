@@ -133,8 +133,4 @@ holes historical data; live trading does not depend on it.
   alerting stack raises `CLOUDWATCH_ALARM` for:
   - `MarketData--ReconcilerLambda-Fault-Count-Error` (RECONCILER_FAILING): 3+ failed ticks in the period. Read
     `/aws/lambda/<Stage>-MarketDataReconcilerStack-Reconciler-v1`.
-- Retired in this release (Phase 7b), removed in the next: the inventory-based coverage. `market-data-gaps`,
-  `market-data-coverage`, `market-data-inventory-queue` (+ DLQ) stay one release (`StorageStack.retireInventoryCoverage`)
-  for the stacks that still import them; after this release deploys, delete `<Stage>-MarketDataInventoryProcessorStack`
-  by hand, then the next release drops the pins.
 - Runbooks: gnome-registry `docs/runbooks/cloudwatch/MarketData.md` and `docs/runbooks/alerts/<TYPE>.md`.

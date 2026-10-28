@@ -1,7 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
-import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import { MarketDataConfig } from "../config";
 
@@ -77,60 +76,6 @@ export class StorageStack extends cdk.Stack {
       { name: "stream_id", type: dynamodb.AttributeType.NUMBER },
       { name: "from_ns", type: dynamodb.AttributeType.NUMBER },
     );
-
-    this.retireInventoryCoverage();
-  }
-
-  /**
-   * The inventory-based coverage and per-minute gaps, retired 2026-10-28 (Phase 7b) for collection coverage and gaps:
-   * kept unused for one release, because the stacks that import them deploy after this one (backend, monitoring) or
-   * are deleted by hand (MarketDataInventoryProcessorStack), and an export still imported can't be deleted. The next
-   * release removes all of it. The final bucket's S3 inventory and its notification are already gone.
-   */
-  private retireInventoryCoverage() {
-    const gapsTable = new dynamodb.Table(this, "MarketDataGapsTable", {
-      tableName: "market-data-gaps",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-    gapsTable.addGlobalSecondaryIndex({
-      indexName: "status-timestamp-index",
-      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-    });
-    const coverageTable = new dynamodb.Table(this, "CoverageTable", {
-      tableName: "market-data-coverage",
-      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-    const inventoryDeadLetter = new sqs.Queue(this, "InventoryQueueDeadLetter", {
-      queueName: "market-data-inventory-queue-dlq",
-      retentionPeriod: cdk.Duration.days(14),
-    });
-    const inventoryQueue = new sqs.Queue(this, "InventoryQueue", {
-      queueName: "market-data-inventory-queue",
-      visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.days(4),
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-      deadLetterQueue: { queue: inventoryDeadLetter, maxReceiveCount: 3 },
-    });
-
-    for (const table of [gapsTable, coverageTable]) {
-      this.exportValue(table.tableName);
-      this.exportValue(table.tableArn);
-    }
-    this.exportValue(inventoryQueue.queueArn);
-    this.exportValue(inventoryQueue.queueName);
-    this.exportValue(inventoryDeadLetter.queueName);
-    // The backend read the final bucket only for the retired routes.
-    this.exportValue(this.finalBucket.bucketName);
-    this.exportValue(this.finalBucket.bucketArn);
   }
 
   private collectionTable(
