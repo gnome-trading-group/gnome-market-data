@@ -69,22 +69,24 @@ def _update(event, rule_id, selection, status, retire_grace_minutes, name):
     current = _table.get_item(Key={'rule_id': rule_id}).get('Item')
     if current is None:
         raise ValueError(f'no rule {rule_id}')
-    sets, adds, deletes, removes, values = [], [], [], [], {}
+    sets, adds, deletes, removes, values, names = [], [], [], [], {}, {}
     if any(v is not None for v in selection.values()):
         if current.get('managed_by') and caller_kind(event) == 'person':
             raise ValueError(f'rule {rule_id} is managed by {current["managed_by"]}; change what it selects there')
-        _selection_updates(current['rule_type'], selection, sets, adds, deletes, removes, values)
+        _selection_updates(current['rule_type'], selection, sets, adds, deletes, removes, values, names)
     if status is not None:
         if status not in STATUSES:
             raise ValueError(f'status must be one of {sorted(STATUSES)}')
         sets.append('#status = :status')
         values[':status'] = status
+        names['#status'] = 'status'
     if retire_grace_minutes is not None:
         sets.append('retire_grace_minutes = :grace')
         values[':grace'] = int(retire_grace_minutes)
     if name is not None:
         sets.append('#name = :name')
         values[':name'] = name
+        names['#name'] = 'name'
     if not (sets or adds or deletes or removes):
         raise ValueError('nothing to change')
     sets += ['updated_by = :actor', 'updated_at = :at']
@@ -92,15 +94,18 @@ def _update(event, rule_id, selection, status, retire_grace_minutes, name):
     expression = ' '.join(f'{action} {", ".join(parts)}'
                           for action, parts in (('SET', sets), ('ADD', adds), ('DELETE', deletes), ('REMOVE', removes))
                           if parts)
+    # DynamoDB refuses attribute names the expression doesn't use, so only the reserved words this update sets.
+    update = dict(
+        Key={'rule_id': rule_id},
+        UpdateExpression=expression,
+        ConditionExpression='attribute_exists(rule_id)',
+        ExpressionAttributeValues=values,
+        ReturnValues='ALL_NEW',
+    )
+    if names:
+        update['ExpressionAttributeNames'] = names
     try:
-        result = _table.update_item(
-            Key={'rule_id': rule_id},
-            UpdateExpression=expression,
-            ConditionExpression='attribute_exists(rule_id)',
-            ExpressionAttributeNames={'#status': 'status', '#name': 'name'},
-            ExpressionAttributeValues=values,
-            ReturnValues='ALL_NEW',
-        )
+        result = _table.update_item(**update)
     except ClientError as error:
         if error.response['Error']['Code'] == 'ConditionalCheckFailedException':
             raise ValueError(f'no rule {rule_id}') from error
@@ -109,7 +114,7 @@ def _update(event, rule_id, selection, status, retire_grace_minutes, name):
     return view(result['Attributes'])
 
 
-def _selection_updates(rule_type, selection, sets, adds, deletes, removes, values):
+def _selection_updates(rule_type, selection, sets, adds, deletes, removes, values, names):
     """What to change for new parameters or, on an event rule, events added and removed. Adding and removing are
     DynamoDB ADD/DELETE on the rule's `event_ids` set, so concurrent callers never overwrite each other."""
     if selection['add_event_ids'] is not None or selection['remove_event_ids'] is not None:
@@ -125,8 +130,10 @@ def _selection_updates(rule_type, selection, sets, adds, deletes, removes, value
             values[':remove'] = set(validate(EVENT, {'event_ids': selection['remove_event_ids']})['event_ids'])
         return
     fields = item_fields(rule_type, validate(rule_type, selection['parameters']))
-    sets.append('parameters = :parameters')
+    # `parameters` is a DynamoDB reserved word.
+    sets.append('#parameters = :parameters')
     values[':parameters'] = fields['parameters']
+    names['#parameters'] = 'parameters'
     if rule_type == EVENT:
         if 'event_ids' in fields:
             sets.append('event_ids = :events')
