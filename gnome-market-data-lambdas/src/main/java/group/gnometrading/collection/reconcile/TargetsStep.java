@@ -1,10 +1,8 @@
 package group.gnometrading.collection.reconcile;
 
-import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.StreamInfo;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Registry;
-import group.gnometrading.collection.ports.Store;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -13,7 +11,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Rules become targets ({@link Evaluation}); retired ones are dropped, which takes them off their shards.
+ * Resolved rules become targets ({@link Evaluation}); retired ones are dropped, which takes them off their shards.
  *
  * <p>What the registry says of each stream is kept for {@link #STREAM_INFO_TTL_NANOS} between ticks: a stream rarely
  * changes, and reading every target every minute is most of the reconciler's load on the registry. Streams of a source
@@ -26,25 +24,22 @@ final class TargetsStep {
 
     private record Cached(StreamInfo info, long readAtNanos) {}
 
-    private final Store store;
     private final Registry registry;
     // Lives as long as the Lambda's container: a cold start reads everything once.
     private final Map<Integer, Cached> cache = new HashMap<>();
 
-    TargetsStep(final Store store, final Registry registry) {
-        this.store = store;
+    TargetsStep(final Registry registry) {
         this.registry = registry;
     }
 
     void run(final Tick tick) {
-        final List<Rule> rules = store.activeRules();
         final Set<Integer> ids = new HashSet<>(tick.targets.keySet());
-        rules.forEach(rule -> ids.addAll(rule.streamIds()));
+        tick.rules.forEach(rule -> ids.addAll(rule.streamIds()));
         final Map<Integer, StreamInfo> streams = streams(tick, ids);
         final Evaluation evaluation =
                 new Evaluation(tick.config.defaultRetireGraceMinutes(), tick.config.endedRetireGraceMinutes());
         for (Target changed :
-                evaluation.evaluate(rules, tick.targets, streams, tick.now).changed()) {
+                evaluation.evaluate(tick.rules, tick.targets, streams, tick.now).changed()) {
             tick.targets.put(changed.streamId(), changed);
         }
         for (Target target : List.copyOf(tick.targets.values())) {

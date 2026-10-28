@@ -4,16 +4,18 @@ import group.gnometrading.collection.model.Interval;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Rule;
+import group.gnometrading.collection.model.RuleStatus;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Store;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -21,6 +23,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 
 /**
  * The control plane's tables in DynamoDB. A shard's item is also its assignment, read by the shard
@@ -31,7 +34,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
  */
 public final class DynamoStore implements Store {
 
-    public static final String STATIC_STREAMS = "static_streams";
+    private static final Logger LOGGER = LogManager.getLogger(DynamoStore.class);
     private static final String RECONCILER_ROW = "_reconciler";
 
     /** The table names, from the Lambda's environment. */
@@ -51,22 +54,57 @@ public final class DynamoStore implements Store {
     public List<Rule> activeRules() {
         final List<Rule> rules = new ArrayList<>();
         for (Map<String, AttributeValue> item : scan(tables.rules())) {
-            if (!"ACTIVE".equals(string(item, "status")) || !STATIC_STREAMS.equals(string(item, "rule_type"))) {
+            if (!"ACTIVE".equals(string(item, "status"))) {
                 continue;
             }
-            final Set<Integer> streams = new HashSet<>();
-            final AttributeValue parameters = item.get("parameters");
-            if (parameters != null && parameters.hasM() && parameters.m().containsKey("stream_ids")) {
-                parameters.m().get("stream_ids").l().forEach(id -> streams.add(Integer.parseInt(id.n())));
+            final Rule rule = RuleItems.parse(item);
+            if (rule == null) {
+                LOGGER.warn(
+                        "Skipping rule {}: unknown rule_type {}", string(item, "rule_id"), string(item, "rule_type"));
+                continue;
             }
-            rules.add(new Rule(
-                    string(item, "rule_id"),
-                    streams,
-                    Priority.valueOf(string(item, "priority")),
-                    string(item, "tier"),
-                    item.containsKey("retire_grace_minutes") ? (int) number(item, "retire_grace_minutes") : null));
+            rules.add(rule);
         }
         return rules;
+    }
+
+    @Override
+    public void removeEventIds(final String ruleId, final Set<Integer> eventIds) {
+        try {
+            dynamo.updateItem(UpdateItemRequest.builder()
+                    .tableName(tables.rules())
+                    .key(Map.of("rule_id", AttributeValue.fromS(ruleId)))
+                    .conditionExpression("attribute_exists(rule_id)")
+                    .updateExpression("DELETE event_ids :ids")
+                    .expressionAttributeValues(Map.of(
+                            ":ids",
+                            AttributeValue.fromNs(
+                                    eventIds.stream().map(String::valueOf).toList())))
+                    .build());
+        } catch (ConditionalCheckFailedException deleted) {
+            LOGGER.info("Rule {} was deleted before its resolved events were removed", ruleId);
+        }
+    }
+
+    @Override
+    public void putRuleStatus(final String ruleId, final RuleStatus status) {
+        try {
+            dynamo.updateItem(UpdateItemRequest.builder()
+                    .tableName(tables.rules())
+                    .key(Map.of("rule_id", AttributeValue.fromS(ruleId)))
+                    .conditionExpression("attribute_exists(rule_id)")
+                    .updateExpression("SET resolved_events = :events, resolved_streams = :streams, "
+                            + "waiting_events = :waiting, capped = :capped, resolved_at_ns = :at")
+                    .expressionAttributeValues(Map.of(
+                            ":events", AttributeValue.fromN(Integer.toString(status.events())),
+                            ":streams", AttributeValue.fromN(Integer.toString(status.streams())),
+                            ":waiting", AttributeValue.fromN(Integer.toString(status.waitingEvents())),
+                            ":capped", AttributeValue.fromBool(status.capped()),
+                            ":at", AttributeValue.fromN(Long.toString(status.resolvedAtNanos()))))
+                    .build());
+        } catch (ConditionalCheckFailedException deleted) {
+            LOGGER.info("Rule {} was deleted before its status was written", ruleId);
+        }
     }
 
     @Override

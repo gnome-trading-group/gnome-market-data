@@ -42,10 +42,19 @@ def shard_view(item: dict) -> dict:
     return shard
 
 
+def _authorizer(event: dict) -> dict:
+    return (event.get('requestContext') or {}).get('authorizer') or {}
+
+
 def actor(event: dict) -> str:
-    """Who made the change: the authorizer's caller (a person's email from Cognito)."""
-    claims = ((event.get('requestContext') or {}).get('authorizer') or {}).get('claims') or {}
-    return claims.get('email') or claims.get('cognito:username') or 'unknown'
+    """Who made the change, as the API's authorizer (gnome-shared-cdk GnomeApiAuthorizer) names the caller: a person's
+    email, `service` for an API key, `bot:<clientId>`."""
+    return _authorizer(event).get('actor') or 'unknown'
+
+
+def caller_kind(event: dict) -> str:
+    """`person`, `service` or `bot`, as the authorizer identified the caller."""
+    return _authorizer(event).get('kind') or 'unknown'
 
 
 def now_iso() -> str:

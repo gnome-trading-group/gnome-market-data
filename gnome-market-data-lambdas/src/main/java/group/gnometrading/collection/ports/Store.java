@@ -2,14 +2,22 @@ package group.gnometrading.collection.ports;
 
 import group.gnometrading.collection.model.Interval;
 import group.gnometrading.collection.model.Rule;
+import group.gnometrading.collection.model.RuleStatus;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.Target;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** The control plane's tables. */
 public interface Store {
     List<Rule> activeRules();
+
+    /** Takes events out of an {@code event} rule, atomically; nothing if the rule was deleted meanwhile. */
+    void removeEventIds(String ruleId, Set<Integer> eventIds);
+
+    /** Records what a rule resolved to, on its item; nothing if the rule was deleted meanwhile. */
+    void putRuleStatus(String ruleId, RuleStatus status);
 
     Map<Integer, Target> targets();
 

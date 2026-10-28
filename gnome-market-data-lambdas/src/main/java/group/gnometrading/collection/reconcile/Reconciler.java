@@ -13,9 +13,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * One tick of the collection control plane, run every minute (reserved concurrency 1): rules become targets, shard
- * statuses become coverage and gaps, targets are handed off and placed, shards rolled, scaled down and run, and alerts
- * raised and resolved.
+ * One tick of the collection control plane, run every minute (reserved concurrency 1): rules resolve to streams and
+ * become targets, shard statuses become coverage and gaps, targets are handed off and placed, shards rolled, scaled
+ * down and run, and alerts raised and resolved.
  *
  * <p>Targets are the source of truth: each tick rebuilds every shard's {@code streams}, {@code draining} and
  * {@code cuts} from them ({@link AssignmentStep}), so a shard item that missed a write is corrected by the next tick.
@@ -38,6 +38,7 @@ public final class Reconciler {
 
     private final Store store;
     private final Supplier<Settings> settings;
+    private final RuleResolver ruleResolver;
     private final TargetsStep targetsStep;
     private final CoverageStep coverageStep;
     private final HandoffStep handoffStep = new HandoffStep();
@@ -57,7 +58,8 @@ public final class Reconciler {
             final Function<Partition, String> newShardId) {
         this.store = store;
         this.settings = settings;
-        this.targetsStep = new TargetsStep(store, registry);
+        this.ruleResolver = new RuleResolver(store, registry);
+        this.targetsStep = new TargetsStep(registry);
         this.coverageStep = new CoverageStep(store, statuses);
         this.placementStep = new PlacementStep(registry, newShardId);
         this.persistStep = new PersistStep(store, services);
@@ -66,6 +68,7 @@ public final class Reconciler {
 
     public Summary tick(final long nowNanos) {
         final Tick tick = new Tick(store, settings.get(), nowNanos);
+        ruleResolver.run(tick);
         targetsStep.run(tick);
         coverageStep.run(tick);
         handoffStep.run(tick);

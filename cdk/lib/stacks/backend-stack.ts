@@ -5,7 +5,9 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import { API_KEY_SECRET_NAMES, ApiKeySecret, CallerKind, GnomeApiAuthorizer } from "@gnome-trading-group/gnome-shared-cdk";
 import { Construct } from "constructs";
 
 interface BackendStackProps extends cdk.StackProps {
@@ -58,10 +60,16 @@ export class BackendStack extends cdk.Stack {
 
     const userPool = cognito.UserPool.fromUserPoolId(this, "UserPool", cdk.Fn.importValue('UserPoolId'));
 
-    const authorizer = new apigateway.CognitoUserPoolsAuthorizer(this, "CognitoAuthorizer", {
-      cognitoUserPools: [userPool],
-      identitySource: 'method.request.header.Authorization',
-    });
+    // Systems that drive collection (pushing events into rules) call with this key. Not bound to the stage, which would
+    // be a cycle: the stage depends on every method, the methods on the authorizer and the authorizer on this key.
+    const apiKey = new apigateway.ApiKey(this.api, "MarketDataApiKey", { apiKeyName: "market-data-api-key" });
+    new ApiKeySecret(this, "MarketDataApiKeySecret", { apiKey, secretName: API_KEY_SECRET_NAMES.MARKET_DATA });
+    // One authorizer for every route: people by Cognito ID token, services by the key above, bots by access token.
+    const auth = new GnomeApiAuthorizer(this, "Authorizer", { userPool, apiKeys: [apiKey] });
+    const personOnly: apigateway.MethodOptions = {
+      authorizationType: apigateway.AuthorizationType.CUSTOM,
+      authorizer: auth.authorizerFor([CallerKind.PERSON]),
+    };
 
     // Custom layer for other dependencies (requests, websocket-client)
     const commonLayer = new lambda.LayerVersion(this, "CommonLayer", {
@@ -79,16 +87,8 @@ export class BackendStack extends cdk.Stack {
       description: "Common Python dependencies for all Lambda functions",
     });
 
-    const route = (path: string, method: string, fn: lambda.IFunction) => {
-      let resource = this.api.root;
-      for (const part of path.split('/').filter(Boolean)) {
-        resource = resource.getResource(part) || resource.addResource(part);
-      }
-      resource.addMethod(method, new apigateway.LambdaIntegration(fn), {
-        apiKeyRequired: false,
-        authorizationType: apigateway.AuthorizationType.COGNITO,
-        authorizer,
-      });
+    const route = (path: string, method: string, fn: lambda.IFunction, kinds: CallerKind[] = [CallerKind.PERSON]) => {
+      auth.addRoute(this.api.root, path, new apigateway.LambdaIntegration(fn), { [method]: kinds });
     };
 
     this.collectionRoutes(props, commonLayer, route);
@@ -164,17 +164,7 @@ export class BackendStack extends cdk.Stack {
         resource = resource.getResource(part) || resource.addResource(part);
       }
 
-      const methodOptions: apigateway.MethodOptions = {
-        apiKeyRequired: false,
-        authorizationType: apigateway.AuthorizationType.COGNITO,
-        authorizer: authorizer,
-      };
-
-      resource.addMethod(
-        config.method,
-        new apigateway.LambdaIntegration(fn),
-        methodOptions,
-      );
+      resource.addMethod(config.method, new apigateway.LambdaIntegration(fn), personOnly);
     };
 
     gapsEndpoints.forEach(createMarketDataEndpoint);
@@ -194,7 +184,7 @@ export class BackendStack extends cdk.Stack {
   private collectionRoutes(
     props: BackendStackProps,
     commonLayer: lambda.ILayerVersion,
-    route: (path: string, method: string, fn: lambda.IFunction) => void,
+    route: (path: string, method: string, fn: lambda.IFunction, kinds?: CallerKind[]) => void,
   ) {
     const environment = {
       COLLECTION_RULES_TABLE: props.collectionRulesTable.tableName,
@@ -218,10 +208,22 @@ export class BackendStack extends cdk.Stack {
     const rules = handler("CollectionRulesFunction", "rules");
     props.collectionRulesTable.grantReadWriteData(rules);
     props.reconcilerQueue.grantSendMessages(rules);
-    route("collection/rules", "GET", rules);
-    route("collection/rules", "POST", rules);
-    route("collection/rules/{ruleId}", "PATCH", rules);
-    route("collection/rules/{ruleId}", "DELETE", rules);
+    // Services too: other systems drive collection by creating rules and adding events to them.
+    const peopleAndServices = [CallerKind.PERSON, CallerKind.SERVICE];
+    route("collection/rules", "GET", rules, peopleAndServices);
+    route("collection/rules", "POST", rules, peopleAndServices);
+    route("collection/rules/{ruleId}", "PATCH", rules, peopleAndServices);
+    route("collection/rules/{ruleId}", "DELETE", rules, peopleAndServices);
+
+    route("collection/rule-types", "GET", handler("CollectionRuleTypesFunction", "rule-types"));
+
+    // Asks the registry what a draft rule would select, as the reconciler would.
+    const preview = handler("CollectionRulePreviewFunction", "rule-preview");
+    preview.addEnvironment("REGISTRY_API_URL", cdk.Fn.importValue("RegistryApiUrl"));
+    preview.addEnvironment("REGISTRY_API_KEY_SECRET", API_KEY_SECRET_NAMES.REGISTRY);
+    secretsmanager.Secret.fromSecretNameV2(this, "RegistryApiKeySecret", API_KEY_SECRET_NAMES.REGISTRY)
+      .grantRead(preview);
+    route("collection/rule-preview", "POST", preview);
 
     const triggers = handler("CollectionTriggersFunction", "triggers");
     props.reconcilerQueue.grantSendMessages(triggers);

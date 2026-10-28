@@ -2,15 +2,20 @@ package group.gnometrading.collection.aws;
 
 import group.gnometrading.SecurityMaster;
 import group.gnometrading.collection.model.Account;
+import group.gnometrading.collection.model.EventVolume;
+import group.gnometrading.collection.model.RuleSelector;
 import group.gnometrading.collection.model.SourceLimits;
 import group.gnometrading.collection.model.StreamInfo;
 import group.gnometrading.collection.ports.Registry;
 import group.gnometrading.md.Source;
 import group.gnometrading.md.SourceAccount;
 import group.gnometrading.md.Stream;
+import group.gnometrading.sm.Event;
+import group.gnometrading.sm.EventQuery;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -19,7 +24,8 @@ import java.util.Set;
 /**
  * The registry as the reconciler reads it: streams in bulk ({@code active} following each listing, so an ended market
  * reads as not live; the reconciler keeps these a few minutes, see {@code TargetsStep}), every source's capacity and
- * every market-data account, the last two each tick.
+ * every market-data account, the last two each tick, and the events and event streams rules select (every few minutes
+ * per rule, see {@code RuleResolver}).
  */
 public final class RegistryAdapter implements Registry {
 
@@ -54,6 +60,53 @@ public final class RegistryAdapter implements Registry {
                             source.kind().name(),
                             stream.resolvedRegion(),
                             stream.active() && source.active()));
+        }
+        return streams;
+    }
+
+    @Override
+    public List<EventVolume> events(
+            final RuleSelector.EventFilter filter,
+            final boolean byVolume,
+            final double minVolume24h,
+            final long expiresBeforeMillis,
+            final int limit) {
+        final EventQuery query = new EventQuery(
+                filter.exchangeIds(),
+                filter.categories(),
+                filter.tags(),
+                expiresBeforeMillis,
+                minVolume24h,
+                byVolume ? EventQuery.Order.VOLUME : EventQuery.Order.EXPIRY,
+                limit);
+        final List<EventVolume> events = new ArrayList<>();
+        for (Event event : securityMaster.getEvents(query)) {
+            events.add(new EventVolume(event.eventId(), event.volume24h()));
+        }
+        return events;
+    }
+
+    @Override
+    public Set<Integer> resolvedEvents(final Collection<Integer> eventIds) {
+        final Set<Integer> resolved = new HashSet<>();
+        for (Event event : securityMaster.getEventsByIds(
+                eventIds.stream().mapToInt(Integer::intValue).toArray())) {
+            if (event.resolved()) {
+                resolved.add(event.eventId());
+            }
+        }
+        return resolved;
+    }
+
+    @Override
+    public Map<Integer, Set<Integer>> streamsOfEvents(final Collection<Integer> eventIds) {
+        final Map<Integer, Set<Integer>> streams = new HashMap<>();
+        final int[] ids = eventIds.stream().mapToInt(Integer::intValue).toArray();
+        for (Stream stream : securityMaster.getStreamsForEvents(ids)) {
+            if (stream.active()) {
+                streams.computeIfAbsent(stream.eventId(), event -> new HashSet<>())
+                        .add(stream.streamId());
+            }
         }
         return streams;
     }

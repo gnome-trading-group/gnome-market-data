@@ -7,9 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import group.gnometrading.collection.model.Account;
+import group.gnometrading.collection.model.EventVolume;
 import group.gnometrading.collection.model.Interval;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Rule;
+import group.gnometrading.collection.model.RuleSelector;
+import group.gnometrading.collection.model.RuleStatus;
 import group.gnometrading.collection.model.Settings;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.SourceLimits;
@@ -68,6 +71,12 @@ class ReconcilerTest {
         public List<Rule> activeRules() {
             return List.copyOf(rules);
         }
+
+        @Override
+        public void putRuleStatus(final String ruleId, final RuleStatus status) {}
+
+        @Override
+        public void removeEventIds(final String ruleId, final Set<Integer> eventIds) {}
 
         @Override
         public Map<Integer, Target> targets() {
@@ -155,6 +164,26 @@ class ReconcilerTest {
                 @Override
                 public Map<String, List<Account>> accounts() {
                     return accounts;
+                }
+
+                @Override
+                public List<EventVolume> events(
+                        final RuleSelector.EventFilter filter,
+                        final boolean byVolume,
+                        final double minVolume24h,
+                        final long expiresBeforeMillis,
+                        final int limit) {
+                    return List.of();
+                }
+
+                @Override
+                public Set<Integer> resolvedEvents(final Collection<Integer> eventIds) {
+                    return Set.of();
+                }
+
+                @Override
+                public Map<Integer, Set<Integer>> streamsOfEvents(final Collection<Integer> eventIds) {
+                    return Map.of();
                 }
             },
             shardId -> statuses.getOrDefault(shardId, List.of()),

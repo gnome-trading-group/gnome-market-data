@@ -1,11 +1,13 @@
 package group.gnometrading.collection.reconcile;
 
+import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.Settings;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Store;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -19,6 +21,8 @@ final class Tick {
 
     final Settings config;
     final long now;
+    // The active rules, each with the streams it selects now (RuleResolver).
+    List<Rule> rules = List.of();
     final Map<Integer, Target> storedTargets;
     final Map<Integer, Target> targets;
     final Map<String, ShardRecord> storedShards = new LinkedHashMap<>();

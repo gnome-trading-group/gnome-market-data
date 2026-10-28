@@ -15,6 +15,7 @@ holes historical data; live trading does not depend on it.
 - One test: `mvn test -pl gnome-market-data-lambdas -am -Dtest=group.gnometrading.collection.ReconcilerTest -Dsurefire.failIfNoSpecifiedTests=false`. Use the full class name. The flag keeps `-am` from failing on core, which has no matching test.
 - Lambdas only: `mvn clean package -pl gnome-market-data-lambdas -am`
 - CDK: `cd cdk && npm ci && npm run build`. `npx cdk synth` needs Docker and `MAVEN_CREDENTIALS` (JSON with `GITHUB_ACTOR`/`GITHUB_TOKEN`), because every Java Lambda image builds the jar from source. There are no CDK tests.
+- Python tests (rule logic in the common layer): `python3 -m pytest cdk/lambda/tests` with pytest installed; no AWS.
 - Maven, not Gradle. Do not run `cdk deploy`; the pipeline deploys.
 
 ## Layout
@@ -25,8 +26,8 @@ holes historical data; live trading does not depend on it.
     - `model/`: plain data (`Target`, `ShardRecord`, `Partition`, `Settings`, `Interval`, `TaskStatus`, ...).
     - `ports/`: what a tick reads and changes (`Store`, `Registry`, `Statuses`, `Services`, `Alerts`), so it runs
       the same against AWS and test fakes.
-    - `reconcile/`: `Reconciler` runs one tick's steps in order over a shared `Tick`: `TargetsStep` (rules →
-      targets, via `Evaluation`), `CoverageStep` (statuses → intervals and gaps, via `CoverageTracker`), `HandoffStep`,
+    - `reconcile/`: `Reconciler` runs one tick's steps in order over a shared `Tick`: `RuleResolver` (each rule →
+      the streams it selects now), `TargetsStep` (rules → targets, via `Evaluation`), `CoverageStep` (statuses → intervals and gaps, via `CoverageTracker`), `HandoffStep`,
       `AssignmentStep` (rebuilds each shard's streams/draining/cuts from the targets), `LifecycleStep` (rolls,
       scale-down, delete), `PlacementStep` (via `Placement`), `PersistStep`, `AlertStep`.
     - `aws/`: the ports' adapters (`DynamoStore`, `S3Statuses`, `EcsServices`, `EventBridgeAlerts`,
@@ -39,8 +40,7 @@ holes historical data; live trading does not depend on it.
     `x-config-defaults`).
 - `cdk/lib/market-data-pipeline-stack.ts`: `MarketDataPipeline` and the per-stage `AppStage`. `COLLECTION_REGIONS` = us-east-1, ap-northeast-1, eu-west-1.
 - `cdk/lib/stacks/`:
-  - `storage-stack`: buckets, DynamoDB tables (incl. `collection-*`), queues + DLQs, S3 wiring; `retireOldPipeline`
-    keeps the pre-Phase-6 resources one release (see Operations)
+  - `storage-stack`: buckets, DynamoDB tables (incl. `collection-*`), queues + DLQs, S3 wiring
   - `collection-regional-stack`: per region, cluster `CollectionCluster-<region>` in the platform network, on-demand and
     Spot capacity providers (one shard per host, host networking; `SPOT_TYPES` r7a.medium then m7a.large/m6a.large,
     lowest-price allocation), base task definition
@@ -48,12 +48,15 @@ holes historical data; live trading does not depend on it.
     `EcsServices`.
   - `reconciler-stack`: FIFO wake-up queue `collection-reconciler.fifo`, 1-minute schedule, the Reconciler Lambda
     (reserved concurrency 1, 1024 MB, 2-minute timeout; the queue's visibility must stay at least the timeout)
-  - `backend-stack`: API Gateway + Python Lambdas, Cognito auth
+  - `backend-stack`: API Gateway + Python Lambdas behind gnome-shared-cdk's `GnomeApiAuthorizer`: people by Cognito
+    ID token on every route; services by the API's own key (`market-data-api-key`, mirrored to Secrets Manager
+    `gnome/api-keys/market-data`) on `collection/rules` only
   - `inventory-processor-stack`, `monitoring-stack`
 - `cdk/lib/constructs/java-lambda.ts`: shared Java Lambda (2048 MB default, 15 min timeout, JSON logs, one-month retention). Images are pinned to
   `linux/amd64`: one built on an arm64 Mac otherwise fails with `Runtime.InvalidEntrypoint`.
 - `cdk/lambda/`: Python API handlers (`functions/{collection,gaps,coverage}`) and the
-  `common` layer (`utils.lambda_handler`, `collection.py`).
+  `common` layer (`utils.lambda_handler`, `collection.py`, `collection_rules.py`: rule types' schemas, validation,
+  storage and preview selection).
 - `cdk/lib/stacks/shard-start.sh`: the shard container entrypoint. `shard-docker/` and `java-lambda-docker/` are
   written at synth time, so edit the `.ts`/`.sh` sources, not those files.
 
@@ -99,6 +102,17 @@ holes historical data; live trading does not depend on it.
 - `TargetsStep` caches registry stream info for 5 minutes; streams whose source retires them with no grace are
   re-read every tick. Stream liveness is the registry's `COALESCE(stream.active, listing.active)`.
 - During a roll (`roll_to_version` set), placement only uses shards already on that version.
+
+- Rule types: `static_streams` (stream ids), `event` (event ids: every active stream of each event, both sides of
+  every contract), `event_filter` (exchanges/categories/tags/expiry window, optional `min_volume_24h` and `top_n`,
+  required `max_streams`). The Python schemas (`collection_rules.py`) and the Java reader/resolver (`RuleItems`,
+  `RuleResolver`) must agree. An `event` rule keeps its ids in a top-level number set `event_ids` (not in
+  `parameters`) so services add and remove them atomically (`PATCH add_event_ids` / `remove_event_ids`); the
+  reconciler removes resolved events. A rule with `managed_by` belongs to a system: people may rename, pause or delete
+  it but not change what it selects. Event rules resolve every 5 minutes (or at once on a parameter change); a volume
+  rule's band (stay within 1.5x `top_n` / half `min_volume_24h`) uses the rule's current targets, not stored state.
+  The reconciler writes `resolved_events`, `resolved_streams`, `waiting_events`, `capped`, `resolved_at_ns` on the
+  rule item.
 
 ## Operations
 
