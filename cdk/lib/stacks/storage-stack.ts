@@ -139,73 +139,11 @@ export class StorageStack extends cdk.Stack {
       receiveMessageWaitTime: cdk.Duration.seconds(20),
     });
 
-    this.retireQualityChecks();
-
     this.metadataBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3notifications.SqsDestination(this.inventoryQueue),
       { prefix: 'market-data-inventory/', suffix: '.csv.gz' }
     );
-  }
-
-  /**
-   * Quality checks, removed (2026-10-28): kept unused for one release, because the stacks that import these deploy
-   * after this one (backend, monitoring) or are deleted by hand (MarketDataQualityCheckStack), and an export still
-   * imported can't be deleted. The next release removes all of it.
-   */
-  private retireQualityChecks() {
-    const qualityIssuesTable = new dynamodb.Table(this, "QualityIssuesTable", {
-      tableName: "market-data-quality-issues",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "issueId", type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-    qualityIssuesTable.addGlobalSecondaryIndex({
-      indexName: "status-timestamp-index",
-      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-    });
-    qualityIssuesTable.addGlobalSecondaryIndex({
-      indexName: "ruleType-timestamp-index",
-      partitionKey: { name: "ruleType", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "timestamp", type: dynamodb.AttributeType.NUMBER },
-    });
-    const dailyListingStatisticsTable = new dynamodb.Table(this, "DailyListingStatisticsTable", {
-      tableName: "market-data-listing-daily-statistics",
-      partitionKey: { name: "listingId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      pointInTimeRecovery: true,
-    });
-    const qualityCheckQueue = this.retiredQueue('QualityCheckQueue', 'market-data-quality-check-queue', {
-      visibilityTimeout: cdk.Duration.minutes(15),
-      retentionPeriod: cdk.Duration.days(4),
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-    });
-
-    for (const table of [qualityIssuesTable, dailyListingStatisticsTable]) {
-      this.exportValue(table.tableName);
-      this.exportValue(table.tableArn);
-    }
-    this.exportValue(qualityCheckQueue.queueArn);
-    this.exportValue(qualityCheckQueue.queueName);
-    this.exportValue(qualityCheckQueue.deadLetterQueue!.queue.queueName);
-  }
-
-  /** A queue as monitoredQueue builds it (same ids, so the same resources), without its alarms. */
-  private retiredQueue(id: string, name: string, props: sqs.QueueProps): sqs.Queue {
-    const deadLetterQueue = new sqs.Queue(this, `${id}DeadLetter`, {
-      queueName: `${name}-dlq`,
-      retentionPeriod: DEAD_LETTER_RETENTION,
-    });
-    return new sqs.Queue(this, id, {
-      ...props,
-      queueName: name,
-      deadLetterQueue: { queue: deadLetterQueue, maxReceiveCount: MAX_RECEIVES },
-    });
   }
 
   private collectionTable(

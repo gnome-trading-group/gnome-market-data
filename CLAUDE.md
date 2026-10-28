@@ -122,11 +122,4 @@ holes historical data; live trading does not depend on it.
     `/aws/lambda/<Stage>-MarketDataReconcilerStack-Reconciler-v1`.
   - `MarketData--InventoryProcessorLambda-…`: any Lambda error.
   - `MarketData--market-data-inventory-queue-DLQ-…` / `-Queue-Message-Age-…`: dead-lettered or stale work.
-- Quality checks were removed in this release. Their tables (`market-data-quality-issues`,
-  `market-data-listing-daily-statistics`) and `market-data-quality-check-queue` stay one release
-  (`StorageStack.retireQualityChecks`) for the stacks that still import them. After this release deploys, delete
-  `<Stage>-MarketDataQualityCheckStack` by hand (the pipeline never deletes a stack removed from the app); the next
-  release removes the pins.
-- The pre-Phase-6 raw and merged buckets (`gnome-market-data-raw-<stage>`, `-merged-<stage>`) are no longer in any
-  stack: empty and delete them by hand.
 - Runbooks: gnome-registry `docs/runbooks/cloudwatch/MarketData.md` and `docs/runbooks/alerts/<TYPE>.md`.
