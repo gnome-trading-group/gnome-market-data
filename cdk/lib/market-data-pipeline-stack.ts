@@ -60,6 +60,7 @@ class AppStage extends cdk.Stage {
       collectionGapsTable: storageStack.collectionGapsTable,
       reconcilerQueue: reconcilerStack.wakeQueue,
       collectionRegions: COLLECTION_REGIONS,
+      coverageTrackedSinceNs: config.coverageTrackedSinceNs,
     });
 
     new MonitoringStack(this, "MarketDataMonitoringStack", {

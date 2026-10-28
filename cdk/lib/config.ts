@@ -6,6 +6,8 @@ export interface MarketDataConfig {
   account: GnomeAccount;
 
   registryApiKeyId: string;
+  /** The first collection coverage interval: before it, whether data was collected is unknown, not missing. */
+  coverageTrackedSinceNs: string;
 }
 
 const defaultConfig = {};
@@ -20,6 +22,7 @@ export const CONFIGS: { [stage in Stage]?:  MarketDataConfig } = {
     ...defaultConfig,
     account: GnomeAccount.InfraDev,
     registryApiKeyId: REGISTRY_API_KEY_IDS[Stage.DEV]!,
+    coverageTrackedSinceNs: '1793147979759065210',
   },
   // [Stage.STAGING]: {
   //   ...defaultConfig,
@@ -32,6 +35,7 @@ export const CONFIGS: { [stage in Stage]?:  MarketDataConfig } = {
     ...defaultConfig,
     account: GnomeAccount.InfraProd,
     registryApiKeyId: REGISTRY_API_KEY_IDS[Stage.PROD]!,
+    coverageTrackedSinceNs: '1793223060000000000',
   },
 }
 

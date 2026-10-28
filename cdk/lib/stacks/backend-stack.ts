@@ -19,6 +19,7 @@ interface BackendStackProps extends cdk.StackProps {
   collectionGapsTable: dynamodb.ITable;
   reconcilerQueue: sqs.IQueue;
   collectionRegions: string[];
+  coverageTrackedSinceNs: string;
 }
 
 export class BackendStack extends cdk.Stack {
@@ -126,12 +127,16 @@ export class BackendStack extends cdk.Stack {
 
     route("collection/rule-types", "GET", handler("CollectionRuleTypesFunction", "rule-types"));
 
+    const registryKey = secretsmanager.Secret.fromSecretNameV2(this, "RegistryApiKeySecret", API_KEY_SECRET_NAMES.REGISTRY);
+    const readsRegistry = (fn: lambda.Function) => {
+      fn.addEnvironment("REGISTRY_API_URL", cdk.Fn.importValue("RegistryApiUrl"));
+      fn.addEnvironment("REGISTRY_API_KEY_SECRET", API_KEY_SECRET_NAMES.REGISTRY);
+      registryKey.grantRead(fn);
+    };
+
     // Asks the registry what a draft rule would select, as the reconciler would.
     const preview = handler("CollectionRulePreviewFunction", "rule-preview");
-    preview.addEnvironment("REGISTRY_API_URL", cdk.Fn.importValue("RegistryApiUrl"));
-    preview.addEnvironment("REGISTRY_API_KEY_SECRET", API_KEY_SECRET_NAMES.REGISTRY);
-    secretsmanager.Secret.fromSecretNameV2(this, "RegistryApiKeySecret", API_KEY_SECRET_NAMES.REGISTRY)
-      .grantRead(preview);
+    readsRegistry(preview);
     route("collection/rule-preview", "POST", preview);
 
     const triggers = handler("CollectionTriggersFunction", "triggers");
@@ -159,10 +164,21 @@ export class BackendStack extends cdk.Stack {
     }));
     route("collection/shards/{shardId}/logs", "GET", shardLogs);
 
+    // Coverage is read by backtests (services, by key) and the bot as well as people.
+    const readers = [CallerKind.PERSON, CallerKind.SERVICE, CallerKind.BOT];
+    const readsCoverage = (fn: lambda.Function) => {
+      props.collectionCoverageTable.grantReadData(fn);
+      props.collectionGapsTable.grantReadData(fn);
+      props.collectionTargetsTable.grantReadData(fn);
+    };
     const coverage = handler("CollectionCoverageFunction", "coverage");
-    props.collectionCoverageTable.grantReadData(coverage);
-    props.collectionGapsTable.grantReadData(coverage);
-    props.collectionTargetsTable.grantReadData(coverage);
-    route("collection/coverage/{streamId}", "GET", coverage);
+    readsCoverage(coverage);
+    route("collection/coverage/{streamId}", "GET", coverage, readers);
+
+    const missing = handler("CollectionMissingFunction", "missing");
+    readsCoverage(missing);
+    readsRegistry(missing);
+    missing.addEnvironment("COVERAGE_TRACKED_SINCE_NS", props.coverageTrackedSinceNs);
+    route("collection/missing", "GET", missing, readers);
   }
 }

@@ -15,12 +15,13 @@ holes historical data; live trading does not depend on it.
 - One test: `mvn test -pl gnome-market-data-lambdas -am -Dtest=group.gnometrading.collection.ReconcilerTest -Dsurefire.failIfNoSpecifiedTests=false`. Use the full class name. The flag keeps `-am` from failing on core, which has no matching test.
 - Lambdas only: `mvn clean package -pl gnome-market-data-lambdas -am`
 - CDK: `cd cdk && npm ci && npm run build`. `npx cdk synth` needs Docker and `MAVEN_CREDENTIALS` (JSON with `GITHUB_ACTOR`/`GITHUB_TOKEN`), because every Java Lambda image builds the jar from source. There are no CDK tests.
-- Python tests (rule logic in the common layer): `python3 -m pytest cdk/lambda/tests` with pytest installed; no AWS.
+- Python tests (rule and missing-data logic in the common layer): `python3 -m pytest cdk/lambda/tests` with pytest installed; no AWS.
 - Maven, not Gradle. Do not run `cdk deploy`; the pipeline deploys.
 
 ## Layout
 
-- `gnome-market-data-core`: `StreamEntry` (S3 key layout, zstd/SBE encode and decode, listing helpers). Published; gnome-backtest depends on it.
+- `gnome-market-data-core`: `StreamEntry` (S3 key layout, zstd/SBE encode and decode, listing helpers) and
+  `MarketDataApi` (`collection/missing` client). Published; gnome-backtest depends on it.
 - `gnome-market-data-lambdas`: all Java Lambdas, built into one image per function (the handler class is chosen by `cmd`).
   - `collection/`: the reconciler. `ReconcilerLambdaHandler` only wires.
     - `model/`: plain data (`Target`, `ShardRecord`, `Partition`, `Settings`, `Interval`, `TaskStatus`, ...).
@@ -48,13 +49,14 @@ holes historical data; live trading does not depend on it.
     (reserved concurrency 1, 1024 MB, 2-minute timeout; the queue's visibility must stay at least the timeout)
   - `backend-stack`: API Gateway + Python Lambdas behind gnome-shared-cdk's `GnomeApiAuthorizer`: people by Cognito
     ID token on every route; services by the API's own key (`market-data-api-key`, mirrored to Secrets Manager
-    `gnome/api-keys/market-data`) on `collection/rules` only
+    `gnome/api-keys/market-data`) on `collection/rules`, `collection/coverage/{streamId}` and `collection/missing`
+    (backtests); bots read the last two
   - `monitoring-stack`: the reconciler's fault alarm
 - `cdk/lib/constructs/java-lambda.ts`: shared Java Lambda (2048 MB default, 15 min timeout, JSON logs, one-month retention). Images are pinned to
   `linux/amd64`: one built on an arm64 Mac otherwise fails with `Runtime.InvalidEntrypoint`.
 - `cdk/lambda/`: Python API handlers (`functions/collection/*`) and the
   `common` layer (`utils.lambda_handler`, `collection.py`, `collection_rules.py`: rule types' schemas, validation,
-  storage and preview selection).
+  storage and preview selection; `coverage.py`, `missing.py`, `registry.py`).
 - `cdk/lib/stacks/shard-start.sh`: the shard container entrypoint. `shard-docker/` and `java-lambda-docker/` are
   written at synth time, so edit the `.ts`/`.sh` sources, not those files.
 
@@ -70,6 +72,11 @@ holes historical data; live trading does not depend on it.
 - Data is keyed by `streamId`. Coverage is collection coverage only (`collection-coverage` intervals,
   `collection-gaps`, `GET collection/coverage/{streamId}`): what shards collected, not which files exist, so data
   imported by hand would not show.
+- `GET collection/missing` (by `listingIds` or `streamIds`, ≤ 100, ≤ 31 days per call): per stream, every stretch no
+  coverage interval covers, with the gap's reason, the target's open gap, or `NOT_COLLECTED` when nothing wanted the
+  stream (common layer `missing.py`). Time before `coverageTrackedSinceNs` (`cdk/lib/config.ts`, the first coverage
+  interval per stage) is `untrackedNs`: unknown, never a stretch. gnome-backtest marks these stretches as bad data
+  (`MarketDataApi` in core).
 - Buckets per stage: final `gnome-market-data-<stage>`, `-metadata-` (shard statuses under
   `collection/`, 1-day expiry there), `-exchange-raw-` (venue frames, 30-day expiry).
 - Writing: each minute is written once, by one shard, with a conditional put (`If-None-Match: *`); the first writer
