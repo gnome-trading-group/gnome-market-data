@@ -24,12 +24,22 @@ public record MarketDataConfig(
         String rollToVersion,
         int handoffMinutes,
         int emptyShardMinutes,
-        Alerts alerts) {
+        Alerts alerts,
+        Consolidation consolidation) {
 
     /** How long a condition lasts before the reconciler alerts on it. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Alerts(int notLiveMinutes, int staleMinutes, int shardDownMinutes) {}
+
+    /**
+     * Merging a partition's under-filled shards. A shard whose streams would all fit on the partition's others, each
+     * left at most {@code maxFill} of {@code max_streams_per_shard}, for {@code afterMinutes} running drains into
+     * them; {@code dryRun} only logs and records it.
+     */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Consolidation(boolean enabled, boolean dryRun, int afterMinutes, double maxFill) {}
 
     public static final MarketDataConfig DEFAULTS = new MarketDataConfig(
             900,
@@ -39,5 +49,7 @@ public record MarketDataConfig(
             null,
             2,
             10,
-            new Alerts(10, 5, 5));
+            new Alerts(10, 5, 5),
+            // Fifteen minutes is three rule resolutions plus a retire grace: long enough that a dip has settled.
+            new Consolidation(true, false, 15, 0.8));
 }

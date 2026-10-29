@@ -16,4 +16,8 @@ public record Settings(
         long emptyShardNanos,
         long notLiveAlertNanos,
         long staleAlertNanos,
-        long shardDownNanos) {}
+        long shardDownNanos,
+        boolean consolidationEnabled,
+        boolean consolidationDryRun,
+        long consolidateAfterNanos,
+        double consolidationMaxFill) {}

@@ -34,7 +34,20 @@ class RuleResolverTest {
     private static final long MINUTE = TimeUnit.MINUTES.toNanos(1);
     private static final long T0 = 20_000L * TimeUnit.DAYS.toNanos(1);
     private static final Settings SETTINGS = new Settings(
-            500, 5, Map.of(), "1.23.0", null, 2 * MINUTE, 10 * MINUTE, 10 * MINUTE, 5 * MINUTE, 5 * MINUTE);
+            500,
+            5,
+            Map.of(),
+            "1.23.0",
+            null,
+            2 * MINUTE,
+            10 * MINUTE,
+            10 * MINUTE,
+            5 * MINUTE,
+            5 * MINUTE,
+            false,
+            false,
+            15 * MINUTE,
+            0.8);
 
     // ----- fakes -----
 

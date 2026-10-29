@@ -109,6 +109,12 @@ holes historical data; live trading does not depend on it.
 - `TargetsStep` caches registry stream info for 5 minutes; streams whose source retires them with no grace are
   re-read every tick. Stream liveness is the registry's `COALESCE(stream.active, listing.active)`.
 - During a roll (`roll_to_version` set), placement only uses shards already on that version.
+- Consolidation (`ConsolidationStep`, Service Config `consolidation`: `enabled`, `dry_run`, `after_minutes` 15,
+  `max_fill` 0.8): an ACTIVE shard whose streams would all fit on its partition's other shards, each left at most
+  `max_fill` full and within connection and account limits (a dry run of `Placement`), records `mergeable_since_ns`;
+  once that has held `after_minutes` it drains like a rolled shard and its streams hand off make-before-break, at the
+  same `max_fill` ceiling. One merge at a time, none during a roll, a hand-off or with a stream unplaced; the
+  emptiest goes first. `dry_run` only logs "Would merge shard ...".
 
 - Rule types: `static_streams` (stream ids), `event` (event ids: every active stream of each event, both sides of
   every contract), `event_filter` (exchanges/categories/tags/expiry window, optional `min_volume_24h` and `top_n`,

@@ -35,11 +35,32 @@ final class PlacementStep {
         final List<ShardLoad> loads = loads(tick);
         final Map<Integer, String> moving = new HashMap<>();
         final List<Placement.Request> requests = requests(tick, accounts, moving);
+        // A merging shard's streams go where the merge decided they fit, leaving its receivers the same headroom.
+        final List<Placement.Request> merging = requests.stream()
+                .filter(request -> isMerging(tick, moving.get(request.streamId())))
+                .toList();
+        requests.removeAll(merging);
         final Placement.Result result = new Placement(
                         registry.sources(), accounts, tick.config.maxStreamsPerShard(), newShardId)
                 .place(loads, requests);
+        final int maxFill = (int) Math.floor(tick.config.maxStreamsPerShard() * tick.config.consolidationMaxFill());
+        final Placement.Result merged =
+                new Placement(registry.sources(), accounts, maxFill, newShardId).place(loads, merging);
         apply(tick, result, loads, moving);
-        tick.unplaced = result.unplaced().size();
+        apply(tick, merged, loads, moving);
+        tick.unplaced = result.unplaced().size() + merged.unplaced().size();
+    }
+
+    /**
+     * A shard draining with streams that isn't being rolled ({@link ConsolidationStep}): an emptied one has nothing to
+     * move, and a rolled one is on an old version.
+     */
+    private static boolean isMerging(final Tick tick, final String shardId) {
+        final ShardRecord shard = shardId == null ? null : tick.shards.get(shardId);
+        final String rollTo = tick.config.rollToVersion();
+        return shard != null
+                && shard.state() == ShardRecord.State.DRAINING
+                && (rollTo == null || rollTo.equals(shard.version()));
     }
 
     /** Unplaced targets, production first, then those that must move; {@code moving} gets each mover's shard. */
@@ -95,26 +116,30 @@ final class PlacementStep {
     private static List<ShardLoad> loads(final Tick tick) {
         final List<ShardLoad> loads = new ArrayList<>();
         for (ShardRecord shard : tick.shards.values()) {
-            final ShardLoad load =
-                    new ShardLoad(shard.shardId(), shard.partition(), takesStreams(tick, shard), shard.accounts());
-            final List<Integer> carried = new ArrayList<>(shard.streams());
-            carried.addAll(shard.draining());
-            for (int streamId : carried) {
-                final Target target = tick.targets.get(streamId);
-                if (target != null) {
-                    load.add(target.source());
-                }
-            }
-            loads.add(load);
+            loads.add(load(tick, shard, takesStreams(tick, shard)));
         }
         return loads;
+    }
+
+    /** What the shard carries per source, its draining streams included, as placement counts it. */
+    static ShardLoad load(final Tick tick, final ShardRecord shard, final boolean accepting) {
+        final ShardLoad load = new ShardLoad(shard.shardId(), shard.partition(), accepting, shard.accounts());
+        final List<Integer> carried = new ArrayList<>(shard.streams());
+        carried.addAll(shard.draining());
+        for (int streamId : carried) {
+            final Target target = tick.targets.get(streamId);
+            if (target != null) {
+                load.add(target.source());
+            }
+        }
+        return load;
     }
 
     /**
      * An ACTIVE shard takes streams; during a roll only one already on the version rolled to, so a stream leaving a
      * rolling shard moves once, not onto another shard that will roll next.
      */
-    private static boolean takesStreams(final Tick tick, final ShardRecord shard) {
+    static boolean takesStreams(final Tick tick, final ShardRecord shard) {
         final String rollTo = tick.config.rollToVersion();
         return shard.state() == ShardRecord.State.ACTIVE && (rollTo == null || rollTo.equals(shard.version()));
     }

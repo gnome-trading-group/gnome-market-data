@@ -259,7 +259,8 @@ public final class DynamoStore implements Store {
                 string(item, "version"),
                 ShardRecord.State.valueOf(string(item, "state")),
                 number(item, "created_at_ns"),
-                number(item, "empty_since_ns"));
+                number(item, "empty_since_ns"),
+                number(item, "mergeable_since_ns"));
     }
 
     static Map<String, AttributeValue> fromShard(final ShardRecord shard) {
@@ -280,6 +281,7 @@ public final class DynamoStore implements Store {
         item.put("state", AttributeValue.fromS(shard.state().name()));
         item.put("created_at_ns", AttributeValue.fromN(Long.toString(shard.createdAtNanos())));
         item.put("empty_since_ns", AttributeValue.fromN(Long.toString(shard.emptySinceNanos())));
+        item.put("mergeable_since_ns", AttributeValue.fromN(Long.toString(shard.mergeableSinceNanos())));
         return item;
     }
 

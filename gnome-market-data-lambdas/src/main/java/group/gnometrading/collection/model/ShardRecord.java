@@ -16,6 +16,8 @@ import java.util.Map;
  *
  * @param emptySinceNanos when it last became empty, 0 while it has streams: an ACTIVE shard empty long enough is
  *     deleted
+ * @param mergeableSinceNanos since when all its streams would fit on its partition's other shards, 0 while they
+ *     wouldn't: one mergeable long enough drains into them ({@code ConsolidationStep})
  */
 public record ShardRecord(
         String shardId,
@@ -28,7 +30,8 @@ public record ShardRecord(
         String version,
         State state,
         long createdAtNanos,
-        long emptySinceNanos) {
+        long emptySinceNanos,
+        long mergeableSinceNanos) {
 
     /** A cut meaning: collect, but write no minute until the hand-off sets one. */
     public static final int WARMING = Integer.MAX_VALUE;
@@ -36,7 +39,9 @@ public record ShardRecord(
     public enum State {
         /** Takes new streams. */
         ACTIVE,
-        /** Being rolled or scaled down: takes nothing new; its streams hand off elsewhere, then it is deleted. */
+        /**
+         * Being rolled, merged or scaled down: takes nothing new; its streams hand off elsewhere, then it is deleted.
+         */
         DRAINING,
         /** Its service is gone; the item is kept for history until cleaned up. */
         DELETED
@@ -55,7 +60,8 @@ public record ShardRecord(
                 version,
                 state,
                 createdAtNanos,
-                emptySinceNanos);
+                emptySinceNanos,
+                mergeableSinceNanos);
     }
 
     public ShardRecord withAccounts(final Map<String, String> newAccounts) {
@@ -70,7 +76,8 @@ public record ShardRecord(
                 version,
                 state,
                 createdAtNanos,
-                emptySinceNanos);
+                emptySinceNanos,
+                mergeableSinceNanos);
     }
 
     public ShardRecord withState(final State newState) {
@@ -85,7 +92,8 @@ public record ShardRecord(
                 version,
                 newState,
                 createdAtNanos,
-                emptySinceNanos);
+                emptySinceNanos,
+                mergeableSinceNanos);
     }
 
     public ShardRecord withEmptySince(final long nanos) {
@@ -100,6 +108,23 @@ public record ShardRecord(
                 version,
                 state,
                 createdAtNanos,
+                nanos,
+                mergeableSinceNanos);
+    }
+
+    public ShardRecord withMergeableSince(final long nanos) {
+        return new ShardRecord(
+                shardId,
+                partition,
+                generation,
+                streams,
+                draining,
+                accounts,
+                cuts,
+                version,
+                state,
+                createdAtNanos,
+                emptySinceNanos,
                 nanos);
     }
 
@@ -115,14 +140,26 @@ public record ShardRecord(
                 version,
                 state,
                 createdAtNanos,
-                emptySinceNanos);
+                emptySinceNanos,
+                mergeableSinceNanos);
     }
 
     /** A new shard: no streams yet, generation -1 until first written. */
     public static ShardRecord created(
             final String shardId, final Partition partition, final String version, final long nowNanos) {
         return new ShardRecord(
-                shardId, partition, -1, List.of(), List.of(), Map.of(), Map.of(), version, State.ACTIVE, nowNanos, 0);
+                shardId,
+                partition,
+                -1,
+                List.of(),
+                List.of(),
+                Map.of(),
+                Map.of(),
+                version,
+                State.ACTIVE,
+                nowNanos,
+                0,
+                0);
     }
 
     public boolean isEmpty() {

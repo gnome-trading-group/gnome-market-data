@@ -33,6 +33,7 @@ class DynamoStoreTest {
                 "1.23.0",
                 ShardRecord.State.ACTIVE,
                 100,
+                0,
                 0);
 
         Map<String, AttributeValue> item = DynamoStore.fromShard(shard);
@@ -49,7 +50,18 @@ class DynamoStoreTest {
     @Test
     void anEmptyShardRoundTrips() {
         ShardRecord shard = new ShardRecord(
-                "use1-2", US, 1, List.of(), List.of(), Map.of(), Map.of(), "1.23.0", ShardRecord.State.DRAINING, 5, 9);
+                "use1-2",
+                US,
+                1,
+                List.of(),
+                List.of(),
+                Map.of(),
+                Map.of(),
+                "1.23.0",
+                ShardRecord.State.DRAINING,
+                5,
+                9,
+                11);
 
         assertEquals(shard, DynamoStore.toShard(DynamoStore.fromShard(shard)));
     }

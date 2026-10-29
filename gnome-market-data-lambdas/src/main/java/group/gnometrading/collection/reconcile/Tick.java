@@ -36,6 +36,7 @@ final class Tick {
     int unplaced;
     int handedOff;
     int retired;
+    int merged;
     int gaps;
     int alerts;
     int serviceErrors;

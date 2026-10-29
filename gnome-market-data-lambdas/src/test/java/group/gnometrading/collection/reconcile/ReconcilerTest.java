@@ -60,6 +60,8 @@ class ReconcilerTest {
     private final String version = "1.23.0";
     // Set to roll: until then a newer release changes nothing for running shards.
     private String rollTo;
+    private boolean consolidate;
+    private boolean dryRun;
     private int maxStreamsPerShard = 500;
     // Stream ids asked of the registry, per lookup.
     private final List<Integer> streamLookups = new ArrayList<>();
@@ -228,7 +230,11 @@ class ReconcilerTest {
                     10 * MINUTE,
                     10 * MINUTE,
                     5 * MINUTE,
-                    5 * MINUTE),
+                    5 * MINUTE,
+                    consolidate,
+                    dryRun,
+                    15 * MINUTE,
+                    0.8),
             partition -> "use1-" + shardIds.incrementAndGet());
 
     ReconcilerTest() {
@@ -451,7 +457,8 @@ class ReconcilerTest {
                         stored.version(),
                         stored.state(),
                         stored.createdAtNanos(),
-                        stored.emptySinceNanos()));
+                        stored.emptySinceNanos(),
+                        stored.mergeableSinceNanos()));
 
         reconciler.tick(T0 + MINUTE);
 
@@ -555,6 +562,138 @@ class ReconcilerTest {
         assertEquals(Set.of("use1-2@1.24.0"), services);
     }
 
+    /**
+     * Two shards in one partition at 4 streams each at most (3 after a merge, at 0.8): use1-1 holds 1–4, use1-2 holds
+     * 5–6. Streams 1–3 then retire, leaving use1-1 with only stream 4, which fits on use1-2. Returns when the
+     * retirement is done.
+     */
+    private long twoUnderFilledShards() {
+        consolidate = true;
+        maxStreamsPerShard = 4;
+        for (int id = 4; id <= 7; id++) {
+            streams.put(id, new StreamInfo(id, "KALSHI", "VENUE", "us-east-1", true));
+        }
+        wantStreams(1, 2, 3, 4, 5, 6);
+        reconciler.tick(T0);
+        assertEquals(List.of(1, 2, 3, 4), shards.get("use1-1").streams());
+        assertEquals(List.of(5, 6), shards.get("use1-2").streams());
+        wantStreams(4, 5, 6);
+        for (long at = T0 + MINUTE; at <= T0 + 7 * MINUTE; at += MINUTE) {
+            reconciler.tick(at);
+        }
+        assertEquals(List.of(4), shards.get("use1-1").streams(), "1–3 retired after their grace");
+        return T0 + 7 * MINUTE;
+    }
+
+    @Test
+    void anUnderFilledShardMergesIntoItsPartitionsOthersAfterStayingMergeable() {
+        long at = twoUnderFilledShards();
+        long since = shards.get("use1-1").mergeableSinceNanos();
+        assertTrue(since > 0, "use1-1's one stream fits on use1-2");
+        assertTrue(
+                shards.get("use1-2").mergeableSinceNanos() > 0, "and use1-2's two on use1-1; the emptier goes first");
+
+        for (at += MINUTE; at < since + 15 * MINUTE; at += MINUTE) {
+            reconciler.tick(at);
+            assertEquals(ShardRecord.State.ACTIVE, shards.get("use1-1").state(), "not yet fifteen minutes");
+        }
+        Reconciler.Summary summary = reconciler.tick(at);
+
+        assertEquals(1, summary.merged());
+        assertEquals(ShardRecord.State.DRAINING, shards.get("use1-1").state());
+        assertEquals(List.of(4), shards.get("use1-1").draining(), "handed off, not dropped");
+        assertEquals(
+                List.of(4, 5, 6),
+                shards.get("use1-2").streams().stream().sorted().toList());
+        assertEquals(2, shards.size(), "no shard created for the merge");
+
+        for (int i = 1; i <= 6; i++) {
+            report("use1-1", "t1", at + i * MINUTE, "LIVE");
+            report("use1-2", "t2", at + i * MINUTE, "LIVE");
+            reconciler.tick(at + i * MINUTE);
+        }
+        assertEquals(ShardRecord.State.DELETED, shards.get("use1-1").state(), "drained, then deleted");
+        assertEquals(Set.of("use1-2@1.23.0"), services);
+    }
+
+    @Test
+    void theEmptiestMergeableShardIsWaitedForEvenIfAFullerOneQualifiedFirst() {
+        long at = twoUnderFilledShards();
+        long emptierSince = shards.get("use1-1").mergeableSinceNanos();
+        // use1-2's two streams fit on use1-1 too; pretend that has held for longer.
+        shards.put("use1-2", shards.get("use1-2").withMergeableSince(emptierSince - 10 * MINUTE));
+
+        reconciler.tick(emptierSince + 10 * MINUTE);
+        assertEquals(ShardRecord.State.ACTIVE, shards.get("use1-2").state(), "not the fuller one, though it qualified");
+        assertEquals(
+                ShardRecord.State.ACTIVE, shards.get("use1-1").state(), "and the emptier hasn't waited long enough");
+
+        reconciler.tick(emptierSince + 15 * MINUTE);
+        assertEquals(
+                ShardRecord.State.DRAINING, shards.get("use1-1").state(), "its one stream moves, not the other's two");
+        assertEquals(ShardRecord.State.ACTIVE, shards.get("use1-2").state());
+    }
+
+    @Test
+    void aDryRunOnlyNotesTheMerge() {
+        long at = twoUnderFilledShards();
+        dryRun = true;
+
+        Reconciler.Summary summary = reconciler.tick(at + 20 * MINUTE);
+
+        assertEquals(0, summary.merged());
+        assertEquals(ShardRecord.State.ACTIVE, shards.get("use1-1").state());
+        assertTrue(shards.get("use1-1").mergeableSinceNanos() > 0, "still shown as mergeable");
+    }
+
+    @Test
+    void aShardThatStopsFittingIsNoLongerMergeable() {
+        long at = twoUnderFilledShards();
+        wantStreams(4, 5, 6, 7);
+
+        // Consolidation runs before placement, so it sees the new stream placed on the next tick (and waits for an
+        // unplaced one meanwhile).
+        reconciler.tick(at + MINUTE);
+        reconciler.tick(at + 2 * MINUTE);
+
+        assertEquals(List.of(5, 6, 7), shards.get("use1-2").streams(), "the new stream goes on the fuller shard");
+        assertEquals(0, shards.get("use1-1").mergeableSinceNanos(), "its stream would leave use1-2 over 0.8");
+        assertEquals(0, shards.get("use1-2").mergeableSinceNanos());
+        reconciler.tick(at + 30 * MINUTE);
+        assertEquals(ShardRecord.State.ACTIVE, shards.get("use1-1").state());
+    }
+
+    @Test
+    void nothingMergesDuringARoll() {
+        long at = twoUnderFilledShards();
+        rollTo = "1.24.0";
+
+        reconciler.tick(at + 20 * MINUTE);
+
+        assertEquals(
+                0,
+                shards.values().stream()
+                        .mapToInt(shard -> shard.mergeableSinceNanos() > 0 ? 0 : 0)
+                        .sum());
+        assertTrue(
+                shards.values().stream()
+                        .noneMatch(shard -> shard.state() == ShardRecord.State.DRAINING
+                                && shard.version().equals("1.23.0")
+                                && shard.shardId().equals("use1-2")),
+                "the roll drains its oldest shard; no merge drains another alongside it");
+    }
+
+    @Test
+    void consolidationOffForgetsMergeableShards() {
+        long at = twoUnderFilledShards();
+        consolidate = false;
+
+        reconciler.tick(at + 20 * MINUTE);
+
+        assertEquals(0, shards.get("use1-1").mergeableSinceNanos());
+        assertEquals(ShardRecord.State.ACTIVE, shards.get("use1-1").state());
+    }
+
     @Test
     void aRollMovesStreamsOnlyOntoShardsAlreadyOnTheNewVersion() {
         maxStreamsPerShard = 2;
@@ -653,7 +792,8 @@ class ReconcilerTest {
                         stored.version(),
                         stored.state(),
                         stored.createdAtNanos(),
-                        stored.emptySinceNanos()));
+                        stored.emptySinceNanos(),
+                        stored.mergeableSinceNanos()));
         wantStreams(1, 2);
 
         reconciler.tick(T0 + MINUTE);

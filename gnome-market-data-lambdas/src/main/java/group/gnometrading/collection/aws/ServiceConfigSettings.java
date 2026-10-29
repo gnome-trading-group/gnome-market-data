@@ -37,7 +37,11 @@ public final class ServiceConfigSettings implements Supplier<Settings> {
                 minutes(config.emptyShardMinutes()),
                 minutes(config.alerts().notLiveMinutes()),
                 minutes(config.alerts().staleMinutes()),
-                minutes(config.alerts().shardDownMinutes()));
+                minutes(config.alerts().shardDownMinutes()),
+                config.consolidation().enabled(),
+                config.consolidation().dryRun(),
+                minutes(config.consolidation().afterMinutes()),
+                config.consolidation().maxFill());
     }
 
     private static long minutes(final int minutes) {
