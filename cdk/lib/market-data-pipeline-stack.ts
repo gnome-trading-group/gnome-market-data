@@ -48,6 +48,7 @@ class AppStage extends cdk.Stage {
       shardsTable: storageStack.collectionShardsTable,
       coverageTable: storageStack.collectionCoverageTable,
       gapsTable: storageStack.collectionGapsTable,
+      leasesTable: storageStack.collectionLeasesTable,
       metadataBucket: storageStack.metadataBucket,
     });
 
@@ -58,6 +59,7 @@ class AppStage extends cdk.Stage {
       collectionShardsTable: storageStack.collectionShardsTable,
       collectionCoverageTable: storageStack.collectionCoverageTable,
       collectionGapsTable: storageStack.collectionGapsTable,
+      collectionLeasesTable: storageStack.collectionLeasesTable,
       reconcilerQueue: reconcilerStack.wakeQueue,
       collectionRegions: COLLECTION_REGIONS,
       coverageTrackedSinceNs: config.coverageTrackedSinceNs,

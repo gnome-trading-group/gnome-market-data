@@ -20,8 +20,9 @@ import org.apache.logging.log4j.Logger;
  * streams to the others make-before-break, and once empty it is deleted. Retirements and rule churn otherwise leave a
  * partition spread over half-empty hosts.
  *
- * <p>One merge at a time, and none while a roll, a hand-off or an unplaced stream is pending, so the dry run sees the
- * room placement will find. The emptiest ready shard goes first.
+ * <p>A merge never takes a partition below its {@code min_shards}. One merge at a time, and none while a roll, a
+ * hand-off or an unplaced stream is pending, so the dry run sees the room placement will find. The emptiest ready
+ * shard goes first.
  */
 final class ConsolidationStep {
 
@@ -81,7 +82,9 @@ final class ConsolidationStep {
             if (shard.state() != ShardRecord.State.ACTIVE) {
                 continue;
             }
-            final boolean fits = !shard.isEmpty() && fitsElsewhere(tick, shard, sources, accounts, maxFill);
+            final boolean fits = !shard.isEmpty()
+                    && !LifecycleStep.atMinimum(tick, shard)
+                    && fitsElsewhere(tick, shard, sources, accounts, maxFill);
             final ShardRecord updated = since(shard, fits, tick.now);
             tick.shards.put(shard.shardId(), updated);
             if (fits) {
@@ -129,8 +132,9 @@ final class ConsolidationStep {
             }
             requests.add(new Placement.Request(streamId, target.source(), shard.partition()));
         }
-        final Placement.Result result =
-                new Placement(sources, accounts, maxFill, partition -> SIMULATED_SHARD).place(loads, requests);
+        final Placement.Result result = new Placement(
+                        sources, accounts, maxFill, Map.of(), partition -> SIMULATED_SHARD)
+                .place(loads, requests);
         return result.created().isEmpty() && result.unplaced().isEmpty();
     }
 

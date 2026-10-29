@@ -8,7 +8,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as path from "path";
 import * as fs from "fs";
 import { Construct } from "constructs";
-import { lookupPlatformNetwork, PRIMARY_REGION } from "@gnome-trading-group/gnome-shared-cdk";
+import { lookupPlatformNetwork, PRIMARY_REGION, SERVICE_ENDPOINTS } from "@gnome-trading-group/gnome-shared-cdk";
 import { MarketDataConfig } from "../config";
 
 export interface CollectionRegionalStackProps extends cdk.StackProps {
@@ -139,6 +139,13 @@ export class CollectionRegionalStack extends cdk.Stack {
       actions: ["dynamodb:GetItem"],
       resources: [`arn:aws:dynamodb:${PRIMARY_REGION}:${this.account}:table/collection-shards`],
     }));
+    // The shard's own endpoint, which sessions' lease reads hand them. The table is shared with other services, so
+    // shards may write only shard items.
+    taskRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["dynamodb:PutItem"],
+      resources: [`arn:aws:dynamodb:${SERVICE_ENDPOINTS.region}:${this.account}:table/${SERVICE_ENDPOINTS.tableName}`],
+      conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["shard#*"] } },
+    }));
     taskRole.addToPolicy(new iam.PolicyStatement({
       actions: ["apigateway:GET"],
       resources: [`arn:aws:apigateway:${PRIMARY_REGION}::/apikeys/${props.registryApiKeyId}`],
@@ -202,6 +209,9 @@ export class CollectionRegionalStack extends cdk.Stack {
         // In blocking mode a slow CloudWatch stalls stdout writes; lines past the driver's buffer are dropped instead.
         mode: ecs.AwsLogDriverMode.NON_BLOCKING,
       }),
+      // Aeron's media driver keeps its publications' term buffers in /dev/shm (Docker's default is 64 MiB); each
+      // published stream takes three 256 KiB terms.
+      linuxParameters: new ecs.LinuxParameters(this, "ShardLinuxParameters", { sharedMemorySize: 512 }),
       // On SIGTERM the shard stops its streams, flushes every partial minute and drains the uploader within 60 + 45 s.
       stopTimeout: cdk.Duration.seconds(120),
     });

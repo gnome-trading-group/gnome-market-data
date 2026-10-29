@@ -1,6 +1,7 @@
 package group.gnometrading.collection.aws;
 
 import group.gnometrading.collection.model.Interval;
+import group.gnometrading.collection.model.Lease;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Rule;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.core.SdkBytes;
@@ -27,10 +29,12 @@ import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 
 /**
  * The control plane's tables in DynamoDB. A shard's item is also its assignment, read by the shard
- * (gnome-orchestrator {@code DynamoAssignment}): {@code streams}, {@code draining} and {@code cuts} are big-endian int32s packed into
+ * (gnome-orchestrator {@code DynamoAssignment}): {@code streams}, {@code draining}, {@code publish} and {@code cuts} are big-endian int32s packed into
  * one binary attribute each, {@code accounts} a map of source to label. A coverage interval carries
  * {@code open_shard_id} only while open, so a shard's open intervals are one query of that index. The reconciler's own
- * state (alerts it left firing) is the rules table's {@code _reconciler} row, which is never a rule.
+ * state (alerts it left firing) is the rules table's {@code _reconciler} row, which is never a rule. A lease's
+ * {@code streams} are packed like a shard's; the lease API writes leases and the reconciler only releases and extends
+ * them.
  */
 public final class DynamoStore implements Store {
 
@@ -38,7 +42,13 @@ public final class DynamoStore implements Store {
     private static final String RECONCILER_ROW = "_reconciler";
 
     /** The table names, from the Lambda's environment. */
-    public record Tables(String rules, String targets, String shards, String coverage, String gaps) {}
+    public record Tables(String rules, String targets, String shards, String coverage, String gaps, String leases) {}
+
+    /**
+     * A released lease stays readable this long (GET by its session), then DynamoDB's TTL removes it. The lease API's
+     * RELEASED_TTL_S; lease-constants.json (test resources) holds the value both sides test against.
+     */
+    public static final long RELEASED_TTL_SECONDS = TimeUnit.DAYS.toSeconds(7);
 
     private final DynamoDbClient dynamo;
     private final Tables tables;
@@ -131,6 +141,87 @@ public final class DynamoStore implements Store {
                         "status", AttributeValue.fromS("INTERNAL"),
                         "firing_alerts", AttributeValue.fromM(firing)))
                 .build());
+    }
+
+    // ----- leases -----
+
+    @Override
+    public List<Lease> leases() {
+        final List<Lease> leases = new ArrayList<>();
+        for (Map<String, AttributeValue> item : scan(tables.leases())) {
+            final Lease lease = toLease(item);
+            if (lease != null) {
+                leases.add(lease);
+            }
+        }
+        return leases;
+    }
+
+    @Override
+    public void releaseLease(final String sessionId, final String reason, final long nowSeconds) {
+        try {
+            dynamo.updateItem(UpdateItemRequest.builder()
+                    .tableName(tables.leases())
+                    .key(Map.of("lease_id", AttributeValue.fromS(sessionId)))
+                    .conditionExpression("#status = :active")
+                    .updateExpression(
+                            "SET #status = :released, released_at = :now, release_reason = :reason, " + "#ttl = :ttl")
+                    .expressionAttributeNames(Map.of("#status", "status", "#ttl", "ttl"))
+                    .expressionAttributeValues(Map.of(
+                            ":active", AttributeValue.fromS("ACTIVE"),
+                            ":released", AttributeValue.fromS("RELEASED"),
+                            ":now", AttributeValue.fromN(Long.toString(nowSeconds)),
+                            ":reason", AttributeValue.fromS(reason),
+                            ":ttl", AttributeValue.fromN(Long.toString(nowSeconds + RELEASED_TTL_SECONDS))))
+                    .build());
+        } catch (ConditionalCheckFailedException gone) {
+            LOGGER.info("Lease {} was released or deleted before this tick released it", sessionId);
+        }
+    }
+
+    @Override
+    public void recordLeaseSession(
+            final String sessionId, final String sessionStatus, final long seenAtSeconds, final long expiresAtSeconds) {
+        try {
+            dynamo.updateItem(UpdateItemRequest.builder()
+                    .tableName(tables.leases())
+                    .key(Map.of("lease_id", AttributeValue.fromS(sessionId)))
+                    .conditionExpression("#status = :active")
+                    .updateExpression("SET session_status = :session, session_seen_at = :seen, expires_at = :expires")
+                    .expressionAttributeNames(Map.of("#status", "status"))
+                    .expressionAttributeValues(Map.of(
+                            ":active", AttributeValue.fromS("ACTIVE"),
+                            ":session", AttributeValue.fromS(sessionStatus),
+                            ":seen", AttributeValue.fromN(Long.toString(seenAtSeconds)),
+                            ":expires", AttributeValue.fromN(Long.toString(expiresAtSeconds))))
+                    .build());
+        } catch (ConditionalCheckFailedException gone) {
+            LOGGER.info("Lease {} was released before this tick recorded its session", sessionId);
+        }
+    }
+
+    /** Null (logged) for an item the lease API wouldn't write, so one bad item can't stop every tick. */
+    static Lease toLease(final Map<String, AttributeValue> item) {
+        try {
+            if (string(item, "lease_id") == null) {
+                throw new IllegalArgumentException("no lease_id");
+            }
+            return new Lease(
+                    string(item, "lease_id"),
+                    Set.copyOf(unpack(item.get("streams"))),
+                    Priority.valueOf(string(item, "priority")),
+                    string(item, "tier"),
+                    string(item, "mode"),
+                    Lease.Status.valueOf(string(item, "status")),
+                    number(item, "created_at"),
+                    number(item, "expires_at"),
+                    number(item, "released_at"),
+                    string(item, "session_status"),
+                    number(item, "session_seen_at"));
+        } catch (RuntimeException malformed) {
+            LOGGER.warn("Skipping malformed lease {}: {}", string(item, "lease_id"), malformed.toString());
+            return null;
+        }
     }
 
     // ----- targets -----
@@ -256,6 +347,7 @@ public final class DynamoStore implements Store {
                 unpack(item.get("draining")),
                 Map.copyOf(accounts),
                 unpackCuts(item.get("cuts")),
+                unpack(item.get("publish")),
                 string(item, "version"),
                 ShardRecord.State.valueOf(string(item, "state")),
                 number(item, "created_at_ns"),
@@ -277,6 +369,7 @@ public final class DynamoStore implements Store {
         shard.accounts().forEach((source, label) -> accounts.put(source, AttributeValue.fromS(label)));
         item.put("accounts", AttributeValue.fromM(accounts));
         item.put("cuts", AttributeValue.fromB(packCuts(shard.cuts())));
+        item.put("publish", AttributeValue.fromB(pack(shard.publish())));
         putString(item, "version", shard.version());
         item.put("state", AttributeValue.fromS(shard.state().name()));
         item.put("created_at_ns", AttributeValue.fromN(Long.toString(shard.createdAtNanos())));

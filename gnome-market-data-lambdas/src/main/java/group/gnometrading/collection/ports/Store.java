@@ -1,6 +1,7 @@
 package group.gnometrading.collection.ports;
 
 import group.gnometrading.collection.model.Interval;
+import group.gnometrading.collection.model.Lease;
 import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.RuleStatus;
 import group.gnometrading.collection.model.ShardRecord;
@@ -18,6 +19,18 @@ public interface Store {
 
     /** Records what a rule resolved to, on its item; nothing if the rule was deleted meanwhile. */
     void putRuleStatus(String ruleId, RuleStatus status);
+
+    /** Every session lease, ACTIVE or RELEASED (until its TTL removes it); a malformed item is left out. */
+    List<Lease> leases();
+
+    /** Marks the lease RELEASED, with why; nothing if it was already released or deleted meanwhile. */
+    void releaseLease(String sessionId, String reason, long nowSeconds);
+
+    /**
+     * Records an ACTIVE lease's session status as last read from the registry, and its {@code expires_at}; nothing if
+     * it was released meanwhile.
+     */
+    void recordLeaseSession(String sessionId, String sessionStatus, long seenAtSeconds, long expiresAtSeconds);
 
     Map<Integer, Target> targets();
 

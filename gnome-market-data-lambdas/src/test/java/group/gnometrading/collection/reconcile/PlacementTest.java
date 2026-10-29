@@ -28,6 +28,7 @@ class PlacementTest {
 
     private final AtomicInteger ids = new AtomicInteger();
     private final List<ShardLoad> loads = new ArrayList<>();
+    private final Map<Partition, Integer> maxShards = new HashMap<>();
     private final Map<String, List<Account>> accounts = new HashMap<>(Map.of(
             "KALSHI", List.of(new Account("KALSHI", "md-1", 0, true)),
             "POLYMARKET_US", List.of(new Account("POLYMARKET_US", "md-1", 0, true))));
@@ -37,6 +38,7 @@ class PlacementTest {
                 Map.of("KALSHI", KALSHI, "HYPERLIQUID", HYPERLIQUID, "POLYMARKET_US", PM_US),
                 accounts,
                 maxStreamsPerShard,
+                maxShards,
                 partition -> "shard-" + ids.incrementAndGet());
     }
 
@@ -154,6 +156,57 @@ class PlacementTest {
         assertTrue(result.assigned().isEmpty());
         assertEquals(2, result.unplaced().size());
         assertTrue(result.unplaced().stream().allMatch(u -> u.reason() == Placement.Unplaced.Reason.BUDGET));
+    }
+
+    @Test
+    void maxShardsStopsNewShardsAndLeavesTheRestUnplacedForCapacity() {
+        maxShards.put(US, 1);
+
+        Placement.Result result = placement(500).place(loads, requests("KALSHI", US, 502));
+
+        assertEquals(Map.of("shard-1", 500L), perShard(result));
+        assertEquals(
+                List.of(
+                        new Placement.Unplaced(500, Placement.Unplaced.Reason.CAPACITY),
+                        new Placement.Unplaced(501, Placement.Unplaced.Reason.CAPACITY)),
+                result.unplaced());
+    }
+
+    @Test
+    void maxShardsCountsDrainingShardsAndCapsOnlyItsOwnPartition() {
+        maxShards.put(US, 1);
+        loads.add(new ShardLoad("draining", US, false, Map.of()));
+        List<Placement.Request> requests = new ArrayList<>(requests("KALSHI", US, 1));
+        requests.add(new Placement.Request(9, "HYPERLIQUID", TOKYO));
+
+        Placement.Result result = placement(500).place(loads, requests);
+
+        assertEquals(List.of(new Placement.Unplaced(0, Placement.Unplaced.Reason.CAPACITY)), result.unplaced());
+        assertEquals(TOKYO, result.created().get(0).partition(), "no cap there");
+    }
+
+    @Test
+    void aStreamLeavingADrainingShardMayTakeThePartitionOneOverMaxShards() {
+        maxShards.put(US, 1);
+        loads.add(new ShardLoad("rolling", US, false, Map.of()));
+        List<Placement.Request> moving =
+                List.of(new Placement.Request(1, "KALSHI", US, true), new Placement.Request(2, "KALSHI", US, true));
+
+        Placement.Result result = placement(1).place(loads, moving);
+
+        assertEquals(Map.of("shard-1", 1L), perShard(result), "one over, never two");
+        assertEquals(List.of(new Placement.Unplaced(2, Placement.Unplaced.Reason.CAPACITY)), result.unplaced());
+    }
+
+    @Test
+    void aMaxShardsOfZeroPlacesNothing() {
+        maxShards.put(US, 0);
+
+        Placement.Result result = placement(500).place(loads, requests("KALSHI", US, 1));
+
+        assertEquals(
+                Placement.Unplaced.Reason.CAPACITY, result.unplaced().get(0).reason());
+        assertTrue(result.created().isEmpty());
     }
 
     @Test

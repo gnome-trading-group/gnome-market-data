@@ -41,11 +41,16 @@ final class PlacementStep {
                 .toList();
         requests.removeAll(merging);
         final Placement.Result result = new Placement(
-                        registry.sources(), accounts, tick.config.maxStreamsPerShard(), newShardId)
+                        registry.sources(),
+                        accounts,
+                        tick.config.maxStreamsPerShard(),
+                        tick.config.maxShards(),
+                        newShardId)
                 .place(loads, requests);
         final int maxFill = (int) Math.floor(tick.config.maxStreamsPerShard() * tick.config.consolidationMaxFill());
-        final Placement.Result merged =
-                new Placement(registry.sources(), accounts, maxFill, newShardId).place(loads, merging);
+        final Placement.Result merged = new Placement(
+                        registry.sources(), accounts, maxFill, tick.config.maxShards(), newShardId)
+                .place(loads, merging);
         apply(tick, result, loads, moving);
         apply(tick, merged, loads, moving);
         tick.unplaced = result.unplaced().size() + merged.unplaced().size();
@@ -77,11 +82,18 @@ final class PlacementStep {
             if (target.shardId() == null) {
                 requests.add(new Placement.Request(target.streamId(), target.source(), target.partition()));
             } else if (target.drainingFromShardId() == null && mustMove(tick, target, accounts)) {
-                requests.add(new Placement.Request(target.streamId(), target.source(), target.partition()));
+                requests.add(new Placement.Request(
+                        target.streamId(), target.source(), target.partition(), isDraining(tick, target.shardId())));
                 moving.put(target.streamId(), target.shardId());
             }
         }
         return requests;
+    }
+
+    /** A shard that goes once its streams have moved off it: a roll or a merge, which may run one over the cap. */
+    private static boolean isDraining(final Tick tick, final String shardId) {
+        final ShardRecord shard = tick.shards.get(shardId);
+        return shard != null && shard.state() == ShardRecord.State.DRAINING;
     }
 
     private static void apply(
@@ -105,8 +117,11 @@ final class PlacementStep {
             assign(tick, assigned, moving.get(assigned.streamId()));
         }
         for (Placement.Unplaced unplaced : result.unplaced()) {
+            final Target target = tick.targets.get(unplaced.streamId());
             if (unplaced.reason() == Placement.Unplaced.Reason.BUDGET) {
-                tick.budgetShort.merge(tick.targets.get(unplaced.streamId()).source(), 1, Integer::sum);
+                tick.budgetShort.merge(target.source(), 1, Integer::sum);
+            } else if (unplaced.reason() == Placement.Unplaced.Reason.CAPACITY) {
+                tick.capacityShort.merge(target.partition(), 1, Integer::sum);
             } else {
                 LOGGER.warn("Stream {} can't be placed: its source isn't collectable", unplaced.streamId());
             }
@@ -116,7 +131,9 @@ final class PlacementStep {
     private static List<ShardLoad> loads(final Tick tick) {
         final List<ShardLoad> loads = new ArrayList<>();
         for (ShardRecord shard : tick.shards.values()) {
-            loads.add(load(tick, shard, takesStreams(tick, shard)));
+            if (shard.state() != ShardRecord.State.DELETED) {
+                loads.add(load(tick, shard, takesStreams(tick, shard)));
+            }
         }
         return loads;
     }

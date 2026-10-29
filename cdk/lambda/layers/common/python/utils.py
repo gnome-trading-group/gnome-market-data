@@ -1,6 +1,7 @@
 import json
 import functools
 import inspect
+import logging
 from typing import Any, Callable, Dict
 from decimal import Decimal
 import datetime
@@ -16,6 +17,8 @@ class CustomEncoder(json.JSONEncoder):
             return sorted(obj)
         return super().default(obj)
 
+
+_LOGGER = logging.getLogger(__name__)
 
 CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -54,7 +57,8 @@ def lambda_handler(func: Callable) -> Callable[[Dict[str, Any], Any], Dict[str, 
             # listingId and region are automatically extracted from event
             return {'listingId': listingId, 'region': region}
 
-    Automatically wraps the response with proper status codes and CORS headers.
+    Automatically wraps the response with proper status codes and CORS headers. A ValueError is the caller's mistake
+    (400); anything else, an AWS call failing included, is ours (500), so a caller retries it instead of giving up.
     """
     @functools.wraps(func)
     def wrapper(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -113,7 +117,10 @@ def lambda_handler(func: Callable) -> Callable[[Dict[str, Any], Any], Dict[str, 
                 return result
 
             return create_response(200, result)
-        except Exception as e:
+        except ValueError as e:
             return create_response(400, {'error': str(e)})
+        except Exception as e:
+            _LOGGER.exception('Request failed')
+            return create_response(500, {'error': f'{type(e).__name__}: {e}'})
 
     return wrapper

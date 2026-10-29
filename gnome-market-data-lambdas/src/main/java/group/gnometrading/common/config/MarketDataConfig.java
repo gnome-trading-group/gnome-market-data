@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -25,7 +26,9 @@ public record MarketDataConfig(
         int handoffMinutes,
         int emptyShardMinutes,
         Alerts alerts,
-        Consolidation consolidation) {
+        Consolidation consolidation,
+        List<PartitionShards> minShards,
+        List<PartitionShards> maxShards) {
 
     /** How long a condition lasts before the reconciler alerts on it. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
@@ -41,6 +44,18 @@ public record MarketDataConfig(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Consolidation(boolean enabled, boolean dryRun, int afterMinutes, double maxFill) {}
 
+    /**
+     * A shard count for one partition (region, source kind, priority, tier; tier defaults to {@code standard}), as
+     * {@code min_shards} and {@code max_shards} list them. {@code min_shards}: {@code count} ACTIVE shards the partition
+     * keeps even when empty, so a session lease there skips the 3-5 minute cold start. {@code max_shards}: the most
+     * shards the partition runs; streams that would need another stay unplaced. A version roll (or a merge) may run one
+     * shard over it while it moves streams. Partitions not listed keep none and have no cap; where both are set and min
+     * exceeds max, max wins.
+     */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PartitionShards(String region, String sourceKind, String priority, String tier, int count) {}
+
     public static final MarketDataConfig DEFAULTS = new MarketDataConfig(
             900,
             5,
@@ -51,5 +66,8 @@ public record MarketDataConfig(
             10,
             new Alerts(10, 5, 5),
             // Fifteen minutes is three rule resolutions plus a retire grace: long enough that a dip has settled.
-            new Consolidation(true, false, 15, 0.8));
+            new Consolidation(true, false, 15, 0.8),
+            // No warm shards until cold starts prove too slow for launches.
+            List.of(),
+            List.of());
 }

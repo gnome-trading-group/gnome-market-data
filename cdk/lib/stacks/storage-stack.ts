@@ -15,6 +15,7 @@ export class StorageStack extends cdk.Stack {
   public readonly collectionShardsTable: dynamodb.Table;
   public readonly collectionCoverageTable: dynamodb.Table;
   public readonly collectionGapsTable: dynamodb.Table;
+  public readonly collectionLeasesTable: dynamodb.Table;
   public readonly finalBucket: s3.Bucket;
   public readonly metadataBucket: s3.Bucket;
   public readonly exchangeRawBucket: s3.Bucket;
@@ -76,6 +77,17 @@ export class StorageStack extends cdk.Stack {
       { name: "stream_id", type: dynamodb.AttributeType.NUMBER },
       { name: "from_ns", type: dynamodb.AttributeType.NUMBER },
     );
+
+    // Sessions' leases on streams (lease_id = session id), written by the lease API and released by it or the
+    // reconciler. A released lease carries `ttl` and goes a week later; `expires_at` is the lease's own expiry, not this.
+    this.collectionLeasesTable = new dynamodb.Table(this, "CollectionLeasesTable", {
+      tableName: "collection-leases",
+      partitionKey: { name: "lease_id", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true,
+      timeToLiveAttribute: "ttl",
+    });
   }
 
   private collectionTable(

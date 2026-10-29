@@ -3,13 +3,16 @@ package group.gnometrading.collection.aws;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import group.gnometrading.collection.model.Interval;
+import group.gnometrading.collection.model.Lease;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.Target;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,6 +33,7 @@ class DynamoStoreTest {
                 List.of(7),
                 Map.of("KALSHI", "md-2"),
                 Map.of(12, 29_000_000, 13, ShardRecord.WARMING),
+                List.of(7, 256),
                 "1.23.0",
                 ShardRecord.State.ACTIVE,
                 100,
@@ -44,6 +48,8 @@ class DynamoStoreTest {
                 item.get("streams").b().asByteArray());
         assertEquals("4", item.get("generation").n());
         assertEquals("md-2", item.get("accounts").m().get("KALSHI").s());
+        assertArrayEquals(
+                new byte[] {0, 0, 0, 7, 0, 0, 1, 0}, item.get("publish").b().asByteArray());
         assertEquals(shard, DynamoStore.toShard(item));
     }
 
@@ -57,6 +63,7 @@ class DynamoStoreTest {
                 List.of(),
                 Map.of(),
                 Map.of(),
+                List.of(),
                 "1.23.0",
                 ShardRecord.State.DRAINING,
                 5,
@@ -64,6 +71,66 @@ class DynamoStoreTest {
                 11);
 
         assertEquals(shard, DynamoStore.toShard(DynamoStore.fromShard(shard)));
+    }
+
+    @Test
+    void aLeaseReadsItsPackedStreamsAndEpochSeconds() {
+        Map<String, AttributeValue> item = Map.of(
+                "lease_id", AttributeValue.fromS("s-1"),
+                "streams", AttributeValue.fromB(DynamoStore.pack(List.of(3, 1))),
+                "priority", AttributeValue.fromS("PRODUCTION"),
+                "tier", AttributeValue.fromS("standard"),
+                "mode", AttributeValue.fromS("live"),
+                "status", AttributeValue.fromS("ACTIVE"),
+                "created_at", AttributeValue.fromN("1700000000"),
+                "expires_at", AttributeValue.fromN("1700007200"));
+
+        assertEquals(
+                Lease.active(
+                        "s-1", Set.of(1, 3), Priority.PRODUCTION, "standard", "live", 1_700_000_000L, 1_700_007_200L),
+                DynamoStore.toLease(item));
+    }
+
+    @Test
+    void aReleasedLeaseReadsWhenAndItsLastSeenSession() {
+        Map<String, AttributeValue> item = new HashMap<>(Map.of(
+                "lease_id", AttributeValue.fromS("s-1"),
+                "streams", AttributeValue.fromB(DynamoStore.pack(List.of(3))),
+                "priority", AttributeValue.fromS("RESEARCH"),
+                "tier", AttributeValue.fromS("standard"),
+                "mode", AttributeValue.fromS("paper"),
+                "status", AttributeValue.fromS("RELEASED"),
+                "created_at", AttributeValue.fromN("1700000000"),
+                "expires_at", AttributeValue.fromN("1700007200")));
+        item.put("released_at", AttributeValue.fromN("1700000600"));
+        item.put("session_status", AttributeValue.fromS("RUNNING"));
+        item.put("session_seen_at", AttributeValue.fromN("1700000500"));
+
+        Lease lease = DynamoStore.toLease(item);
+
+        assertEquals(Lease.Status.RELEASED, lease.status());
+        assertEquals(1_700_000_600L, lease.releasedAtSeconds());
+        assertEquals("RUNNING", lease.sessionStatus());
+        assertEquals(1_700_000_500L, lease.sessionSeenAtSeconds());
+    }
+
+    @Test
+    void aMalformedLeaseIsSkippedNotFatal() {
+        Map<String, AttributeValue> unknownPriority = Map.of(
+                "lease_id", AttributeValue.fromS("s-1"),
+                "priority", AttributeValue.fromS("URGENT"),
+                "status", AttributeValue.fromS("ACTIVE"));
+        Map<String, AttributeValue> noId =
+                Map.of("priority", AttributeValue.fromS("RESEARCH"), "status", AttributeValue.fromS("ACTIVE"));
+        Map<String, AttributeValue> badNumber = Map.of(
+                "lease_id", AttributeValue.fromS("s-1"),
+                "priority", AttributeValue.fromS("RESEARCH"),
+                "status", AttributeValue.fromS("ACTIVE"),
+                "expires_at", AttributeValue.fromN("soon"));
+
+        assertNull(DynamoStore.toLease(unknownPriority));
+        assertNull(DynamoStore.toLease(noId));
+        assertNull(DynamoStore.toLease(badNumber));
     }
 
     @Test

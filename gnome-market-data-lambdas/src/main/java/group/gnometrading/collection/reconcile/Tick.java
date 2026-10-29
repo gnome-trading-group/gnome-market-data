@@ -1,8 +1,11 @@
 package group.gnometrading.collection.reconcile;
 
+import group.gnometrading.collection.model.Lease;
+import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.Settings;
 import group.gnometrading.collection.model.ShardRecord;
+import group.gnometrading.collection.model.StreamInfo;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Store;
 import java.util.HashMap;
@@ -23,6 +26,14 @@ final class Tick {
     final long now;
     // The active rules, each with the streams it selects now (RuleResolver).
     List<Rule> rules = List.of();
+    // The ACTIVE session leases (LeaseStep), already among the rules as sources, and the streams shards publish: every
+    // stream they want, and those of leases released less than the retire grace ago.
+    List<Lease> leases = List.of();
+    Set<Integer> leasedStreams = Set.of();
+    // When the leases' sessions were last read, if the registry couldn't be read this tick; 0 if it could.
+    long leaseHoldersUnreadableSinceNanos;
+    // What the registry says of every stream a rule wants or a target holds (TargetsStep).
+    Map<Integer, StreamInfo> streamInfo = Map.of();
     final Map<Integer, Target> storedTargets;
     final Map<Integer, Target> targets;
     final Map<String, ShardRecord> storedShards = new LinkedHashMap<>();
@@ -32,6 +43,8 @@ final class Tick {
     final Map<String, Long> lastStatusNanos = new HashMap<>();
     // Per source: streams that couldn't be placed for want of account budget.
     final Map<String, Integer> budgetShort = new HashMap<>();
+    // Per partition: streams that couldn't be placed because it is at its max_shards.
+    final Map<Partition, Integer> capacityShort = new HashMap<>();
     int placed;
     int unplaced;
     int handedOff;
@@ -40,6 +53,7 @@ final class Tick {
     int gaps;
     int alerts;
     int serviceErrors;
+    int releasedLeases;
 
     Tick(final Store store, final Settings config, final long now) {
         this.config = config;

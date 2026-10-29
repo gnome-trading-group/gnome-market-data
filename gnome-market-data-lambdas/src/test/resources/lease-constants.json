@@ -1,0 +1,5 @@
+{
+  "lifetime_seconds": 7200,
+  "released_ttl_seconds": 604800,
+  "status_fresh_seconds": 45
+}

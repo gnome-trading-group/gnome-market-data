@@ -13,6 +13,8 @@ import java.util.Map;
  * @param cuts stream id to a minute since the epoch: for a stream in {@code streams}, the first minute it writes
  *     ({@link #WARMING}: none yet); for one in {@code draining}, the first it no longer writes. A hand-off sets both
  *     sides to the same minute, so each minute is written once
+ * @param publish the streams it carries (owned or draining) that an ACTIVE session lease wants: the shard offers
+ *     only these over Aeron (gnome-orchestrator {@code StreamPublisherAgent})
  *
  * @param emptySinceNanos when it last became empty, 0 while it has streams: an ACTIVE shard empty long enough is
  *     deleted
@@ -27,6 +29,7 @@ public record ShardRecord(
         List<Integer> draining,
         Map<String, String> accounts,
         Map<Integer, Integer> cuts,
+        List<Integer> publish,
         String version,
         State state,
         long createdAtNanos,
@@ -48,7 +51,10 @@ public record ShardRecord(
     }
 
     public ShardRecord withAssignment(
-            final List<Integer> newStreams, final List<Integer> newDraining, final Map<Integer, Integer> newCuts) {
+            final List<Integer> newStreams,
+            final List<Integer> newDraining,
+            final Map<Integer, Integer> newCuts,
+            final List<Integer> newPublish) {
         return new ShardRecord(
                 shardId,
                 partition,
@@ -57,6 +63,7 @@ public record ShardRecord(
                 newDraining,
                 accounts,
                 newCuts,
+                newPublish,
                 version,
                 state,
                 createdAtNanos,
@@ -73,6 +80,7 @@ public record ShardRecord(
                 draining,
                 Map.copyOf(newAccounts),
                 cuts,
+                publish,
                 version,
                 state,
                 createdAtNanos,
@@ -89,6 +97,7 @@ public record ShardRecord(
                 draining,
                 accounts,
                 cuts,
+                publish,
                 version,
                 newState,
                 createdAtNanos,
@@ -105,6 +114,7 @@ public record ShardRecord(
                 draining,
                 accounts,
                 cuts,
+                publish,
                 version,
                 state,
                 createdAtNanos,
@@ -121,6 +131,7 @@ public record ShardRecord(
                 draining,
                 accounts,
                 cuts,
+                publish,
                 version,
                 state,
                 createdAtNanos,
@@ -137,6 +148,7 @@ public record ShardRecord(
                 draining,
                 accounts,
                 cuts,
+                publish,
                 version,
                 state,
                 createdAtNanos,
@@ -155,6 +167,7 @@ public record ShardRecord(
                 List.of(),
                 Map.of(),
                 Map.of(),
+                List.of(),
                 version,
                 State.ACTIVE,
                 nowNanos,

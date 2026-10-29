@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** What the registry says about streams, events, sources and market-data accounts. */
+/** What the registry says about streams, events, sources, market-data accounts and strategy sessions. */
 public interface Registry {
     Map<Integer, StreamInfo> streams(Collection<Integer> streamIds);
 
@@ -32,6 +32,13 @@ public interface Registry {
 
     /** Of these events, the ones resolved. */
     Set<Integer> resolvedEvents(Collection<Integer> eventIds);
+
+    /**
+     * The status of every strategy session not yet ended ({@code SUBMITTED}, {@code STARTING}, {@code RUNNING} or
+     * {@code STOPPING}), by session id; only those in {@code mode} unless it is null. Throws if the registry can't be
+     * read.
+     */
+    Map<String, String> openSessionStatuses(String mode);
 
     /** Each event's active streams, both sides of every contract; an event with none is left out. */
     Map<Integer, Set<Integer>> streamsOfEvents(Collection<Integer> eventIds);

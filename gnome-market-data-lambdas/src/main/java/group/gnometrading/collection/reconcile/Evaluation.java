@@ -1,5 +1,6 @@
 package group.gnometrading.collection.reconcile;
 
+import group.gnometrading.collection.model.Lease;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.StreamInfo;
@@ -22,7 +23,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>The grace lets an ended market's last messages (a settlement) arrive. It is the source's when the subject ended
  * ({@code endedGraceMinutes}, e.g. 0 for Hyperliquid, which drops a connection holding both sides of an expired outcome
- * market), else the rule's, else {@code defaultGraceMinutes}.
+ * market), else the rule's, else {@code defaultGraceMinutes}. Session leases are rules here too
+ * ({@code lease:<sessionId>}); their grace counts only when no rule wants the stream.
  */
 public final class Evaluation {
 
@@ -78,9 +80,13 @@ public final class Evaluation {
             final int streamId, final Target current, final List<Rule> rules, final StreamInfo stream, final long now) {
         final Rule first = highestPriority(rules);
         final Set<String> wantedBy = new TreeSet<>();
+        rules.forEach(rule -> wantedBy.add(rule.ruleId()));
+        // A lease's short grace mustn't cut short a rule's (or the default) when a rule wants the stream too.
+        final List<Rule> ruleSources = rules.stream()
+                .filter(rule -> !Lease.isLeaseSource(rule.ruleId()))
+                .toList();
         Integer grace = null;
-        for (Rule rule : rules) {
-            wantedBy.add(rule.ruleId());
+        for (Rule rule : ruleSources.isEmpty() ? rules : ruleSources) {
             if (rule.retireGraceMinutes() != null) {
                 grace = grace == null ? rule.retireGraceMinutes() : Math.max(grace, rule.retireGraceMinutes());
             }

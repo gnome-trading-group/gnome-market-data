@@ -7,7 +7,14 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as sqs from "aws-cdk-lib/aws-sqs";
-import { API_KEY_SECRET_NAMES, ApiKeySecret, CallerKind, GnomeApiAuthorizer } from "@gnome-trading-group/gnome-shared-cdk";
+import * as ssm from "aws-cdk-lib/aws-ssm";
+import {
+  API_KEY_SECRET_NAMES,
+  ApiKeySecret,
+  CallerKind,
+  GnomeApiAuthorizer,
+  SERVICE_ENDPOINTS,
+} from "@gnome-trading-group/gnome-shared-cdk";
 import { Construct } from "constructs";
 
 interface BackendStackProps extends cdk.StackProps {
@@ -17,6 +24,7 @@ interface BackendStackProps extends cdk.StackProps {
   collectionShardsTable: dynamodb.ITable;
   collectionCoverageTable: dynamodb.ITable;
   collectionGapsTable: dynamodb.ITable;
+  collectionLeasesTable: dynamodb.ITable;
   reconcilerQueue: sqs.IQueue;
   collectionRegions: string[];
   coverageTrackedSinceNs: string;
@@ -83,6 +91,12 @@ export class BackendStack extends cdk.Stack {
     new cdk.CfnOutput(this, "ApiUrl", {
       value: this.api.url,
       description: "API Gateway URL",
+    });
+    // The registry's launcher reads this to create sessions' leases; a CloudFormation export would tie the two repos'
+    // stacks into a cycle.
+    new ssm.StringParameter(this, "ApiUrlParameter", {
+      parameterName: "/gnome/market-data/api-url",
+      stringValue: this.api.url,
     });
   }
 
@@ -174,6 +188,27 @@ export class BackendStack extends cdk.Stack {
     const coverage = handler("CollectionCoverageFunction", "coverage");
     readsCoverage(coverage);
     route("collection/coverage/{streamId}", "GET", coverage, readers);
+
+    // Sessions' leases: the registry's launcher creates them (by key), sessions and people read them, and the
+    // reconciler places what they want. GET joins the lease to targets, the shards' latest statuses and their
+    // service-endpoints items, so a session needs no DynamoDB access of its own.
+    const leases = handler("CollectionLeasesFunction", "leases");
+    leases.addEnvironment("COLLECTION_LEASES_TABLE", props.collectionLeasesTable.tableName);
+    leases.addEnvironment("SERVICE_ENDPOINTS_TABLE", SERVICE_ENDPOINTS.tableName);
+    leases.addEnvironment("SERVICE_ENDPOINTS_REGION", SERVICE_ENDPOINTS.region);
+    props.collectionLeasesTable.grantReadWriteData(leases);
+    props.collectionTargetsTable.grantReadData(leases);
+    props.metadataBucket.grantRead(leases, "collection/shards/*");
+    props.reconcilerQueue.grantSendMessages(leases);
+    leases.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["dynamodb:BatchGetItem", "dynamodb:GetItem"],
+      resources: [
+        `arn:aws:dynamodb:${SERVICE_ENDPOINTS.region}:${this.account}:table/${SERVICE_ENDPOINTS.tableName}`,
+      ],
+    }));
+    route("collection/leases", "POST", leases, peopleAndServices);
+    route("collection/leases/{sessionId}", "GET", leases, peopleAndServices);
+    route("collection/leases/{sessionId}", "DELETE", leases, peopleAndServices);
 
     const missing = handler("CollectionMissingFunction", "missing");
     readsCoverage(missing);

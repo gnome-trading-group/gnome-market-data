@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.EventVolume;
 import group.gnometrading.collection.model.Interval;
+import group.gnometrading.collection.model.Lease;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Rule;
@@ -47,7 +48,9 @@ class RuleResolverTest {
             false,
             false,
             15 * MINUTE,
-            0.8);
+            0.8,
+            Map.of(),
+            Map.of());
 
     // ----- fakes -----
 
@@ -69,6 +72,18 @@ class RuleResolverTest {
         public List<Rule> activeRules() {
             return List.copyOf(rules);
         }
+
+        @Override
+        public List<Lease> leases() {
+            return List.of();
+        }
+
+        @Override
+        public void releaseLease(final String sessionId, final String reason, final long nowSeconds) {}
+
+        @Override
+        public void recordLeaseSession(
+                final String sessionId, final String sessionStatus, final long seenAtSeconds, final long expiresAt) {}
 
         @Override
         public void putRuleStatus(final String ruleId, final RuleStatus status) {
@@ -135,6 +150,11 @@ class RuleResolverTest {
 
         @Override
         public Map<String, List<Account>> accounts() {
+            return Map.of();
+        }
+
+        @Override
+        public Map<String, String> openSessionStatuses(final String mode) {
             return Map.of();
         }
 

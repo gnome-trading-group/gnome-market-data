@@ -1,6 +1,7 @@
 package group.gnometrading.collection.reconcile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import group.gnometrading.collection.model.Partition;
@@ -112,5 +113,35 @@ class EvaluationTest {
 
         assertTrue(evaluate(List.of(rule("r1", Priority.RESEARCH, null, 1)), NOW + MINUTE)
                 .isEmpty());
+    }
+
+    @Test
+    void aLeasesShortGraceCountsOnlyWhenNoRuleWantsTheStream() {
+        Rule lease = rule("lease:s1", Priority.RESEARCH, 5, 1);
+
+        assertEquals(
+                30,
+                evaluate(List.of(lease, rule("r1", Priority.RESEARCH, 30, 1)), NOW)
+                        .get(0)
+                        .retireGraceMinutes(),
+                "the rule's longer grace");
+        targets.clear();
+        assertNull(
+                evaluate(List.of(lease, rule("r1", Priority.RESEARCH, null, 1)), NOW)
+                        .get(0)
+                        .retireGraceMinutes(),
+                "the rule's default, not the lease's 5");
+        targets.clear();
+        assertEquals(5, evaluate(List.of(lease), NOW).get(0).retireGraceMinutes(), "a lease alone keeps its own");
+    }
+
+    @Test
+    void aStreamOnlyALeaseWantedRetiresAfterTheLeasesGrace() {
+        evaluate(List.of(rule("lease:s1", Priority.RESEARCH, 5, 1)), NOW);
+
+        Target retiring = evaluate(List.of(), NOW + MINUTE).get(0);
+
+        assertEquals(Target.State.RETIRING, retiring.state());
+        assertEquals(NOW + 6 * MINUTE, retiring.retireAfterNanos());
     }
 }

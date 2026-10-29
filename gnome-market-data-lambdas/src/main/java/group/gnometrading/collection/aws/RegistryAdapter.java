@@ -1,5 +1,8 @@
 package group.gnometrading.collection.aws;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import group.gnometrading.RegistryConnection;
 import group.gnometrading.SecurityMaster;
 import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.EventVolume;
@@ -12,6 +15,11 @@ import group.gnometrading.md.SourceAccount;
 import group.gnometrading.md.Stream;
 import group.gnometrading.sm.Event;
 import group.gnometrading.sm.EventQuery;
+import group.gnometrading.strings.ViewString;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -24,8 +32,8 @@ import java.util.Set;
 /**
  * The registry as the reconciler reads it: streams in bulk ({@code active} following each listing, so an ended market
  * reads as not live; the reconciler keeps these a few minutes, see {@code TargetsStep}), every source's capacity and
- * every market-data account, the last two each tick, and the events and event streams rules select (every few minutes
- * per rule, see {@code RuleResolver}).
+ * every market-data account, the last two each tick, the events and event streams rules select (every few minutes
+ * per rule, see {@code RuleResolver}), and each tick every session not yet ended, for the leases.
  */
 public final class RegistryAdapter implements Registry {
 
@@ -35,11 +43,48 @@ public final class RegistryAdapter implements Registry {
      */
     static final Set<String> SIGNED_SOURCES = Set.of("KALSHI", "POLYMARKET_US");
 
+    // Every status before STOPPED/FAILED. The launcher writes a session's row before its lease, so a lease holder
+    // missing
+    // from these has ended.
+    static final String OPEN_SESSIONS_PATH = "/api/strategy-sessions?status=SUBMITTED,STARTING,RUNNING,STOPPING";
+
     private final SecurityMaster securityMaster;
+    private final RegistryConnection connection;
+    private final ObjectMapper mapper;
     private Map<String, Source> sources = Map.of();
 
-    public RegistryAdapter(final SecurityMaster securityMaster) {
+    public RegistryAdapter(
+            final SecurityMaster securityMaster, final RegistryConnection connection, final ObjectMapper mapper) {
         this.securityMaster = securityMaster;
+        this.connection = connection;
+        this.mapper = mapper;
+    }
+
+    /** One request a tick, however many leases there are. */
+    @Override
+    public Map<String, String> openSessionStatuses(final String mode) {
+        final String path = mode == null
+                ? OPEN_SESSIONS_PATH
+                : OPEN_SESSIONS_PATH + "&mode=" + URLEncoder.encode(mode, StandardCharsets.UTF_8);
+        final ByteBuffer body = connection.get(new ViewString(path));
+        final byte[] bytes = new byte[body.remaining()];
+        body.get(bytes);
+        final JsonNode rows;
+        try {
+            rows = mapper.readTree(bytes);
+        } catch (IOException error) {
+            throw new IllegalStateException("Unreadable sessions from the registry", error);
+        }
+        if (rows == null || !rows.isArray()) {
+            throw new IllegalStateException("The registry's sessions aren't a list: " + rows);
+        }
+        final Map<String, String> statuses = new HashMap<>();
+        for (JsonNode row : rows) {
+            if (row.hasNonNull("session_id") && row.hasNonNull("status")) {
+                statuses.put(row.get("session_id").asText(), row.get("status").asText());
+            }
+        }
+        return statuses;
     }
 
     @Override

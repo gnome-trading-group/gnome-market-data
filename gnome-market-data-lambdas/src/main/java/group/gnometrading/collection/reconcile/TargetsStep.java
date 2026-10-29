@@ -36,6 +36,7 @@ final class TargetsStep {
         final Set<Integer> ids = new HashSet<>(tick.targets.keySet());
         tick.rules.forEach(rule -> ids.addAll(rule.streamIds()));
         final Map<Integer, StreamInfo> streams = streams(tick, ids);
+        tick.streamInfo = streams;
         final Evaluation evaluation =
                 new Evaluation(tick.config.defaultRetireGraceMinutes(), tick.config.endedRetireGraceMinutes());
         for (Target changed :

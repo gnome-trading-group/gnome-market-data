@@ -1,43 +1,40 @@
-"""Shared by the collection/* routes: the reconciler's wake-up queue and the shard item's packed stream lists."""
+"""Shared by the collection/* routes: the reconciler's wake-up queue and the shard item as JSON."""
+import logging
 import os
-import struct
 import time
 import uuid
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+from packed import unpack_cuts, unpack_ids
 
 _sqs = boto3.client('sqs')
+_LOGGER = logging.getLogger(__name__)
 
 
-def wake_reconciler(reason: str) -> None:
-    """Asks for a tick now. One message group, so ticks never overlap; a burst of wake-ups is one tick."""
-    _sqs.send_message(
-        QueueUrl=os.environ['RECONCILER_QUEUE_URL'],
-        MessageBody=reason,
-        MessageGroupId='reconcile',
-        MessageDeduplicationId=f'{reason}:{uuid.uuid4()}',
-    )
-
-
-def unpack_ids(value) -> list:
-    """A shard item's streams/draining: big-endian int32s in one binary attribute (gnome-orchestrator DynamoAssignment)."""
-    if value is None:
-        return []
-    raw = bytes(value.value if hasattr(value, 'value') else value)
-    return list(struct.unpack(f'>{len(raw) // 4}i', raw))
-
-
-def unpack_cuts(value) -> dict:
-    """A shard item's cuts: (stream id, minute since the epoch) int32 pairs; 2147483647 is WARMING (write nothing yet)."""
-    ids = unpack_ids(value)
-    return {str(ids[i]): ids[i + 1] for i in range(0, len(ids) - 1, 2)}
+def wake_reconciler(reason: str) -> bool:
+    """Asks for a tick now. One message group, so ticks never overlap; a burst of wake-ups is one tick. Best effort:
+    false (logged) if the queue refused it. The change is already stored and the scheduled tick picks it up within a
+    minute, so a caller that changed something must not fail for this."""
+    try:
+        _sqs.send_message(
+            QueueUrl=os.environ['RECONCILER_QUEUE_URL'],
+            MessageBody=reason,
+            MessageGroupId='reconcile',
+            MessageDeduplicationId=f'{reason}:{uuid.uuid4()}',
+        )
+        return True
+    except (BotoCoreError, ClientError):
+        _LOGGER.exception('Could not wake the reconciler (%s); the scheduled tick will run it', reason)
+        return False
 
 
 def shard_view(item: dict) -> dict:
     """A shard item with its packed binary attributes as JSON-friendly values."""
-    shard = {k: v for k, v in item.items() if k not in ('streams', 'draining', 'cuts')}
+    shard = {k: v for k, v in item.items() if k not in ('streams', 'draining', 'publish', 'cuts')}
     shard['streams'] = unpack_ids(item.get('streams'))
     shard['draining'] = unpack_ids(item.get('draining'))
+    shard['publish'] = unpack_ids(item.get('publish'))
     shard['cuts'] = unpack_cuts(item.get('cuts'))
     return shard
 

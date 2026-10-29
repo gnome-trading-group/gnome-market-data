@@ -68,9 +68,9 @@ public final class Dependencies {
         return once("dynamo", DynamoDbClient::create);
     }
 
-    /** The registry's security master, signed in with the key {@code REGISTRY_API_KEY_ID} names. */
-    public SecurityMaster getSecurityMaster() {
-        return once("securityMaster", () -> {
+    /** The registry's API, signed in with the key {@code REGISTRY_API_KEY_ID} names. */
+    public RegistryConnection getRegistryConnection() {
+        return once("registryConnection", () -> {
             final Stage stage = Stage.fromStageName(env("STAGE"));
             final Properties properties;
             try {
@@ -78,9 +78,15 @@ public final class Dependencies {
             } catch (Exception error) {
                 throw new IllegalStateException(error);
             }
-            return new SecurityMaster(new RegistryConnection(
-                    properties.getStringProperty("registry.url"), apiKey(env("REGISTRY_API_KEY_ID"))));
+            return new RegistryConnection(
+                    properties.getStringProperty("registry.url"), apiKey(env("REGISTRY_API_KEY_ID")));
         });
+    }
+
+    public SecurityMaster getSecurityMaster() {
+        // Built outside once(): a ConcurrentHashMap compute must not compute another key of the same map.
+        final RegistryConnection connection = getRegistryConnection();
+        return once("securityMaster", () -> new SecurityMaster(connection));
     }
 
     /** The market-data Service Config, from the controller ({@code CONTROLLER_API_URL}, {@code CONTROLLER_API_KEY_ID}). */
@@ -122,7 +128,8 @@ public final class Dependencies {
                         env("COLLECTION_TARGETS_TABLE"),
                         env("COLLECTION_SHARDS_TABLE"),
                         env("COLLECTION_COVERAGE_TABLE"),
-                        env("COLLECTION_GAPS_TABLE")));
+                        env("COLLECTION_GAPS_TABLE"),
+                        env("COLLECTION_LEASES_TABLE")));
     }
 
     /** ECS in {@code region}: shards run in every collection region, the reconciler only in us-east-1. */

@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 final class CoverageStep {
 
     // Shards write a status every 15 s: three missed and a task no longer counts as collecting anything.
+    // The lease API's STATUS_FRESH_NS too; both sides test against lease-constants.json (test resources).
     static final long STATUS_FRESH_NANOS = TimeUnit.SECONDS.toNanos(45);
     private static final String NO_STATUS = "NO_STATUS";
 

@@ -13,9 +13,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * One tick of the collection control plane, run every minute (reserved concurrency 1): rules resolve to streams and
- * become targets, shard statuses become coverage and gaps, targets are handed off and placed, shards rolled, merged,
- * scaled down and run, and alerts raised and resolved.
+ * One tick of the collection control plane, run every minute (reserved concurrency 1): rules resolve to streams and,
+ * with session leases, become targets, shard statuses become coverage and gaps, targets are handed off and placed,
+ * shards rolled, merged, scaled down and run, and alerts raised and resolved.
  *
  * <p>Targets are the source of truth: each tick rebuilds every shard's {@code streams}, {@code draining} and
  * {@code cuts} from them ({@link AssignmentStep}), so a shard item that missed a write is corrected by the next tick.
@@ -35,16 +35,19 @@ public final class Reconciler {
             int merged,
             int gaps,
             int alerts,
-            int serviceErrors) {}
+            int serviceErrors,
+            int leases,
+            int releasedLeases) {}
 
     private final Store store;
     private final Supplier<Settings> settings;
     private final RuleResolver ruleResolver;
+    private final LeaseStep leaseStep;
     private final TargetsStep targetsStep;
     private final CoverageStep coverageStep;
     private final HandoffStep handoffStep = new HandoffStep();
     private final AssignmentStep assignmentStep = new AssignmentStep();
-    private final LifecycleStep lifecycleStep = new LifecycleStep();
+    private final LifecycleStep lifecycleStep;
     private final ConsolidationStep consolidationStep;
     private final PlacementStep placementStep;
     private final PersistStep persistStep;
@@ -61,6 +64,8 @@ public final class Reconciler {
         this.store = store;
         this.settings = settings;
         this.ruleResolver = new RuleResolver(store, registry);
+        this.leaseStep = new LeaseStep(store, registry);
+        this.lifecycleStep = new LifecycleStep(newShardId);
         this.targetsStep = new TargetsStep(registry);
         this.coverageStep = new CoverageStep(store, statuses);
         this.consolidationStep = new ConsolidationStep(registry);
@@ -72,6 +77,7 @@ public final class Reconciler {
     public Summary tick(final long nowNanos) {
         final Tick tick = new Tick(store, settings.get(), nowNanos);
         ruleResolver.run(tick);
+        leaseStep.run(tick);
         targetsStep.run(tick);
         coverageStep.run(tick);
         handoffStep.run(tick);
@@ -93,7 +99,9 @@ public final class Reconciler {
                 tick.merged,
                 tick.gaps,
                 tick.alerts,
-                tick.serviceErrors);
+                tick.serviceErrors,
+                tick.leases.size(),
+                tick.releasedLeases);
         LOGGER.info("Reconciled: {}", summary);
         return summary;
     }

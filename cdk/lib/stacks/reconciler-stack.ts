@@ -20,6 +20,7 @@ export interface ReconcilerStackProps extends cdk.StackProps {
   shardsTable: dynamodb.ITable;
   coverageTable: dynamodb.ITable;
   gapsTable: dynamodb.ITable;
+  leasesTable: dynamodb.ITable;
   metadataBucket: s3.IBucket;
 }
 
@@ -57,6 +58,7 @@ export class ReconcilerStack extends cdk.Stack {
         COLLECTION_SHARDS_TABLE: props.shardsTable.tableName,
         COLLECTION_COVERAGE_TABLE: props.coverageTable.tableName,
         COLLECTION_GAPS_TABLE: props.gapsTable.tableName,
+        COLLECTION_LEASES_TABLE: props.leasesTable.tableName,
         METADATA_BUCKET_NAME: props.metadataBucket.bucketName,
         CONTROLLER_API_URL: cdk.Fn.importValue("ControllerApiUrl"),
         CONTROLLER_API_KEY_ID: cdk.Fn.importValue("ControllerServiceConfigApiKeyId"),
@@ -79,7 +81,8 @@ export class ReconcilerStack extends cdk.Stack {
       })],
     });
 
-    for (const table of [props.rulesTable, props.targetsTable, props.shardsTable, props.coverageTable, props.gapsTable]) {
+    for (const table of [props.rulesTable, props.targetsTable, props.shardsTable, props.coverageTable, props.gapsTable,
+      props.leasesTable]) {
       table.grantReadWriteData(fn);
     }
     fn.addToRolePolicy(new iam.PolicyStatement({

@@ -22,12 +22,23 @@ import java.util.function.Function;
  *       the most room. A stream no account has room for stays unplaced, its reason {@link Unplaced.Reason#BUDGET}.
  * </ul>
  *
+ * <p>A new shard is started only while its partition has fewer than its {@code max_shards}; a stream that would need
+ * one past that stays unplaced, its reason {@link Unplaced.Reason#CAPACITY}. A stream moving make-before-break off a
+ * draining shard (a roll or a merge) may take the partition one shard over, as the shard it leaves goes once empty.
+ *
  * <p>Pure: it reads loads and writes decisions, so the reconciler applies them and tests check them.
  */
 public final class Placement {
 
-    /** A stream to place. */
-    public record Request(int streamId, String source, Partition partition) {}
+    /**
+     * A stream to place. {@code makeBeforeBreak}: it is leaving a draining shard, so a new shard for it may take the
+     * partition one over its {@code max_shards}.
+     */
+    public record Request(int streamId, String source, Partition partition, boolean makeBeforeBreak) {
+        public Request(final int streamId, final String source, final Partition partition) {
+            this(streamId, source, partition, false);
+        }
+    }
 
     public record Assigned(int streamId, String shardId) {}
 
@@ -36,7 +47,9 @@ public final class Placement {
             /** No account of its source has a connection to spare. */
             BUDGET,
             /** Its source can't be collected at all: unknown, or its limits allow no stream on a shard. */
-            SOURCE
+            SOURCE,
+            /** It needs a new shard, and its partition already runs its {@code max_shards}. */
+            CAPACITY
         }
     }
 
@@ -46,16 +59,20 @@ public final class Placement {
     private final Map<String, SourceLimits> sources;
     private final Map<String, List<Account>> accounts;
     private final int maxStreamsPerShard;
+    private final Map<Partition, Integer> maxShards;
     private final Function<Partition, String> newShardId;
 
+    /** @param maxShards the most shards each listed partition may run; a partition not listed has no cap */
     public Placement(
             final Map<String, SourceLimits> sources,
             final Map<String, List<Account>> accounts,
             final int maxStreamsPerShard,
+            final Map<Partition, Integer> maxShards,
             final Function<Partition, String> newShardId) {
         this.sources = sources;
         this.accounts = accounts;
         this.maxStreamsPerShard = maxStreamsPerShard;
+        this.maxShards = maxShards;
         this.newShardId = newShardId;
     }
 
@@ -72,6 +89,10 @@ public final class Placement {
             }
             ShardLoad shard = fullestWithRoom(loads, request, limits);
             if (shard == null) {
+                if (atMaxShards(loads, request)) {
+                    unplaced.add(new Unplaced(request.streamId(), Unplaced.Reason.CAPACITY));
+                    continue;
+                }
                 final ShardLoad fresh =
                         new ShardLoad(newShardId.apply(request.partition()), request.partition(), true, Map.of());
                 if (!fits(loads, fresh, limits)) {
@@ -88,6 +109,18 @@ public final class Placement {
             assigned.add(new Assigned(request.streamId(), shard.shardId()));
         }
         return new Result(assigned, created, unplaced);
+    }
+
+    /** Whether another shard would take the request's partition past its cap (one past it for a make-before-break). */
+    private boolean atMaxShards(final List<ShardLoad> loads, final Request request) {
+        final Integer max = maxShards.get(request.partition());
+        if (max == null) {
+            return false;
+        }
+        final long running = loads.stream()
+                .filter(load -> load.partition().equals(request.partition()))
+                .count();
+        return running >= (request.makeBeforeBreak() ? max + 1L : max);
     }
 
     private ShardLoad fullestWithRoom(final List<ShardLoad> loads, final Request request, final SourceLimits limits) {

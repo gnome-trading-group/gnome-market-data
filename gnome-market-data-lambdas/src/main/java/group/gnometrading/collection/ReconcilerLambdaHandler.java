@@ -21,13 +21,14 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * The collection reconciler. Its FIFO queue (one message group, concurrency 1) carries wake-ups: rule changes,
- * {@code POST /collection/triggers}, later session leases, and a tick every minute from a schedule. Whatever woke it, a
+ * {@code POST /collection/triggers}, session lease changes, and a tick every minute from a schedule. Whatever woke it, a
  * batch is one full tick, so a burst of events costs one tick and a lost one at most a minute. A tick that throws fails
  * the batch, which the queue redelivers; the next tick finishes what it left.
  */
 public final class ReconcilerLambdaHandler implements RequestHandler<SQSEvent, Void> {
 
     private static final Logger LOGGER = LogManager.getLogger(ReconcilerLambdaHandler.class);
+    // The collection regions (cdk COLLECTION_REGIONS), each with its shard id prefix.
     private static final Map<String, String> REGION_PREFIXES =
             Map.of("us-east-1", "use1", "ap-northeast-1", "apne1", "eu-west-1", "euw1");
 
@@ -48,7 +49,10 @@ public final class ReconcilerLambdaHandler implements RequestHandler<SQSEvent, V
                 .value();
         this.reconciler = new Reconciler(
                 new DynamoStore(dependencies.getDynamoDbClient(), dependencies.getCollectionTables()),
-                new RegistryAdapter(dependencies.getSecurityMaster()),
+                new RegistryAdapter(
+                        dependencies.getSecurityMaster(),
+                        dependencies.getRegistryConnection(),
+                        dependencies.getObjectMapper()),
                 new S3Statuses(
                         dependencies.getS3Client(),
                         dependencies.getMetadataBucketName(),
@@ -56,7 +60,7 @@ public final class ReconcilerLambdaHandler implements RequestHandler<SQSEvent, V
                         clock),
                 new EcsServices(dependencies::getEcsClient),
                 new EventBridgeAlerts(dependencies.getEventBridgeClient(), dependencies.getObjectMapper(), clock),
-                new ServiceConfigSettings(dependencies.getServiceConfig(), latestVersion),
+                new ServiceConfigSettings(dependencies.getServiceConfig(), latestVersion, REGION_PREFIXES.keySet()),
                 partition -> REGION_PREFIXES.getOrDefault(partition.region(), partition.region()) + "-"
                         + HexFormat.of().toHexDigits((byte) random.nextInt())
                         + HexFormat.of().toHexDigits((short) random.nextInt()));
