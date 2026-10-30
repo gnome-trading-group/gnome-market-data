@@ -189,7 +189,6 @@ export class CollectionRegionalStack extends cdk.Stack {
       memoryReservationMiB: 6 * 1024,
       cpu: 1024,
       environment: {
-        MAIN_CLASS: "group.gnometrading.collectors.ShardOrchestrator",
         OUTPUT_BUCKET: props.finalBucketName,
         RAW_CAPTURE_BUCKET: props.exchangeRawBucketName,
         STATUS_BUCKET: props.metadataBucketName,

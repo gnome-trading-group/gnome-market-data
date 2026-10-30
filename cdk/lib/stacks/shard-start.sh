@@ -41,4 +41,4 @@ HEAP_OPTS="-XX:InitialRAMPercentage=35 -XX:MaxRAMPercentage=35 -XX:+AlwaysPreTou
 # heap. Setting GC_OPTS=-XX:+UseG1GC falls back to G1; adding it to JAVA_OPTS instead would select two collectors,
 # which the JVM refuses to start with.
 GC_OPTS="${GC_OPTS:--XX:+UseZGC -XX:ConcGCThreads=1}"
-exec java ${HEAP_OPTS} ${GC_OPTS} ${JAVA_OPTS:-} --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED -cp /app.jar "$MAIN_CLASS"
+exec java ${HEAP_OPTS} ${GC_OPTS} ${JAVA_OPTS:-} --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED -cp /app.jar group.gnometrading.orchestrator.Main shard
