@@ -143,8 +143,9 @@ holes historical data; live trading does not depend on it.
   - `DELETE collection/leases/{sessionId}` → `{sessionId, status: RELEASED}` (404 if never leased); both wake the
     reconciler (best effort; the 1-minute schedule covers a lost wake-up). A DynamoDB or other AWS failure is a 500,
     which the launcher retries.
-  - `GET collection/leases/{sessionId}` → `{sessionId, status, mode, priority, expiresAt, streams: [{streamId, state,
-    shardId, endpoint, next}]}`. `state` UNPLACED (no shard) / WARMING / LIVE: LIVE only when the shard's newest
+  - `GET collection/leases/{sessionId}` → `{sessionId, status, mode, priority, expiresAt, releasedAt, releaseReason,
+    streams: [{streamId, state, shardId, endpoint, next}]}` (the release fields null while ACTIVE). Placement is where
+    each stream is now, not where it was while the session ran (that isn't kept). `state` UNPLACED (no shard) / WARMING / LIVE: LIVE only when the shard's newest
     status, if under 45 s old, says LIVE or SUSPECT with `"published": true` for the stream, and the shard has an
     endpoint. `endpoint` `{privateIp, port}` from `service-endpoints` `shard#<id>` (null if missing, expired or not
     `state` ACTIVE: a stopping shard writes STOPPING). Mid hand-off the old (draining) shard is current and `next` is

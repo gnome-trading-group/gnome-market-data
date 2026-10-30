@@ -147,5 +147,7 @@ def lease_view(item: dict, targets: dict, readable: dict, endpoints: dict) -> di
         'mode': item.get('mode'),
         'priority': item.get('priority'),
         'expiresAt': int(item['expires_at']) if item.get('expires_at') is not None else None,
+        'releasedAt': int(item['released_at']) if item.get('released_at') is not None else None,
+        'releaseReason': item.get('release_reason'),
         'streams': [stream_view(stream_id, targets.get(stream_id), readable, endpoints) for stream_id in streams],
     }

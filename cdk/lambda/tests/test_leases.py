@@ -128,6 +128,7 @@ def test_each_stream_is_unplaced_warming_or_live_on_its_shard():
     assert view['sessionId'] == 's-1'
     assert view['status'] == 'ACTIVE'
     assert view['expiresAt'] == NOW_S + 3600
+    assert view['releasedAt'] is None and view['releaseReason'] is None
     assert view['streams'] == [
         {'streamId': 1, 'state': LIVE, 'shardId': 'use1-1', 'endpoint': endpoints['use1-1'], 'next': None},
         {'streamId': 2, 'state': WARMING, 'shardId': 'use1-1', 'endpoint': endpoints['use1-1'], 'next': None},
@@ -171,3 +172,12 @@ def test_a_retiring_target_is_still_read_from_its_shard():
     [stream] = lease_view(item, targets, {'use1-1': {7}}, endpoints)['streams']
 
     assert stream['state'] == LIVE and stream['shardId'] == 'use1-1'
+
+
+def test_a_released_lease_says_when_and_why():
+    item = {'lease_id': 's-1', 'status': 'RELEASED', 'expires_at': NOW_S, 'released_at': NOW_S - 60,
+            'release_reason': 'SESSION_ENDED', 'streams': pack_ids([1])}
+
+    view = lease_view(item, {}, {}, {})
+
+    assert (view['releasedAt'], view['releaseReason']) == (NOW_S - 60, 'SESSION_ENDED')
