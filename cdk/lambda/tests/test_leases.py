@@ -37,9 +37,8 @@ def test_a_lease_needs_a_session_a_mode_and_int32_stream_ids_kept_once():
         validate('s-1', ['7'], 'paper')
 
 
-def test_a_live_session_leases_nothing_yet():
-    with pytest.raises(ValueError, match='live sessions read their own venue feeds'):
-        validate('s-1', [1], 'live')
+def test_a_live_session_leases_like_a_paper_one():
+    assert validate('s-1', [2, 1], 'live', 'us-east-1') == ('s-1', [1, 2], 'live', 'us-east-1')
 
 
 def test_a_new_lease_takes_its_priority_from_the_mode_and_expires_in_two_hours():

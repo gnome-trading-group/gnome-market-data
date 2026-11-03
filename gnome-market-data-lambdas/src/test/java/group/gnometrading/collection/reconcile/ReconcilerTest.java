@@ -892,6 +892,38 @@ class ReconcilerTest {
     }
 
     @Test
+    void aLiveLeaseTakesARuleCollectedStreamToProductionAndItReturnsToResearchOnceTheLeaseGoes() {
+        wantStreams(1);
+        reconciler.tick(T0);
+        report("use1-1", "t1", T0 + MINUTE, "LIVE");
+        lease("s1", "live", T0 + MINUTE, 1);
+        sessionStatuses.put("s1", "RUNNING");
+
+        reconciler.tick(T0 + MINUTE);
+
+        String production = targets.get(1).shardId();
+        assertEquals(Priority.PRODUCTION, shards.get(production).partition().priority());
+        assertEquals(List.of(1), shards.get(production).publish());
+        assertEquals(List.of(1), shards.get("use1-1").draining(), "the Spot shard keeps it until the hand-off");
+        for (long at : new long[] {2 * MINUTE, 4 * MINUTE + 10 * SECOND, 7 * MINUTE}) {
+            report("use1-1", "t1", T0 + at, "LIVE");
+            report(production, "t2", T0 + at, "LIVE");
+            reconciler.tick(T0 + at);
+        }
+        reconciler.tick(T0 + 8 * MINUTE);
+        assertNull(targets.get(1).drainingFromShardId(), "handed off to production");
+
+        sessionStatuses.put("s1", "STOPPED");
+        reconciler.tick(T0 + 9 * MINUTE);
+
+        Target target = targets.get(1);
+        assertEquals(Map.of("s1", "SESSION_ENDED"), releasedLeases);
+        assertEquals(Priority.RESEARCH, target.partition().priority(), "the rule alone wants it now");
+        assertEquals(Priority.RESEARCH, shards.get(target.shardId()).partition().priority());
+        assertEquals(production, target.drainingFromShardId(), "make-before-break back to Spot");
+    }
+
+    @Test
     void aPaperLeaseSharesTheRulesResearchShardWhichPublishesOnlyTheLeasedStream() {
         wantStreams(1, 2);
         lease("s1", "paper", T0, 2);

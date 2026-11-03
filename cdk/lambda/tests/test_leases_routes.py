@@ -112,7 +112,8 @@ def test_post_leases_and_wakes_the_reconciler(route):
     code, body = call(route, 'POST', body={'sessionId': 's-1', 'streams': [1], 'mode': 'banana'})
     assert code == 400 and 'mode' in body['error']
     code, body = call(route, 'POST', body={'sessionId': 's-2', 'streams': [1], 'mode': 'live'})
-    assert code == 400 and 'live' in body['error']
+    assert (code, body) == (200, {'sessionId': 's-2'})
+    assert route.leases_table.items['s-2']['priority'] == 'PRODUCTION'
 
 
 def test_a_dynamodb_failure_is_a_server_error_the_launcher_retries(route, monkeypatch):

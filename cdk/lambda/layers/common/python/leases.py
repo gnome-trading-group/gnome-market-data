@@ -5,10 +5,8 @@ from packed import pack_ids, unpack_ids
 
 ACTIVE = 'ACTIVE'
 RELEASED = 'RELEASED'
+# A live session's streams go on on-demand production shards, never on Spot.
 MODES = {'live': 'PRODUCTION', 'paper': 'RESEARCH'}
-# Live sessions still open their own venue feeds and nothing on them reads a lease, so a live lease would only start
-# on-demand production shards for nobody.
-LEASABLE_MODES = {'paper'}
 TIER = 'standard'
 # Launch deadline plus margin; the reconciler extends it while the session is RUNNING.
 LIFETIME_S = 2 * 3600
@@ -31,10 +29,8 @@ def validate(session_id, streams, mode, region=None) -> tuple:
     """(sessionId, sorted unique stream ids, mode, region). `region` is the session's launch region, kept as said."""
     if not isinstance(session_id, str) or not session_id.strip():
         raise ValueError('sessionId is required')
-    if mode == 'live':
-        raise ValueError('live sessions read their own venue feeds and lease no streams')
-    if mode not in LEASABLE_MODES:
-        raise ValueError(f'mode must be one of {sorted(LEASABLE_MODES)}')
+    if mode not in MODES:
+        raise ValueError(f'mode must be one of {sorted(MODES)}')
     if not isinstance(streams, list):
         raise ValueError('streams must be a list of stream ids')
     ids = set()

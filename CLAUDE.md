@@ -136,10 +136,11 @@ holes historical data; live trading does not depend on it.
     `LEASED_STREAM_UNPLACED`). During a roll at the cap, new streams wait for the old shards to go. Lowering it never
     drains running shards.
 - Session leases (`collection-leases`):
-  - `POST collection/leases` `{sessionId, streams:[int], mode: paper, region?}` → `{sessionId}`; idempotent per
+  - `POST collection/leases` `{sessionId, streams:[int], mode: paper|live, region?}` → `{sessionId}`; idempotent per
     session (replaces the streams, ≤ 500, `expires_at` = now + 2 h, an ACTIVE lease keeps `created_at`). paper →
-    RESEARCH, tier `standard`; `live` is refused (400) while live sessions read their own feeds (it would map to
-    PRODUCTION). `region` is the session's launch region, stored, not checked.
+    RESEARCH, live → PRODUCTION (on-demand shards, never Spot); tier `standard`. A stream a RESEARCH rule collects
+    hands off to a PRODUCTION shard while a live lease wants it, and back once the lease is released and that first
+    hand-off has finished. `region` is the session's launch region, stored, not checked.
   - `DELETE collection/leases/{sessionId}` → `{sessionId, status: RELEASED}` (404 if never leased); both wake the
     reconciler (best effort; the 1-minute schedule covers a lost wake-up). A DynamoDB or other AWS failure is a 500,
     which the launcher retries.
