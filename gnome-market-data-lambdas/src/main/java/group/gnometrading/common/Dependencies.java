@@ -6,6 +6,8 @@ import group.gnometrading.SecurityMaster;
 import group.gnometrading.collection.aws.DynamoStore;
 import group.gnometrading.common.config.MarketDataServiceConfig;
 import group.gnometrading.constants.Stage;
+import group.gnometrading.networking.http.HTTPClient;
+import group.gnometrading.networking.http.RetryableHTTPClient;
 import group.gnometrading.resources.Properties;
 import java.net.http.HttpClient;
 import java.time.Clock;
@@ -27,6 +29,10 @@ import software.amazon.awssdk.services.ssm.SsmClient;
 public final class Dependencies {
 
     private static final Dependencies INSTANCE = new Dependencies();
+
+    // The open-session list grows with the number of sessions, each row carrying its config; SecurityMaster's bulk
+    // stream reads share this connection.
+    private static final int REGISTRY_READ_BUFFER_SIZE = 4 * 1024 * 1024;
 
     private final Map<String, Object> built = new ConcurrentHashMap<>();
     private final Map<String, EcsClient> ecsClients = new ConcurrentHashMap<>();
@@ -79,7 +85,11 @@ public final class Dependencies {
                 throw new IllegalStateException(error);
             }
             return new RegistryConnection(
-                    properties.getStringProperty("registry.url"), apiKey(env("REGISTRY_API_KEY_ID")));
+                    properties.getStringProperty("registry.url"),
+                    apiKey(env("REGISTRY_API_KEY_ID")),
+                    RetryableHTTPClient.builder()
+                            .withHttpClient(HTTPClient.builder().withReadBufferSize(REGISTRY_READ_BUFFER_SIZE))
+                            .build());
         });
     }
 
