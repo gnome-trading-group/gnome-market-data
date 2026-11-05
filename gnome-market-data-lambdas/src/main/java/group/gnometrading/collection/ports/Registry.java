@@ -20,7 +20,7 @@ public interface Registry {
 
     /**
      * Up to {@code limit} open events matching {@code filter}'s exchanges, categories, tags and propositions, expiring before
-     * {@code expiresBeforeMillis} (0: any) with at least {@code minVolume24h} (0: any): largest volume first when
+     * {@code expiresBeforeMillis} (0: any), starting before {@code startsBeforeMillis} (0: any), with at least {@code minVolume24h} (0: any): largest volume first when
      * {@code byVolume}, else soonest expiry.
      */
     List<EventVolume> events(
@@ -28,6 +28,7 @@ public interface Registry {
             boolean byVolume,
             double minVolume24h,
             long expiresBeforeMillis,
+            long startsBeforeMillis,
             int limit);
 
     /** Of these events, the ones resolved. */

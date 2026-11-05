@@ -48,9 +48,9 @@ def test_an_event_rule_is_returned_with_its_ids_inside_its_parameters():
 def test_a_volume_filter_asks_for_the_band_ranked_by_volume():
     now = 1_793_000_000_000
     query = event_query({'exchange_ids': [1, 2], 'tags': ['nfl'], 'min_volume_24h': 1000, 'top_n': 4,
-                         'expires_within_hours': 24, 'max_streams': 200}, now)
+                         'expires_within_hours': 24, 'starts_within_hours': 1, 'max_streams': 200}, now)
     assert query == {'resolved': 'false', 'limit': 6, 'exchangeIds': '1,2', 'tags': 'nfl',
-                     'expiryTo': '2026-10-27T07:33:20Z', 'minVolume24h': 500.0,
+                     'expiryTo': '2026-10-27T07:33:20Z', 'startTo': '2026-10-26T08:33:20Z', 'minVolume24h': 500.0,
                      'sortBy': 'volume_24h', 'sortOrder': 'desc'}
 
 

@@ -116,6 +116,7 @@ public final class RegistryAdapter implements Registry {
             final boolean byVolume,
             final double minVolume24h,
             final long expiresBeforeMillis,
+            final long startsBeforeMillis,
             final int limit) {
         final EventQuery query = new EventQuery(
                 filter.exchangeIds(),
@@ -123,6 +124,7 @@ public final class RegistryAdapter implements Registry {
                 filter.tags(),
                 propositions(filter),
                 expiresBeforeMillis,
+                startsBeforeMillis,
                 minVolume24h,
                 byVolume ? EventQuery.Order.VOLUME : EventQuery.Order.EXPIRY,
                 limit);

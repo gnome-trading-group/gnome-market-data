@@ -63,6 +63,7 @@ class RuleResolverTest {
     private final Map<Integer, Set<Integer>> eventStreams = new HashMap<>();
     private final List<Double> minVolumesAsked = new ArrayList<>();
     private final List<Integer> limitsAsked = new ArrayList<>();
+    private final List<List<Long>> windowsAsked = new ArrayList<>();
     private final List<RuleSelector.EventFilter> streamFiltersAsked = new ArrayList<>();
     private RuntimeException registryDown;
     private final Set<Integer> resolvedEvents = new HashSet<>();
@@ -165,8 +166,10 @@ class RuleResolverTest {
                 final boolean byVolume,
                 final double minVolume24h,
                 final long expiresBeforeMillis,
+                final long startsBeforeMillis,
                 final int limit) {
             failIfDown();
+            windowsAsked.add(List.of(expiresBeforeMillis, startsBeforeMillis));
             minVolumesAsked.add(minVolume24h);
             limitsAsked.add(limit);
             return events.stream()
@@ -209,12 +212,12 @@ class RuleResolverTest {
 
     private static RuleSelector.EventFilter topN(final int n, final int maxStreams) {
         return new RuleSelector.EventFilter(
-                List.of(1), List.of(), List.of(), List.of(), List.of(), null, null, n, maxStreams);
+                List.of(1), List.of(), List.of(), List.of(), List.of(), null, null, null, n, maxStreams);
     }
 
     private static RuleSelector.EventFilter minVolume(final double min) {
         return new RuleSelector.EventFilter(
-                List.of(1), List.of(), List.of(), List.of(), List.of(), null, min, null, 100);
+                List.of(1), List.of(), List.of(), List.of(), List.of(), null, null, min, null, 100);
     }
 
     /** Events 1..n, two streams each (event e: 10e+1 and 10e+2), with these volumes, ranked largest first. */
@@ -301,12 +304,33 @@ class RuleResolverTest {
     void aFilterRuleAsksOnlyForItsMatchingContractsStreamsAndAnEventRuleForAll() {
         events(100);
         final RuleSelector.EventFilter matches = new RuleSelector.EventFilter(
-                List.of(1), List.of(), List.of("cs2"), List.of("WINNER"), List.of("match"), null, null, null, 100);
+                List.of(1),
+                List.of(),
+                List.of("cs2"),
+                List.of("WINNER"),
+                List.of("match"),
+                null,
+                null,
+                null,
+                null,
+                100);
         rule(matches);
         resolve(T0);
         rule(new RuleSelector.EventIds(Set.of(1)));
         resolve(T0);
         assertEquals(java.util.Arrays.asList(matches, null), streamFiltersAsked);
+    }
+
+    @Test
+    void aFilterRuleAsksForEventsExpiringAndStartingWithinItsHoursOrUnboundedWithout() {
+        events(100);
+        rule(new RuleSelector.EventFilter(
+                List.of(1), List.of(), List.of(), List.of(), List.of(), 200, 48, null, null, 100));
+        resolve(T0);
+        rule(minVolume(0));
+        resolve(T0);
+        final long now = TimeUnit.NANOSECONDS.toMillis(T0);
+        assertEquals(List.of(List.of(now + 200 * 3_600_000L, now + 48 * 3_600_000L), List.of(0L, 0L)), windowsAsked);
     }
 
     @Test

@@ -171,7 +171,7 @@ holes historical data; live trading does not depend on it.
     The shard offers only those over Aeron.
 
 - Rule types: `static_streams` (stream ids), `event` (event ids: every active stream of each event, both sides of
-  every contract), `event_filter` (exchanges/categories/tags/expiry window, optional `min_volume_24h` and `top_n`,
+  every contract), `event_filter` (exchanges/categories/tags/expiry window/start window (`starts_within_hours`: starting within, or already started), optional `min_volume_24h` and `top_n`,
   required `max_streams`; optional `proposition_kinds`/`proposition_scopes`, e.g. `WINNER` + `match` for series
   winners only: then only contracts whose proposition matches select their event and give streams, plus the event's
   vendor streams, and a contract whose proposition isn't read yet waits for the next resolve). The Python schemas

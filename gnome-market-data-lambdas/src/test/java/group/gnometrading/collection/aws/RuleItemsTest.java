@@ -57,6 +57,7 @@ class RuleItemsTest {
                         "categories", AttributeValue.fromL(List.of(AttributeValue.fromS("Sports"))),
                         "proposition_kinds", AttributeValue.fromL(List.of(AttributeValue.fromS("WINNER"))),
                         "proposition_scopes", AttributeValue.fromL(List.of(AttributeValue.fromS("match"))),
+                        "starts_within_hours", AttributeValue.fromN("48"),
                         "min_volume_24h", AttributeValue.fromN("2500.5"),
                         "max_streams", AttributeValue.fromN("200"))));
         assertEquals(
@@ -67,6 +68,7 @@ class RuleItemsTest {
                         List.of("WINNER"),
                         List.of("match"),
                         null,
+                        48,
                         2500.5,
                         null,
                         200),

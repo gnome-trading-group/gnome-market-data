@@ -45,6 +45,8 @@ RULE_TYPES = {
             'proposition_scopes': {'type': 'array', 'items': {'type': 'string'},
                                    'description': 'Only contracts at any of these scopes (match, map:1, regulation)'},
             'expires_within_hours': {'type': 'integer', 'minimum': 1, 'description': 'Expiring within'},
+            'starts_within_hours': {'type': 'integer', 'minimum': 1,
+                                    'description': 'Starting within, or already started (events with no start time never match)'},
             'min_volume_24h': {'type': 'number', 'minimum': 0,
                                'description': 'About USD over 24h (Polymarket US is a coarse bucket)'},
             'top_n': {'type': 'integer', 'minimum': 1, 'description': 'The N largest by 24h volume'},
@@ -144,6 +146,8 @@ def event_query(parameters: dict, now_ms: int) -> dict:
     query.update(proposition_query(parameters))
     if parameters.get('expires_within_hours'):
         query['expiryTo'] = _iso(now_ms + parameters['expires_within_hours'] * 3_600_000)
+    if parameters.get('starts_within_hours'):
+        query['startTo'] = _iso(now_ms + parameters['starts_within_hours'] * 3_600_000)
     if parameters.get('min_volume_24h') is not None:
         query['minVolume24h'] = parameters['min_volume_24h'] * VOLUME_BAND
     query.update({'sortBy': 'volume_24h', 'sortOrder': 'desc'} if by_volume else {'sortBy': 'expiry'})

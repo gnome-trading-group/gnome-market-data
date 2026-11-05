@@ -39,6 +39,7 @@ final class RuleItems {
                             strings(parameters.get("proposition_kinds")),
                             strings(parameters.get("proposition_scopes")),
                             integer(parameters.get("expires_within_hours")),
+                            integer(parameters.get("starts_within_hours")),
                             decimal(parameters.get("min_volume_24h")),
                             integer(parameters.get("top_n")),
                             integer(parameters.get("max_streams")));

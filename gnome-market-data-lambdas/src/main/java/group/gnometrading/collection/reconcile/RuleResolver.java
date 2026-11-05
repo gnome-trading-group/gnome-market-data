@@ -126,10 +126,13 @@ final class RuleResolver {
                 ? filter.maxStreams()
                 : Math.min((int) Math.ceil(RANK_BAND * filter.topN()), filter.maxStreams());
         final double minVolume = filter.minVolume24h() == null ? 0 : filter.minVolume24h() * VOLUME_BAND;
-        final long expiresBefore = filter.expiresWithinHours() == null
-                ? 0
-                : TimeUnit.NANOSECONDS.toMillis(tick.now) + TimeUnit.HOURS.toMillis(filter.expiresWithinHours());
-        final List<EventVolume> ranked = registry.events(filter, filter.byVolume(), minVolume, expiresBefore, limit);
+        final List<EventVolume> ranked = registry.events(
+                filter,
+                filter.byVolume(),
+                minVolume,
+                hoursFrom(tick, filter.expiresWithinHours()),
+                hoursFrom(tick, filter.startsWithinHours()),
+                limit);
         final Map<Integer, Set<Integer>> byEvent = registry.streamsOfEvents(
                 ranked.stream().map(EventVolume::eventId).toList(), filter);
         final Set<Integer> held = wantedBy(tick, rule.ruleId());
@@ -156,6 +159,11 @@ final class RuleResolver {
         }
         return new Resolved(
                 rule.selector(), streams, new RuleStatus(events, streams.size(), 0, capped, tick.now), tick.now);
+    }
+
+    /** Epoch millis {@code hours} after now, or 0 (no bound) without {@code hours}. */
+    private static long hoursFrom(final Tick tick, final Integer hours) {
+        return hours == null ? 0 : TimeUnit.NANOSECONDS.toMillis(tick.now) + TimeUnit.HOURS.toMillis(hours);
     }
 
     private static boolean joins(final RuleSelector.EventFilter filter, final int rank, final EventVolume event) {
