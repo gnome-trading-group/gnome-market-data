@@ -63,6 +63,7 @@ class RuleResolverTest {
     private final Map<Integer, Set<Integer>> eventStreams = new HashMap<>();
     private final List<Double> minVolumesAsked = new ArrayList<>();
     private final List<Integer> limitsAsked = new ArrayList<>();
+    private final List<RuleSelector.EventFilter> streamFiltersAsked = new ArrayList<>();
     private RuntimeException registryDown;
     private final Set<Integer> resolvedEvents = new HashSet<>();
     private final Map<String, Set<Integer>> removedEvents = new HashMap<>();
@@ -181,8 +182,10 @@ class RuleResolverTest {
         }
 
         @Override
-        public Map<Integer, Set<Integer>> streamsOfEvents(final Collection<Integer> eventIds) {
+        public Map<Integer, Set<Integer>> streamsOfEvents(
+                final Collection<Integer> eventIds, final RuleSelector.EventFilter filter) {
             failIfDown();
+            streamFiltersAsked.add(filter);
             final Map<Integer, Set<Integer>> byEvent = new HashMap<>();
             eventIds.stream().filter(eventStreams::containsKey).forEach(id -> byEvent.put(id, eventStreams.get(id)));
             return byEvent;
@@ -205,11 +208,13 @@ class RuleResolverTest {
     }
 
     private static RuleSelector.EventFilter topN(final int n, final int maxStreams) {
-        return new RuleSelector.EventFilter(List.of(1), List.of(), List.of(), null, null, n, maxStreams);
+        return new RuleSelector.EventFilter(
+                List.of(1), List.of(), List.of(), List.of(), List.of(), null, null, n, maxStreams);
     }
 
     private static RuleSelector.EventFilter minVolume(final double min) {
-        return new RuleSelector.EventFilter(List.of(1), List.of(), List.of(), null, min, null, 100);
+        return new RuleSelector.EventFilter(
+                List.of(1), List.of(), List.of(), List.of(), List.of(), null, min, null, 100);
     }
 
     /** Events 1..n, two streams each (event e: 10e+1 and 10e+2), with these volumes, ranked largest first. */
@@ -290,6 +295,18 @@ class RuleResolverTest {
         rule(new RuleSelector.EventIds(Set.of(7)));
         resolve(T0);
         assertTrue(removedEvents.isEmpty());
+    }
+
+    @Test
+    void aFilterRuleAsksOnlyForItsMatchingContractsStreamsAndAnEventRuleForAll() {
+        events(100);
+        final RuleSelector.EventFilter matches = new RuleSelector.EventFilter(
+                List.of(1), List.of(), List.of("cs2"), List.of("WINNER"), List.of("match"), null, null, null, 100);
+        rule(matches);
+        resolve(T0);
+        rule(new RuleSelector.EventIds(Set.of(1)));
+        resolve(T0);
+        assertEquals(java.util.Arrays.asList(matches, null), streamFiltersAsked);
     }
 
     @Test

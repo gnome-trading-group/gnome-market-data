@@ -55,10 +55,21 @@ class RuleItemsTest {
                 Map.of(
                         "exchange_ids", numbers(1),
                         "categories", AttributeValue.fromL(List.of(AttributeValue.fromS("Sports"))),
+                        "proposition_kinds", AttributeValue.fromL(List.of(AttributeValue.fromS("WINNER"))),
+                        "proposition_scopes", AttributeValue.fromL(List.of(AttributeValue.fromS("match"))),
                         "min_volume_24h", AttributeValue.fromN("2500.5"),
                         "max_streams", AttributeValue.fromN("200"))));
         assertEquals(
-                new RuleSelector.EventFilter(List.of(1), List.of("Sports"), List.of(), null, 2500.5, null, 200),
+                new RuleSelector.EventFilter(
+                        List.of(1),
+                        List.of("Sports"),
+                        List.of(),
+                        List.of("WINNER"),
+                        List.of("match"),
+                        null,
+                        2500.5,
+                        null,
+                        200),
                 rule.selector());
     }
 

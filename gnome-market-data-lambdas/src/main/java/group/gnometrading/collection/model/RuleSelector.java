@@ -17,7 +17,9 @@ public sealed interface RuleSelector {
 
     /**
      * {@code event_filter}: every stream of the open events matching every given filter (empty lists and nulls match
-     * all), at most {@code maxStreams} streams. With {@code minVolume24h} or {@code topN} events are ranked by 24-hour
+     * all), at most {@code maxStreams} streams. With {@code propositionKinds} or {@code propositionScopes} only the
+     * contracts whose proposition matches count: an event matches through them, and only their streams (and the
+     * event's vendor streams) are taken. With {@code minVolume24h} or {@code topN} events are ranked by 24-hour
      * volume, and an event joins only at or above {@code minVolume24h} and within the top {@code topN}; one already
      * collected stays while it keeps half that volume and ranks within 1.5 times {@code topN}. Without them events
      * rank by soonest expiry.
@@ -26,6 +28,8 @@ public sealed interface RuleSelector {
             List<Integer> exchangeIds,
             List<String> categories,
             List<String> tags,
+            List<String> propositionKinds,
+            List<String> propositionScopes,
             Integer expiresWithinHours,
             Double minVolume24h,
             Integer topN,

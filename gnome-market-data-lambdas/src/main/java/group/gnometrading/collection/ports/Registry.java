@@ -19,7 +19,7 @@ public interface Registry {
     Map<String, List<Account>> accounts();
 
     /**
-     * Up to {@code limit} open events matching {@code filter}'s exchanges, categories and tags, expiring before
+     * Up to {@code limit} open events matching {@code filter}'s exchanges, categories, tags and propositions, expiring before
      * {@code expiresBeforeMillis} (0: any) with at least {@code minVolume24h} (0: any): largest volume first when
      * {@code byVolume}, else soonest expiry.
      */
@@ -40,6 +40,9 @@ public interface Registry {
      */
     Map<String, String> openSessionStatuses(String mode);
 
-    /** Each event's active streams, both sides of every contract; an event with none is left out. */
-    Map<Integer, Set<Integer>> streamsOfEvents(Collection<Integer> eventIds);
+    /**
+     * Each event's active streams, both sides of every contract (only contracts matching {@code filter}'s propositions
+     * when it is not null) and its vendor streams; an event with none is left out.
+     */
+    Map<Integer, Set<Integer>> streamsOfEvents(Collection<Integer> eventIds, RuleSelector.EventFilter filter);
 }

@@ -113,7 +113,7 @@ final class RuleResolver {
             open.removeAll(resolvedEvents);
             LOGGER.info("Removed {} resolved events from rule {}", resolvedEvents.size(), rule.ruleId());
         }
-        final Map<Integer, Set<Integer>> byEvent = registry.streamsOfEvents(open);
+        final Map<Integer, Set<Integer>> byEvent = registry.streamsOfEvents(open, null);
         final Set<Integer> streams = new HashSet<>();
         byEvent.values().forEach(streams::addAll);
         final RuleStatus status =
@@ -131,7 +131,7 @@ final class RuleResolver {
                 : TimeUnit.NANOSECONDS.toMillis(tick.now) + TimeUnit.HOURS.toMillis(filter.expiresWithinHours());
         final List<EventVolume> ranked = registry.events(filter, filter.byVolume(), minVolume, expiresBefore, limit);
         final Map<Integer, Set<Integer>> byEvent = registry.streamsOfEvents(
-                ranked.stream().map(EventVolume::eventId).toList());
+                ranked.stream().map(EventVolume::eventId).toList(), filter);
         final Set<Integer> held = wantedBy(tick, rule.ruleId());
 
         final Set<Integer> streams = new HashSet<>();

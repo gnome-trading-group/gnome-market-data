@@ -229,7 +229,8 @@ class ReconcilerTest {
                 }
 
                 @Override
-                public Map<Integer, Set<Integer>> streamsOfEvents(final Collection<Integer> eventIds) {
+                public Map<Integer, Set<Integer>> streamsOfEvents(
+                        final Collection<Integer> eventIds, final RuleSelector.EventFilter filter) {
                     return Map.of();
                 }
             },

@@ -36,6 +36,8 @@ final class RuleItems {
                             List.copyOf(ints(parameters.get("exchange_ids"))),
                             strings(parameters.get("categories")),
                             strings(parameters.get("tags")),
+                            strings(parameters.get("proposition_kinds")),
+                            strings(parameters.get("proposition_scopes")),
                             integer(parameters.get("expires_within_hours")),
                             decimal(parameters.get("min_volume_24h")),
                             integer(parameters.get("top_n")),

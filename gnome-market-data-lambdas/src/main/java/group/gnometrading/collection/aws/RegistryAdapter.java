@@ -15,6 +15,7 @@ import group.gnometrading.md.SourceAccount;
 import group.gnometrading.md.Stream;
 import group.gnometrading.sm.Event;
 import group.gnometrading.sm.EventQuery;
+import group.gnometrading.sm.PropositionFilter;
 import group.gnometrading.strings.ViewString;
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -120,6 +121,7 @@ public final class RegistryAdapter implements Registry {
                 filter.exchangeIds(),
                 filter.categories(),
                 filter.tags(),
+                propositions(filter),
                 expiresBeforeMillis,
                 minVolume24h,
                 byVolume ? EventQuery.Order.VOLUME : EventQuery.Order.EXPIRY,
@@ -144,10 +146,11 @@ public final class RegistryAdapter implements Registry {
     }
 
     @Override
-    public Map<Integer, Set<Integer>> streamsOfEvents(final Collection<Integer> eventIds) {
+    public Map<Integer, Set<Integer>> streamsOfEvents(
+            final Collection<Integer> eventIds, final RuleSelector.EventFilter filter) {
         final Map<Integer, Set<Integer>> streams = new HashMap<>();
         final int[] ids = eventIds.stream().mapToInt(Integer::intValue).toArray();
-        for (Stream stream : securityMaster.getStreamsForEvents(ids)) {
+        for (Stream stream : securityMaster.getStreamsForEvents(ids, filter == null ? null : propositions(filter))) {
             if (stream.active()) {
                 streams.computeIfAbsent(stream.eventId(), event -> new HashSet<>())
                         .add(stream.streamId());
@@ -174,6 +177,10 @@ public final class RegistryAdapter implements Registry {
                             account.sourceCode(), account.label(), account.connectionBudget(), account.active()));
         }
         return accounts;
+    }
+
+    private static PropositionFilter propositions(final RuleSelector.EventFilter filter) {
+        return new PropositionFilter(filter.propositionKinds(), filter.propositionScopes());
     }
 
     static SourceLimits limitsOf(final Source source) {

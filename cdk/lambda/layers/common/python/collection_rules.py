@@ -40,6 +40,10 @@ RULE_TYPES = {
             'exchange_ids': {**_IDS, 'description': 'Any of these exchanges'},
             'categories': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Any of these categories'},
             'tags': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Any of these tags'},
+            'proposition_kinds': {'type': 'array', 'items': {'type': 'string'},
+                                  'description': 'Only contracts asking any of these kinds (WINNER, SCORE, THRESHOLD)'},
+            'proposition_scopes': {'type': 'array', 'items': {'type': 'string'},
+                                   'description': 'Only contracts at any of these scopes (match, map:1, regulation)'},
             'expires_within_hours': {'type': 'integer', 'minimum': 1, 'description': 'Expiring within'},
             'min_volume_24h': {'type': 'number', 'minimum': 0,
                                'description': 'About USD over 24h (Polymarket US is a coarse bucket)'},
@@ -137,12 +141,20 @@ def event_query(parameters: dict, now_ms: int) -> dict:
     for key, param in (('exchange_ids', 'exchangeIds'), ('categories', 'categories'), ('tags', 'tags')):
         if parameters.get(key):
             query[param] = ','.join(str(v) for v in parameters[key])
+    query.update(proposition_query(parameters))
     if parameters.get('expires_within_hours'):
         query['expiryTo'] = _iso(now_ms + parameters['expires_within_hours'] * 3_600_000)
     if parameters.get('min_volume_24h') is not None:
         query['minVolume24h'] = parameters['min_volume_24h'] * VOLUME_BAND
     query.update({'sortBy': 'volume_24h', 'sortOrder': 'desc'} if by_volume else {'sortBy': 'expiry'})
     return query
+
+
+def proposition_query(parameters: dict) -> dict:
+    """The registry filter, on /events and on /streams, keeping only contracts whose proposition matches."""
+    return {param: ','.join(parameters[key])
+            for key, param in (('proposition_kinds', 'propositionKinds'), ('proposition_scopes', 'propositionScopes'))
+            if parameters.get(key)}
 
 
 def select(parameters: dict, ranked: list[dict], streams_by_event: dict[int, list[int]]) -> dict:

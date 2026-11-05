@@ -2,7 +2,8 @@ from decimal import Decimal
 
 import pytest
 
-from collection_rules import EVENT, EVENT_FILTER, STATIC_STREAMS, event_query, item_fields, select, validate, view
+from collection_rules import (EVENT, EVENT_FILTER, STATIC_STREAMS, event_query, item_fields, proposition_query, select,
+                              validate, view)
 
 
 def test_a_static_rule_needs_streams_and_keeps_each_once():
@@ -74,3 +75,14 @@ def test_an_event_without_active_streams_is_skipped_but_keeps_its_rank():
     ranked = [{'event_id': 1, 'volume_24h': 9}, {'event_id': 2, 'volume_24h': 8}, {'event_id': 3, 'volume_24h': 7}]
     chosen = select({'top_n': 2, 'max_streams': 99}, ranked, {2: [21], 3: [31]})
     assert [e['event_id'] for e in chosen['events']] == [2]
+
+
+
+def test_a_proposition_filter_asks_for_events_and_streams_of_matching_contracts():
+    parameters = validate(EVENT_FILTER, {'tags': ['counter-strike-2'], 'proposition_kinds': ['WINNER'],
+                                         'proposition_scopes': ['match', ' match ']})
+    assert parameters['proposition_scopes'] == ['match']
+    assert proposition_query(parameters) == {'propositionKinds': 'WINNER', 'propositionScopes': 'match'}
+    query = event_query(parameters, 0)
+    assert (query['propositionKinds'], query['propositionScopes']) == ('WINNER', 'match')
+    assert proposition_query({'max_streams': 10}) == {}

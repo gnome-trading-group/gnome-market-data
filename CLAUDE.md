@@ -172,8 +172,10 @@ holes historical data; live trading does not depend on it.
 
 - Rule types: `static_streams` (stream ids), `event` (event ids: every active stream of each event, both sides of
   every contract), `event_filter` (exchanges/categories/tags/expiry window, optional `min_volume_24h` and `top_n`,
-  required `max_streams`). The Python schemas (`collection_rules.py`) and the Java reader/resolver (`RuleItems`,
-  `RuleResolver`) must agree. An `event` rule keeps its ids in a top-level number set `event_ids` (not in
+  required `max_streams`; optional `proposition_kinds`/`proposition_scopes`, e.g. `WINNER` + `match` for series
+  winners only: then only contracts whose proposition matches select their event and give streams, plus the event's
+  vendor streams, and a contract whose proposition isn't read yet waits for the next resolve). The Python schemas
+  (`collection_rules.py`) and the Java reader/resolver (`RuleItems`, `RuleResolver`) must agree. An `event` rule keeps its ids in a top-level number set `event_ids` (not in
   `parameters`) so services add and remove them atomically (`PATCH add_event_ids` / `remove_event_ids`); the
   reconciler removes resolved events. A rule with `managed_by` belongs to a system: people may rename, pause or delete
   it but not change what it selects. Event rules resolve every 5 minutes (or at once on a parameter change); a volume
