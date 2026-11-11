@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit;
  * Raises the collection alerts that hold this tick and resolves the ones the last tick left firing that don't: a shard
  * with no healthy task, streams not live or stale (one alert per source and region, not per stream: a region going
  * down shouldn't open a thousand), sources whose accounts have no room, partitions at their {@code max_shards} with
- * streams waiting, leased streams no shard has taken, and leases whose sessions the registry hasn't answered for.
+ * streams waiting, leased streams no shard has taken, sessions still leasing streams long after their listing ended,
+ * and leases whose sessions the registry hasn't answered for.
  */
 final class AlertStep {
 
@@ -35,14 +36,19 @@ final class AlertStep {
         this.alerts = alerts;
     }
 
-    /** One alert: its type, title and labels. */
-    private record Firing(String type, String title, Map<String, String> labels) {}
+    /** One alert: its type, title, labels and the session it is about (null if none). */
+    private record Firing(String type, String title, Map<String, String> labels, String sessionId) {
+        Firing(final String type, final String title, final Map<String, String> labels) {
+            this(type, title, labels, null);
+        }
+    }
 
     void run(final Tick tick) {
         final Map<String, Firing> firing = new HashMap<>();
         shardsDown(tick, firing);
         streamsUncovered(tick, firing);
         leasedStreamsUnplaced(tick, firing);
+        leasesOnEndedStreams(tick, firing);
         leaseHoldersUnreadable(tick, firing);
         tick.budgetShort.forEach((source, count) -> firing.put(
                 "COLLECTION_BUDGET:" + source,
@@ -65,7 +71,8 @@ final class AlertStep {
                                 "tier", partition.tier(),
                                 "max_shards", Integer.toString(tick.config.maxShards(partition)),
                                 "unplaced", Integer.toString(count)))));
-        firing.forEach((key, alert) -> alerts.firing(alert.type(), key, alert.title(), alert.labels()));
+        firing.forEach(
+                (key, alert) -> alerts.firing(alert.type(), key, alert.title(), alert.labels(), alert.sessionId()));
         store.firingAlerts().forEach((key, type) -> {
             if (!firing.containsKey(key)) {
                 alerts.resolved(type, key);
@@ -102,8 +109,9 @@ final class AlertStep {
     /**
      * Leased streams on no shard for {@link #LEASE_UNPLACED_ALERT_NANOS}, counted from when the stream went unplaced or
      * the earliest wanting lease was made, whichever is later, so a lease on a stream a rule already failed to place
-     * gets the full wait. A leased stream with no target wanting it (its listing ended, or the registry doesn't know
-     * it) can never be placed and counts from the lease. One alert per source and region.
+     * gets the full wait. A stream whose listing ended has nothing left to collect, so it is left to
+     * {@link #leasesOnEndedStreams}; one the registry doesn't know can never be placed and counts from the lease. One
+     * alert per source and region.
      */
     private static void leasedStreamsUnplaced(final Tick tick, final Map<String, Firing> firing) {
         if (tick.leases.isEmpty()) {
@@ -117,6 +125,9 @@ final class AlertStep {
         final Map<String, Set<Integer>> unplaced = new HashMap<>();
         final Map<String, String[]> where = new HashMap<>();
         leasedSince.forEach((streamId, leased) -> {
+            if (ended(tick, streamId)) {
+                return;
+            }
             final Target target = tick.targets.get(streamId);
             if (unplacedTooLong(tick, target, leased)) {
                 final String[] sourceAndRegion = sourceAndRegion(tick, streamId, target);
@@ -145,6 +156,73 @@ final class AlertStep {
                                                     .map(String::valueOf)
                                                     .toList()))));
         });
+    }
+
+    /**
+     * Sessions still leasing streams {@code lease_on_ended_stream_minutes} after the reconciler first
+     * saw their listings end: a session that should have exited with its market. When each stream was first seen
+     * ended is stored, since the registry doesn't record when a listing ended and a cold start loses the Lambda's
+     * memory. One alert per session.
+     */
+    private void leasesOnEndedStreams(final Tick tick, final Map<String, Firing> firing) {
+        final Map<Integer, Long> stored = store.endedLeasedStreams();
+        final Map<Integer, Long> endedSince = new HashMap<>();
+        for (Lease lease : tick.leases) {
+            for (int streamId : lease.streams()) {
+                if (ended(tick, streamId)) {
+                    endedSince.put(streamId, stored.getOrDefault(streamId, tick.now));
+                }
+            }
+        }
+        if (!endedSince.equals(stored)) {
+            store.putEndedLeasedStreams(endedSince);
+        }
+        final long wait = tick.config.leaseOnEndedStreamAlertNanos();
+        for (Lease lease : tick.leases) {
+            final Set<Integer> held = new TreeSet<>();
+            final Set<String> sources = new TreeSet<>();
+            long earliest = tick.now;
+            for (int streamId : lease.streams()) {
+                final Long since = endedSince.get(streamId);
+                if (since != null && tick.now - since >= wait) {
+                    held.add(streamId);
+                    sources.add(tick.streamInfo.get(streamId).source());
+                    earliest = Math.min(earliest, since);
+                }
+            }
+            if (held.isEmpty()) {
+                continue;
+            }
+            final long minutes = TimeUnit.NANOSECONDS.toMinutes(tick.now - earliest);
+            final String source = String.join("/", sources);
+            firing.put(
+                    "LEASE_ON_ENDED_STREAM:" + lease.sessionId(),
+                    new Firing(
+                            "LEASE_ON_ENDED_STREAM",
+                            "Session " + shortId(lease.sessionId()) + " still leases " + held.size() + " " + source
+                                    + " streams " + minutes + " minutes after their listings ended",
+                            Map.of(
+                                    "session_id", lease.sessionId(),
+                                    "source", source,
+                                    "streams",
+                                            String.join(
+                                                    ",",
+                                                    held.stream()
+                                                            .map(String::valueOf)
+                                                            .toList()),
+                                    "ended_minutes", Long.toString(minutes)),
+                            lease.sessionId()));
+        }
+    }
+
+    /** Whether the registry knows {@code streamId} and says its listing ended. */
+    private static boolean ended(final Tick tick, final int streamId) {
+        final StreamInfo info = tick.streamInfo.get(streamId);
+        return info != null && !info.live();
+    }
+
+    private static String shortId(final String sessionId) {
+        return sessionId.length() > 8 ? sessionId.substring(0, 8) : sessionId;
     }
 
     /** Whether a stream leased since {@code leased} has been off every shard for the alert's wait. */

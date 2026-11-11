@@ -204,8 +204,11 @@ holes historical data; live trading does not depend on it.
   `shard/ShardContainer/<task>`, one-week retention (also `GET collection/shards/{id}/logs`).
 - Alerts: the reconciler raises `COLLECTOR_SHARD_DOWN`, `STREAM_NOT_LIVE`, `STREAM_STALE`, `COLLECTION_BUDGET` (no
   account room per source, or a partition at `max_shards`), `LEASED_STREAM_UNPLACED` (a leased stream on no shard 5
-  minutes after it went unplaced or was leased, whichever is later, including one that can never be placed: ended
-  listing or unknown stream; one per source and region, label `streams`; sessions give up at 10) and
+  minutes after it went unplaced or was leased, whichever is later, including an unknown stream that can never be
+  placed; an ended listing is skipped, nothing is left to collect; one per source and region, label `streams`;
+  sessions give up at 10), `LEASE_ON_ENDED_STREAM` (a session still leasing streams
+  `alerts.lease_on_ended_stream_minutes`, default 60, after the reconciler first saw their listings end; one per
+  session, linked to it; first-seen times kept in the `_reconciler` row's `ended_leased_streams`) and
   `LEASE_HOLDERS_UNREADABLE` (the registry's sessions unreadable 15 minutes with leases held) on the `gnome-alerts` bus, resolving them when the condition clears. CloudWatch alarms carry no actions; the registry's
   alerting stack raises `CLOUDWATCH_ALARM` for:
   - `MarketData--ReconcilerLambda-Fault-Count-Error` (RECONCILER_FAILING): 3+ failed ticks in the period. Read

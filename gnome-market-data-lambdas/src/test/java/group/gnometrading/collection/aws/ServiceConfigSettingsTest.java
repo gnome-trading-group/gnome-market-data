@@ -36,6 +36,7 @@ class ServiceConfigSettingsTest {
         assertNull(settings.rollToVersion());
         assertEquals(TimeUnit.MINUTES.toNanos(2), settings.handoffNanos());
         assertEquals(TimeUnit.MINUTES.toNanos(5), settings.shardDownNanos());
+        assertEquals(TimeUnit.MINUTES.toNanos(60), settings.leaseOnEndedStreamAlertNanos());
     }
 
     @Test

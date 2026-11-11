@@ -18,10 +18,26 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 
 class DynamoStoreTest {
 
     private static final Partition US = new Partition("us-east-1", "VENUE", Priority.RESEARCH, "standard");
+
+    @Test
+    void eachPartOfTheReconcilersStateIsSetWithoutTheOthers() {
+        UpdateItemRequest request =
+                DynamoStore.reconcilerUpdate("rules", "ended_leased_streams", Map.of("4", AttributeValue.fromN("17")));
+
+        assertEquals("_reconciler", request.key().get("rule_id").s());
+        assertEquals("SET #status = :status, #attribute = :value", request.updateExpression());
+        assertEquals("ended_leased_streams", request.expressionAttributeNames().get("#attribute"));
+        assertEquals(
+                "INTERNAL", request.expressionAttributeValues().get(":status").s(), "never read as a rule");
+        assertEquals(
+                "17",
+                request.expressionAttributeValues().get(":value").m().get("4").n());
+    }
 
     @Test
     void aShardsStreamsArePackedAsTheShardReadsThem() {

@@ -32,8 +32,17 @@ public final class EventBridgeAlerts implements Alerts {
     }
 
     @Override
-    public void firing(final String type, final String key, final String title, final Map<String, String> labels) {
-        put(event("FIRING", type, key, title, labels));
+    public void firing(
+            final String type,
+            final String key,
+            final String title,
+            final Map<String, String> labels,
+            final String sessionId) {
+        final Map<String, Object> event = event("FIRING", type, key, title, labels);
+        if (sessionId != null) {
+            event.put("sessionId", sessionId);
+        }
+        put(event);
     }
 
     @Override

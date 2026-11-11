@@ -57,4 +57,9 @@ public interface Store {
     Map<String, String> firingAlerts();
 
     void putFiringAlerts(Map<String, String> typeByKey);
+
+    /** Leased streams whose listing has ended, each with when the reconciler first saw it ended (epoch nanos). */
+    Map<Integer, Long> endedLeasedStreams();
+
+    void putEndedLeasedStreams(Map<Integer, Long> firstSeenEndedNanos);
 }

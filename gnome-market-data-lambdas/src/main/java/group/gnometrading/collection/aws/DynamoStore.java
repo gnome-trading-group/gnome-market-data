@@ -32,7 +32,7 @@ import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
  * (gnome-orchestrator {@code DynamoAssignment}): {@code streams}, {@code draining}, {@code publish} and {@code cuts} are big-endian int32s packed into
  * one binary attribute each, {@code accounts} a map of source to label. A coverage interval carries
  * {@code open_shard_id} only while open, so a shard's open intervals are one query of that index. The reconciler's own
- * state (alerts it left firing) is the rules table's {@code _reconciler} row, which is never a rule. A lease's
+ * state (alerts it left firing, and since when leased streams have been ended) is the rules table's {@code _reconciler} row, which is never a rule. A lease's
  * {@code streams} are packed like a shard's; the lease API writes leases and the reconciler only releases and extends
  * them.
  */
@@ -40,6 +40,8 @@ public final class DynamoStore implements Store {
 
     private static final Logger LOGGER = LogManager.getLogger(DynamoStore.class);
     private static final String RECONCILER_ROW = "_reconciler";
+    private static final String FIRING_ALERTS = "firing_alerts";
+    private static final String ENDED_LEASED_STREAMS = "ended_leased_streams";
 
     /** The table names, from the Lambda's environment. */
     public record Tables(String rules, String targets, String shards, String coverage, String gaps, String leases) {}
@@ -119,14 +121,8 @@ public final class DynamoStore implements Store {
 
     @Override
     public Map<String, String> firingAlerts() {
-        final Map<String, AttributeValue> item = dynamo.getItem(request -> request.tableName(tables.rules())
-                        .key(Map.of("rule_id", AttributeValue.fromS(RECONCILER_ROW)))
-                        .consistentRead(true))
-                .item();
         final Map<String, String> firing = new HashMap<>();
-        if (item != null && item.containsKey("firing_alerts")) {
-            item.get("firing_alerts").m().forEach((key, type) -> firing.put(key, type.s()));
-        }
+        reconcilerAttribute(FIRING_ALERTS).forEach((key, type) -> firing.put(key, type.s()));
         return firing;
     }
 
@@ -134,13 +130,48 @@ public final class DynamoStore implements Store {
     public void putFiringAlerts(final Map<String, String> typeByKey) {
         final Map<String, AttributeValue> firing = new HashMap<>();
         typeByKey.forEach((key, type) -> firing.put(key, AttributeValue.fromS(type)));
-        dynamo.putItem(PutItemRequest.builder()
-                .tableName(tables.rules())
-                .item(Map.of(
-                        "rule_id", AttributeValue.fromS(RECONCILER_ROW),
-                        "status", AttributeValue.fromS("INTERNAL"),
-                        "firing_alerts", AttributeValue.fromM(firing)))
-                .build());
+        dynamo.updateItem(reconcilerUpdate(tables.rules(), FIRING_ALERTS, firing));
+    }
+
+    @Override
+    public Map<Integer, Long> endedLeasedStreams() {
+        final Map<Integer, Long> ended = new HashMap<>();
+        reconcilerAttribute(ENDED_LEASED_STREAMS)
+                .forEach((streamId, since) -> ended.put(Integer.parseInt(streamId), Long.parseLong(since.n())));
+        return ended;
+    }
+
+    @Override
+    public void putEndedLeasedStreams(final Map<Integer, Long> firstSeenEndedNanos) {
+        final Map<String, AttributeValue> ended = new HashMap<>();
+        firstSeenEndedNanos.forEach(
+                (streamId, since) -> ended.put(Integer.toString(streamId), AttributeValue.fromN(Long.toString(since))));
+        dynamo.updateItem(reconcilerUpdate(tables.rules(), ENDED_LEASED_STREAMS, ended));
+    }
+
+    private Map<String, AttributeValue> reconcilerAttribute(final String attribute) {
+        final Map<String, AttributeValue> item = dynamo.getItem(request -> request.tableName(tables.rules())
+                        .key(Map.of("rule_id", AttributeValue.fromS(RECONCILER_ROW)))
+                        .consistentRead(true))
+                .item();
+        return item != null && item.containsKey(attribute) ? item.get(attribute).m() : Map.of();
+    }
+
+    /**
+     * Sets one attribute of the {@code _reconciler} row, leaving the others: each part of the reconciler's state is
+     * written on its own.
+     */
+    static UpdateItemRequest reconcilerUpdate(
+            final String table, final String attribute, final Map<String, AttributeValue> value) {
+        return UpdateItemRequest.builder()
+                .tableName(table)
+                .key(Map.of("rule_id", AttributeValue.fromS(RECONCILER_ROW)))
+                .updateExpression("SET #status = :status, #attribute = :value")
+                .expressionAttributeNames(Map.of("#status", "status", "#attribute", attribute))
+                .expressionAttributeValues(Map.of(
+                        ":status", AttributeValue.fromS("INTERNAL"),
+                        ":value", AttributeValue.fromM(value)))
+                .build();
     }
 
     // ----- leases -----

@@ -46,6 +46,7 @@ class RuleResolverTest {
             10 * MINUTE,
             5 * MINUTE,
             5 * MINUTE,
+            60 * MINUTE,
             false,
             false,
             15 * MINUTE,
@@ -142,6 +143,14 @@ class RuleResolverTest {
 
         @Override
         public void putFiringAlerts(final Map<String, String> typeByKey) {}
+
+        @Override
+        public Map<Integer, Long> endedLeasedStreams() {
+            return Map.of();
+        }
+
+        @Override
+        public void putEndedLeasedStreams(final Map<Integer, Long> firstSeenEndedNanos) {}
     };
 
     private final Registry registry = new Registry() {

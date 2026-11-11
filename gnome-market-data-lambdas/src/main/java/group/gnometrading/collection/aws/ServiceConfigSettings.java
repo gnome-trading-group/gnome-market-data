@@ -57,6 +57,7 @@ public final class ServiceConfigSettings implements Supplier<Settings> {
                 minutes(config.alerts().notLiveMinutes()),
                 minutes(config.alerts().staleMinutes()),
                 minutes(config.alerts().shardDownMinutes()),
+                minutes(config.alerts().leaseOnEndedStreamMinutes()),
                 config.consolidation().enabled(),
                 config.consolidation().dryRun(),
                 minutes(config.consolidation().afterMinutes()),

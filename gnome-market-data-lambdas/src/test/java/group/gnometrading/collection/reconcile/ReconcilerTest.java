@@ -56,6 +56,9 @@ class ReconcilerTest {
     private final List<long[]> gaps = new ArrayList<>();
     private final List<String> gapReasons = new ArrayList<>();
     private Map<String, String> firingAlerts = new HashMap<>();
+    private Map<Integer, Long> endedLeasedStreams = new HashMap<>();
+    // The session each FIRING event named, by alert key.
+    private final Map<String, String> alertSessions = new HashMap<>();
     private final Map<Integer, StreamInfo> streams = new HashMap<>();
     private final Map<String, List<Account>> accounts = new HashMap<>();
     private final Map<String, List<TaskStatus>> statuses = new HashMap<>();
@@ -173,6 +176,16 @@ class ReconcilerTest {
         public void putFiringAlerts(final Map<String, String> typeByKey) {
             firingAlerts = new HashMap<>(typeByKey);
         }
+
+        @Override
+        public Map<Integer, Long> endedLeasedStreams() {
+            return endedLeasedStreams;
+        }
+
+        @Override
+        public void putEndedLeasedStreams(final Map<Integer, Long> firstSeenEndedNanos) {
+            endedLeasedStreams = new HashMap<>(firstSeenEndedNanos);
+        }
     };
 
     private final AtomicInteger shardIds = new AtomicInteger();
@@ -270,8 +283,15 @@ class ReconcilerTest {
             new Alerts() {
                 @Override
                 public void firing(
-                        final String type, final String key, final String title, final Map<String, String> labels) {
+                        final String type,
+                        final String key,
+                        final String title,
+                        final Map<String, String> labels,
+                        final String sessionId) {
                     alertEvents.add("FIRING " + key);
+                    if (sessionId != null) {
+                        alertSessions.put(key, sessionId);
+                    }
                 }
 
                 @Override
@@ -290,6 +310,7 @@ class ReconcilerTest {
                     10 * MINUTE,
                     5 * MINUTE,
                     5 * MINUTE,
+                    60 * MINUTE,
                     consolidate,
                     dryRun,
                     15 * MINUTE,
@@ -1223,7 +1244,7 @@ class ReconcilerTest {
     }
 
     @Test
-    void aLeasedStreamThatCanNeverBePlacedAlertsToo() {
+    void aLeasedStreamTheRegistryDoesntKnowAlertsButAnEndedOneDoesnt() {
         streams.put(4, new StreamInfo(4, "KALSHI", "VENUE", "us-east-1", false));
         lease("s1", "paper", T0, 1, 4, 99);
         sessionStatuses.put("s1", "STARTING");
@@ -1232,8 +1253,92 @@ class ReconcilerTest {
 
         reconciler.tick(T0 + 5 * MINUTE);
 
-        assertTrue(alertEvents.contains("FIRING LEASED_STREAM_UNPLACED:KALSHI:us-east-1"), "stream 4 ended");
+        assertFalse(
+                alertEvents.contains("FIRING LEASED_STREAM_UNPLACED:KALSHI:us-east-1"),
+                "stream 4 ended: nothing to collect");
         assertTrue(alertEvents.contains("FIRING LEASED_STREAM_UNPLACED:unknown:unknown"), "the registry lacks 99");
+    }
+
+    @Test
+    void aLeasedListingEndingMidSessionDoesntAlertUnplaced() {
+        lease("s1", "paper", T0, 1);
+        sessionStatuses.put("s1", "RUNNING");
+        reconciler.tick(T0);
+        String shard = targets.get(1).shardId();
+        report(shard, "t1", T0 + MINUTE, "LIVE");
+        reconciler.tick(T0 + MINUTE);
+
+        streams.put(1, new StreamInfo(1, "KALSHI", "VENUE", "us-east-1", false));
+        for (long tick = T0 + 2 * MINUTE; tick <= T0 + 30 * MINUTE; tick += MINUTE) {
+            report(shard, "t1", tick, "LIVE");
+            reconciler.tick(tick);
+        }
+
+        assertNull(targets.get(1), "an ended listing retires");
+        assertFalse(alertEvents.contains("FIRING LEASED_STREAM_UNPLACED:KALSHI:us-east-1"));
+    }
+
+    @Test
+    void aSessionLeasingAnEndedStreamForAnHourAlerts() {
+        streams.put(4, new StreamInfo(4, "KALSHI", "VENUE", "us-east-1", false));
+        streams.put(5, new StreamInfo(5, "KALSHI", "VENUE", "us-east-1", false));
+        lease("s1", "paper", T0, 1, 4, 5);
+        sessionStatuses.put("s1", "RUNNING");
+
+        reconciler.tick(T0);
+        assertEquals(Map.of(4, T0, 5, T0), endedLeasedStreams);
+        reconciler.tick(T0 + 59 * MINUTE);
+        assertFalse(firingAlerts.containsKey("LEASE_ON_ENDED_STREAM:s1"));
+
+        reconciler.tick(T0 + 60 * MINUTE);
+        assertTrue(alertEvents.contains("FIRING LEASE_ON_ENDED_STREAM:s1"));
+        assertEquals("s1", alertSessions.get("LEASE_ON_ENDED_STREAM:s1"), "the alert links its session");
+        assertEquals(Map.of(4, T0, 5, T0), endedLeasedStreams, "first seen ended stays put");
+    }
+
+    @Test
+    void anEndedStreamLeaseAlertResolvesWhenTheSessionEnds() {
+        streams.put(4, new StreamInfo(4, "KALSHI", "VENUE", "us-east-1", false));
+        lease("s1", "paper", T0, 4);
+        sessionStatuses.put("s1", "RUNNING");
+        reconciler.tick(T0);
+        reconciler.tick(T0 + 60 * MINUTE);
+        assertTrue(firingAlerts.containsKey("LEASE_ON_ENDED_STREAM:s1"));
+
+        sessionStatuses.remove("s1");
+        reconciler.tick(T0 + 61 * MINUTE);
+
+        assertTrue(alertEvents.contains("RESOLVED LEASE_ON_ENDED_STREAM:s1"));
+        assertEquals(Map.of(), endedLeasedStreams, "no lease holds it any more");
+    }
+
+    @Test
+    void whenAStreamWasFirstSeenEndedSurvivesAColdStart() {
+        streams.put(4, new StreamInfo(4, "KALSHI", "VENUE", "us-east-1", false));
+        endedLeasedStreams.put(4, T0 - 59 * MINUTE);
+        lease("s1", "paper", T0 - 120 * MINUTE, 4);
+        sessionStatuses.put("s1", "RUNNING");
+
+        reconciler.tick(T0);
+        assertFalse(alertEvents.contains("FIRING LEASE_ON_ENDED_STREAM:s1"));
+        reconciler.tick(T0 + MINUTE);
+
+        assertTrue(alertEvents.contains("FIRING LEASE_ON_ENDED_STREAM:s1"), "counted from the stored time");
+    }
+
+    @Test
+    void eachSessionLeasingAnEndedStreamAlertsOnItsOwn() {
+        streams.put(4, new StreamInfo(4, "KALSHI", "VENUE", "us-east-1", false));
+        lease("s1", "paper", T0, 4);
+        lease("s2", "paper", T0, 4);
+        sessionStatuses.put("s1", "RUNNING");
+        sessionStatuses.put("s2", "RUNNING");
+
+        reconciler.tick(T0);
+        reconciler.tick(T0 + 60 * MINUTE);
+
+        assertTrue(firingAlerts.containsKey("LEASE_ON_ENDED_STREAM:s1"));
+        assertTrue(firingAlerts.containsKey("LEASE_ON_ENDED_STREAM:s2"));
     }
 
     @Test

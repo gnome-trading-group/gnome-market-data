@@ -22,6 +22,7 @@ public record Settings(
         long notLiveAlertNanos,
         long staleAlertNanos,
         long shardDownNanos,
+        long leaseOnEndedStreamAlertNanos,
         boolean consolidationEnabled,
         boolean consolidationDryRun,
         long consolidateAfterNanos,

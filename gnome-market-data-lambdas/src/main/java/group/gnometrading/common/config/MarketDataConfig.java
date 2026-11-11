@@ -33,7 +33,7 @@ public record MarketDataConfig(
     /** How long a condition lasts before the reconciler alerts on it. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Alerts(int notLiveMinutes, int staleMinutes, int shardDownMinutes) {}
+    public record Alerts(int notLiveMinutes, int staleMinutes, int shardDownMinutes, int leaseOnEndedStreamMinutes) {}
 
     /**
      * Merging a partition's under-filled shards. A shard whose streams would all fit on the partition's others, each
@@ -64,7 +64,8 @@ public record MarketDataConfig(
             null,
             2,
             10,
-            new Alerts(10, 5, 5),
+            // A session normally exits within minutes of its market closing; an hour on means it is stuck.
+            new Alerts(10, 5, 5, 60),
             // Fifteen minutes is three rule resolutions plus a retire grace: long enough that a dip has settled.
             new Consolidation(true, false, 15, 0.8),
             // No warm shards until cold starts prove too slow for launches.
