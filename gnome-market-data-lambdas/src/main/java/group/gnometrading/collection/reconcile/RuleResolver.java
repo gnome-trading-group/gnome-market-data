@@ -1,6 +1,7 @@
 package group.gnometrading.collection.reconcile;
 
 import group.gnometrading.collection.model.EventVolume;
+import group.gnometrading.collection.model.ListingVolume;
 import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.RuleSelector;
 import group.gnometrading.collection.model.RuleStatus;
@@ -21,7 +22,8 @@ import org.apache.logging.log4j.Logger;
 /**
  * Reads the active rules and fills in the streams each selects now, so {@link Evaluation} sees every rule as a set of
  * streams. A static rule names its streams; an {@code event} rule takes every active stream of its events; an
- * {@code event_filter} rule asks the registry for matching open events and takes theirs.
+ * {@code event_filter} rule asks the registry for matching open events and takes theirs; a {@code listing_filter} rule
+ * asks for matching active listings by volume and takes their book streams.
  *
  * <p>An event rule is resolved again every {@link #RESOLVE_EVERY_NANOS}, or at once when its parameters change: events
  * and their volumes move slowly, and resolving is several registry calls. If the registry fails, the rule keeps what it
@@ -98,6 +100,9 @@ final class RuleResolver {
         if (rule.selector() instanceof RuleSelector.EventIds events) {
             return resolveEvents(tick, rule, events);
         }
+        if (rule.selector() instanceof RuleSelector.ListingFilter listings) {
+            return resolveListings(tick, rule, listings);
+        }
         return resolveFilter(tick, rule, (RuleSelector.EventFilter) rule.selector());
     }
 
@@ -122,17 +127,13 @@ final class RuleResolver {
     }
 
     private Resolved resolveFilter(final Tick tick, final Rule rule, final RuleSelector.EventFilter filter) {
-        final int limit = filter.topN() == null
-                ? filter.maxStreams()
-                : Math.min((int) Math.ceil(RANK_BAND * filter.topN()), filter.maxStreams());
-        final double minVolume = filter.minVolume24h() == null ? 0 : filter.minVolume24h() * VOLUME_BAND;
         final List<EventVolume> ranked = registry.events(
                 filter,
                 filter.byVolume(),
-                minVolume,
+                bandMinimum(filter.minVolume24h()),
                 hoursFrom(tick, filter.expiresWithinHours()),
                 hoursFrom(tick, filter.startsWithinHours()),
-                limit);
+                bandLimit(filter.topN(), filter.maxStreams()));
         final Map<Integer, Set<Integer>> byEvent = registry.streamsOfEvents(
                 ranked.stream().map(EventVolume::eventId).toList(), filter);
         final Set<Integer> held = wantedBy(tick, rule.ruleId());
@@ -147,7 +148,9 @@ final class RuleResolver {
                 continue;
             }
             final boolean collected = !Collections.disjoint(eventStreams, held);
-            if (!(collected ? stays(filter, rank, event) : joins(filter, rank, event))) {
+            if (!(collected
+                    ? stays(filter.topN(), filter.minVolume24h(), rank, event.volume24h())
+                    : joins(filter.topN(), filter.minVolume24h(), rank, event.volume24h()))) {
                 continue;
             }
             if (streams.size() + eventStreams.size() > filter.maxStreams()) {
@@ -161,19 +164,59 @@ final class RuleResolver {
                 rule.selector(), streams, new RuleStatus(events, streams.size(), 0, capped, tick.now), tick.now);
     }
 
+    /** A {@code listing_filter} rule's streams: one per listing, taken in rank order as an event's are. */
+    private Resolved resolveListings(final Tick tick, final Rule rule, final RuleSelector.ListingFilter filter) {
+        // One past max_streams, so a rule that leaves listings out knows it is capped.
+        final List<ListingVolume> ranked = registry.listings(
+                filter, bandMinimum(filter.minVolume24h()), bandLimit(filter.topN(), filter.maxStreams() + 1));
+        final Map<Integer, Integer> byListing = registry.streamsOfListings(
+                ranked.stream().map(ListingVolume::listingId).toList());
+        final Set<Integer> held = wantedBy(tick, rule.ruleId());
+
+        final Set<Integer> streams = new HashSet<>();
+        boolean capped = false;
+        for (int rank = 0; rank < ranked.size(); rank++) {
+            final ListingVolume listing = ranked.get(rank);
+            final Integer stream = byListing.get(listing.listingId());
+            if (stream == null) {
+                continue;
+            }
+            if (!(held.contains(stream)
+                    ? stays(filter.topN(), filter.minVolume24h(), rank, listing.volume24h())
+                    : joins(filter.topN(), filter.minVolume24h(), rank, listing.volume24h()))) {
+                continue;
+            }
+            if (streams.size() + 1 > filter.maxStreams()) {
+                capped = true;
+                break;
+            }
+            streams.add(stream);
+        }
+        return new Resolved(rule.selector(), streams, new RuleStatus(0, streams.size(), 0, capped, tick.now), tick.now);
+    }
+
+    /** How many ranked items a rule asks for: its band past top N, never more than it can keep. */
+    private static int bandLimit(final Integer topN, final int maxStreams) {
+        return topN == null ? maxStreams : Math.min((int) Math.ceil(RANK_BAND * topN), maxStreams);
+    }
+
+    /** The volume a rule asks the registry down to: the band below its minimum, so it sees items it keeps. */
+    private static double bandMinimum(final Double minVolume24h) {
+        return minVolume24h == null ? 0 : minVolume24h * VOLUME_BAND;
+    }
+
     /** Epoch millis {@code hours} after now, or 0 (no bound) without {@code hours}. */
     private static long hoursFrom(final Tick tick, final Integer hours) {
         return hours == null ? 0 : TimeUnit.NANOSECONDS.toMillis(tick.now) + TimeUnit.HOURS.toMillis(hours);
     }
 
-    private static boolean joins(final RuleSelector.EventFilter filter, final int rank, final EventVolume event) {
-        return (filter.topN() == null || rank < filter.topN())
-                && (filter.minVolume24h() == null || event.volume24h() >= filter.minVolume24h());
+    private static boolean joins(final Integer topN, final Double minVolume24h, final int rank, final double volume) {
+        return (topN == null || rank < topN) && (minVolume24h == null || volume >= minVolume24h);
     }
 
-    private static boolean stays(final RuleSelector.EventFilter filter, final int rank, final EventVolume event) {
-        return (filter.topN() == null || rank < RANK_BAND * filter.topN())
-                && (filter.minVolume24h() == null || event.volume24h() >= VOLUME_BAND * filter.minVolume24h());
+    private static boolean stays(final Integer topN, final Double minVolume24h, final int rank, final double volume) {
+        return (topN == null || rank < RANK_BAND * topN)
+                && (minVolume24h == null || volume >= VOLUME_BAND * minVolume24h);
     }
 
     /** The streams a rule wants now: its desired targets. */

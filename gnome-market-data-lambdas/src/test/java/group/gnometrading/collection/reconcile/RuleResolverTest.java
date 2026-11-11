@@ -8,6 +8,7 @@ import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.EventVolume;
 import group.gnometrading.collection.model.Interval;
 import group.gnometrading.collection.model.Lease;
+import group.gnometrading.collection.model.ListingVolume;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Rule;
@@ -67,6 +68,10 @@ class RuleResolverTest {
     private final List<RuleSelector.EventFilter> streamFiltersAsked = new ArrayList<>();
     private RuntimeException registryDown;
     private final Set<Integer> resolvedEvents = new HashSet<>();
+    // Active listings largest volume first, and each listing's book stream (listing l: 1000 + l).
+    private final List<ListingVolume> listings = new ArrayList<>();
+    private final Map<Integer, Integer> listingStreams = new HashMap<>();
+    private final List<RuleSelector.ListingFilter> listingFiltersAsked = new ArrayList<>();
     private final Map<String, Set<Integer>> removedEvents = new HashMap<>();
 
     private final Store store = new Store() {
@@ -194,6 +199,29 @@ class RuleResolverTest {
             return byEvent;
         }
 
+        @Override
+        public List<ListingVolume> listings(
+                final RuleSelector.ListingFilter filter, final double minVolume24h, final int limit) {
+            failIfDown();
+            listingFiltersAsked.add(filter);
+            minVolumesAsked.add(minVolume24h);
+            limitsAsked.add(limit);
+            return listings.stream()
+                    .filter(l -> l.volume24h() >= minVolume24h)
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public Map<Integer, Integer> streamsOfListings(final Collection<Integer> listingIds) {
+            failIfDown();
+            final Map<Integer, Integer> byListing = new HashMap<>();
+            listingIds.stream()
+                    .filter(listingStreams::containsKey)
+                    .forEach(id -> byListing.put(id, listingStreams.get(id)));
+            return byListing;
+        }
+
         private void failIfDown() {
             if (registryDown != null) {
                 throw registryDown;
@@ -228,6 +256,28 @@ class RuleResolverTest {
             eventStreams.put(e, Set.of(10 * e + 1, 10 * e + 2));
         }
         events.sort((a, b) -> Double.compare(b.volume24h(), a.volume24h()));
+    }
+
+    /** Listings 1..n, each with book stream 1000 + l, with these volumes, ranked largest first. */
+    private void listings(final double... volumes) {
+        listings.clear();
+        for (int l = 1; l <= volumes.length; l++) {
+            listings.add(new ListingVolume(l, volumes[l - 1]));
+            listingStreams.put(l, 1000 + l);
+        }
+        listings.sort((a, b) -> Double.compare(b.volume24h(), a.volume24h()));
+    }
+
+    private static RuleSelector.ListingFilter perps(final Double minVolume, final Integer topN, final int maxStreams) {
+        return new RuleSelector.ListingFilter(List.of(3, 4), List.of("PERPETUAL"), minVolume, topN, maxStreams);
+    }
+
+    private static Set<Integer> listingStreams(final int... listingIds) {
+        final Set<Integer> streams = new HashSet<>();
+        for (int l : listingIds) {
+            streams.add(1000 + l);
+        }
+        return streams;
     }
 
     /** Resolves at {@code now} and keeps what the rule selected as its desired targets, as evaluation would. */
@@ -422,5 +472,56 @@ class RuleResolverTest {
         resolver = new RuleResolver(store, registry);
         events(100, 85, 95);
         assertTrue(resolve(T0 + MINUTE).containsAll(streamsOf(2)), "2 is held by its targets, so it stays in the band");
+    }
+
+    @Test
+    void aListingRuleTakesTheBookStreamOfEveryListingAboveItsMinimumAndAsksForItsFilter() {
+        listings(5_000_000, 2_000_000, 900_000, 100_000);
+        rule(perps(1_000_000.0, null, 300));
+
+        assertEquals(listingStreams(1, 2), resolve(T0));
+        assertEquals(List.of(500_000.0), minVolumesAsked, "asks down to half the minimum, for listings it keeps");
+        assertEquals(List.of(301), limitsAsked, "one past max_streams, to know when it is capped");
+        assertEquals(List.of(perps(1_000_000.0, null, 300)), listingFiltersAsked);
+        assertEquals(new RuleStatus(0, 2, 0, false, T0), statuses.get("r1"));
+    }
+
+    @Test
+    void aListingRuleKeepsAListingDownToHalfItsMinimumAndDropsOneBelow() {
+        listings(5_000_000, 2_000_000);
+        rule(perps(1_000_000.0, null, 300));
+        assertEquals(listingStreams(1, 2), resolve(T0));
+
+        listings(5_000_000, 600_000, 800_000);
+        assertEquals(
+                listingStreams(1, 2),
+                resolve(T0 + RuleResolver.RESOLVE_EVERY_NANOS),
+                "2 keeps over half; 3 never reached the minimum");
+
+        listings(5_000_000, 400_000, 800_000);
+        assertEquals(listingStreams(1), resolve(T0 + 2 * RuleResolver.RESOLVE_EVERY_NANOS));
+    }
+
+    @Test
+    void aTopNListingRuleKeepsAListingWithinTheBandAndStopsAtMaxStreams() {
+        listings(100, 90, 80, 70);
+        rule(perps(null, 2, 100));
+        assertEquals(listingStreams(1, 2), resolve(T0));
+        assertEquals(List.of(3), limitsAsked, "asks for the band: 1.5 times top N");
+
+        listings(100, 85, 95, 70);
+        assertEquals(listingStreams(1, 2, 3), resolve(T0 + RuleResolver.RESOLVE_EVERY_NANOS));
+
+        rule(perps(null, 3, 2));
+        resolve(T0 + RuleResolver.RESOLVE_EVERY_NANOS + MINUTE);
+        assertEquals(new RuleStatus(0, 2, 0, true, T0 + RuleResolver.RESOLVE_EVERY_NANOS + MINUTE), statuses.get("r1"));
+    }
+
+    @Test
+    void aListingWithoutAnActiveStreamIsSkippedButKeepsItsRank() {
+        listings(100, 90, 80);
+        listingStreams.remove(1);
+        rule(perps(null, 2, 100));
+        assertEquals(listingStreams(2), resolve(T0));
     }
 }

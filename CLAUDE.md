@@ -174,7 +174,11 @@ holes historical data; live trading does not depend on it.
   every contract), `event_filter` (exchanges/categories/tags/expiry window/start window (`starts_within_hours`: starting within, or already started), optional `min_volume_24h` and `top_n`,
   required `max_streams`; optional `proposition_kinds`/`proposition_scopes`, e.g. `WINNER` + `match` for series
   winners only: then only contracts whose proposition matches select their event and give streams, plus the event's
-  vendor streams, and a contract whose proposition isn't read yet waits for the next resolve). The Python schemas
+  vendor streams, and a contract whose proposition isn't read yet waits for the next resolve), `listing_filter`
+  (exchanges, security type names such as `PERPETUAL`, optional `min_volume_24h` and `top_n`, required `max_streams`:
+  the book stream of each active listing, ranked by `sm.listing.volume_24h`, which the registry's exchange sync (every 15 minutes)
+  writes for Hyperliquid and Lighter; same join/stay band as `event_filter`; it asks for one listing past
+  `max_streams` to know it is capped, and its status counts streams only, `resolved_events` 0). The Python schemas
   (`collection_rules.py`) and the Java reader/resolver (`RuleItems`, `RuleResolver`) must agree. An `event` rule keeps its ids in a top-level number set `event_ids` (not in
   `parameters`) so services add and remove them atomically (`PATCH add_event_ids` / `remove_event_ids`); the
   reconciler removes resolved events. A rule with `managed_by` belongs to a system: people may rename, pause or delete

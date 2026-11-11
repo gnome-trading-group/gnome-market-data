@@ -42,4 +42,15 @@ public sealed interface RuleSelector {
             return minVolume24h != null || topN != null;
         }
     }
+
+    /**
+     * {@code listing_filter}: the book stream of every active listing on any of {@code exchangeIds} whose security is any
+     * of {@code securityTypes} (sm.security.type names, e.g. {@code PERPETUAL}; empty lists match all), largest 24-hour
+     * volume first, at most {@code maxStreams} streams. With {@code minVolume24h} or {@code topN}, a listing joins only
+     * at or above {@code minVolume24h} and within the top {@code topN}; one already collected stays while it keeps half
+     * that volume and ranks within 1.5 times {@code topN}.
+     */
+    record ListingFilter(
+            List<Integer> exchangeIds, List<String> securityTypes, Double minVolume24h, Integer topN, int maxStreams)
+            implements RuleSelector {}
 }

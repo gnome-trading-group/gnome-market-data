@@ -8,6 +8,10 @@ from decimal import Decimal
 STATIC_STREAMS = 'static_streams'
 EVENT = 'event'
 EVENT_FILTER = 'event_filter'
+LISTING_FILTER = 'listing_filter'
+
+# sm.security.type codes, by the names rules use.
+SECURITY_TYPES = {'SPOT': 0, 'PERPETUAL': 1, 'FUTURE': 2, 'OPTION': 3, 'EVENT_CONTRACT': 4}
 
 _IDS = {'type': 'array', 'items': {'type': 'integer'}}
 
@@ -49,6 +53,23 @@ RULE_TYPES = {
                                     'description': 'Starting within, or already started (events with no start time never match)'},
             'min_volume_24h': {'type': 'number', 'minimum': 0,
                                'description': 'About USD over 24h (Polymarket US is a coarse bucket)'},
+            'top_n': {'type': 'integer', 'minimum': 1, 'description': 'The N largest by 24h volume'},
+            'max_streams': {'type': 'integer', 'minimum': 1, 'default': 200,
+                            'description': 'Never more than this many streams'},
+        },
+        'required': ['max_streams'],
+    },
+    LISTING_FILTER: {
+        'description': 'The book stream of every active listing matching every filter, largest 24h volume first, up to '
+                       'max_streams. With a minimum volume or top N, listings join by 24h volume and stay down to half '
+                       'the minimum and 1.5x top N. Volume is the venue\'s, as the registry\'s exchange sync read it '
+                       'within 15 minutes; listings it doesn\'t read (prediction-market contracts) have none.',
+        'type': 'object',
+        'properties': {
+            'exchange_ids': {**_IDS, 'description': 'Any of these exchanges'},
+            'security_types': {'type': 'array', 'items': {'type': 'string', 'enum': list(SECURITY_TYPES)},
+                               'description': 'Any of these security types'},
+            'min_volume_24h': {'type': 'number', 'minimum': 0, 'description': 'About USD over 24h'},
             'top_n': {'type': 'integer', 'minimum': 1, 'description': 'The N largest by 24h volume'},
             'max_streams': {'type': 'integer', 'minimum': 1, 'default': 200,
                             'description': 'Never more than this many streams'},
@@ -98,6 +119,9 @@ def _check(name: str, prop: dict, value):
             raise ValueError(f'{name} must be positive ids')
         if item == 'string' and not all(isinstance(v, str) and v.strip() for v in value):
             raise ValueError(f'{name} must be non-empty strings')
+        allowed = prop['items'].get('enum')
+        if allowed is not None and not all(v.strip() in allowed for v in value):
+            raise ValueError(f'{name} must each be one of {allowed}')
         return sorted(set(value)) if item == 'integer' else sorted({v.strip() for v in value})
     if kind == 'integer':
         if not _is_int(value):
@@ -159,6 +183,49 @@ def proposition_query(parameters: dict) -> dict:
     return {param: ','.join(parameters[key])
             for key, param in (('proposition_kinds', 'propositionKinds'), ('proposition_scopes', 'propositionScopes'))
             if parameters.get(key)}
+
+
+def listing_limit(parameters: dict) -> int:
+    """How many ranked listings a listing_filter rule asks for: as many as it can keep, and one past max_streams so a
+    rule that leaves listings out knows it is capped."""
+    max_streams = parameters.get('max_streams', DEFAULT_MAX_STREAMS) + 1
+    top_n = parameters.get('top_n')
+    return min(math.ceil(RANK_BAND * top_n), max_streams) if top_n is not None else max_streams
+
+
+def listing_query(parameters: dict) -> dict:
+    """The registry /listings query a listing_filter rule makes: active listings, largest 24h volume first."""
+    query = {'active': 'true', 'sortBy': 'volume_24h', 'sortOrder': 'desc', 'limit': listing_limit(parameters)}
+    if parameters.get('exchange_ids'):
+        query['exchangeIds'] = ','.join(str(v) for v in parameters['exchange_ids'])
+    if parameters.get('security_types'):
+        query['securityTypes'] = ','.join(str(SECURITY_TYPES[t]) for t in parameters['security_types'])
+    if parameters.get('min_volume_24h') is not None:
+        query['minVolume24h'] = parameters['min_volume_24h'] * VOLUME_BAND
+    return query
+
+
+def select_listings(parameters: dict, ranked: list[dict], stream_by_listing: dict[int, int]) -> dict:
+    """What a new listing_filter rule would collect from ranked listings (registry rows, best first) and their active
+    book streams: listings that join (top N, minimum volume) in order, up to max_streams. The reconciler also keeps
+    listings it already collects within the band; a new rule has none."""
+    top_n = parameters.get('top_n')
+    min_volume = parameters.get('min_volume_24h')
+    max_streams = parameters.get('max_streams', DEFAULT_MAX_STREAMS)
+    listings, streams, capped = [], [], False
+    for rank, listing in enumerate(ranked):
+        stream = stream_by_listing.get(listing['listing_id'])
+        if stream is None:
+            continue
+        volume = listing.get('volume_24h') or 0
+        if (top_n is not None and rank >= top_n) or (min_volume is not None and volume < min_volume):
+            continue
+        if len(streams) + 1 > max_streams:
+            capped = True
+            break
+        listings.append(listing)
+        streams.append(stream)
+    return {'listings': listings, 'streams': streams, 'capped': capped}
 
 
 def select(parameters: dict, ranked: list[dict], streams_by_event: dict[int, list[int]]) -> dict:

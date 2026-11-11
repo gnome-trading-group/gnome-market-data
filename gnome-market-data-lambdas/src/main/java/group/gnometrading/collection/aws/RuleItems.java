@@ -19,6 +19,7 @@ final class RuleItems {
     static final String STATIC_STREAMS = "static_streams";
     static final String EVENT = "event";
     static final String EVENT_FILTER = "event_filter";
+    static final String LISTING_FILTER = "listing_filter";
 
     private RuleItems() {}
 
@@ -40,6 +41,12 @@ final class RuleItems {
                             strings(parameters.get("proposition_scopes")),
                             integer(parameters.get("expires_within_hours")),
                             integer(parameters.get("starts_within_hours")),
+                            decimal(parameters.get("min_volume_24h")),
+                            integer(parameters.get("top_n")),
+                            integer(parameters.get("max_streams")));
+                    case LISTING_FILTER -> new RuleSelector.ListingFilter(
+                            List.copyOf(ints(parameters.get("exchange_ids"))),
+                            strings(parameters.get("security_types")),
                             decimal(parameters.get("min_volume_24h")),
                             integer(parameters.get("top_n")),
                             integer(parameters.get("max_streams")));

@@ -76,6 +76,23 @@ class RuleItemsTest {
     }
 
     @Test
+    void aListingFilterRuleReadsItsExchangesTypesAndVolumeClause() {
+        final Rule rule = RuleItems.parse(item(
+                "listing_filter",
+                Map.of(
+                        "exchange_ids", numbers(3, 4),
+                        "security_types", AttributeValue.fromL(List.of(AttributeValue.fromS("PERPETUAL"))),
+                        "min_volume_24h", AttributeValue.fromN("1000000"),
+                        "max_streams", AttributeValue.fromN("300"))));
+        final RuleSelector.ListingFilter filter = (RuleSelector.ListingFilter) rule.selector();
+        assertEquals(Set.of(3, 4), Set.copyOf(filter.exchangeIds()));
+        assertEquals(List.of("PERPETUAL"), filter.securityTypes());
+        assertEquals(1_000_000.0, filter.minVolume24h());
+        assertEquals(null, filter.topN());
+        assertEquals(300, filter.maxStreams());
+    }
+
+    @Test
     void anEventRuleWithNoIdsLeftSelectsNothing() {
         assertEquals(
                 new RuleSelector.EventIds(Set.of()),

@@ -2,8 +2,8 @@ from decimal import Decimal
 
 import pytest
 
-from collection_rules import (EVENT, EVENT_FILTER, STATIC_STREAMS, event_query, item_fields, proposition_query, select,
-                              validate, view)
+from collection_rules import (EVENT, EVENT_FILTER, LISTING_FILTER, STATIC_STREAMS, event_query, item_fields,
+                              listing_query, proposition_query, select, select_listings, validate, view)
 
 
 def test_a_static_rule_needs_streams_and_keeps_each_once():
@@ -86,3 +86,38 @@ def test_a_proposition_filter_asks_for_events_and_streams_of_matching_contracts(
     query = event_query(parameters, 0)
     assert (query['propositionKinds'], query['propositionScopes']) == ('WINNER', 'match')
     assert proposition_query({'max_streams': 10}) == {}
+
+
+def test_a_listing_filter_takes_security_types_by_name_once_each():
+    assert validate(LISTING_FILTER, {'exchange_ids': [4, 3], 'security_types': ['SPOT', 'PERPETUAL', 'SPOT'],
+                                     'min_volume_24h': 1_000_000}) == {
+        'exchange_ids': [3, 4], 'security_types': ['PERPETUAL', 'SPOT'], 'min_volume_24h': 1_000_000,
+        'max_streams': 200}
+    with pytest.raises(ValueError, match='security_types must each be one of'):
+        validate(LISTING_FILTER, {'security_types': ['PERP']})
+    with pytest.raises(ValueError, match="unknown parameters for listing_filter: \\['categories'\\]"):
+        validate(LISTING_FILTER, {'categories': ['Crypto']})
+
+
+def test_a_listing_filter_asks_for_active_listings_by_volume_within_the_band():
+    assert listing_query({'exchange_ids': [3, 4], 'security_types': ['PERPETUAL'], 'min_volume_24h': 1_000_000,
+                          'top_n': 20, 'max_streams': 300}) == {
+        'active': 'true', 'sortBy': 'volume_24h', 'sortOrder': 'desc', 'limit': 30, 'exchangeIds': '3,4',
+        'securityTypes': '1', 'minVolume24h': 500_000}
+    assert listing_query({'max_streams': 50}) == {
+        'active': 'true', 'sortBy': 'volume_24h', 'sortOrder': 'desc', 'limit': 51}
+
+
+def test_a_new_listing_rule_takes_joining_listings_up_to_the_cap():
+    ranked = [{'listing_id': i, 'volume_24h': v} for i, v in [(1, 900), (2, 800), (3, 700), (4, 400), (5, None)]]
+    streams = {1: 11, 3: 13, 4: 14, 5: 15}
+
+    chosen = select_listings({'min_volume_24h': 500, 'max_streams': 200}, ranked, streams)
+    # Listing 2 has no active stream; 4 is in the band below the minimum, which only keeps listings already collected.
+    assert [row['listing_id'] for row in chosen['listings']] == [1, 3]
+    assert chosen['streams'] == [11, 13]
+    assert not chosen['capped']
+
+    capped = select_listings({'max_streams': 2}, ranked, streams)
+    assert capped['streams'] == [11, 13]
+    assert capped['capped']

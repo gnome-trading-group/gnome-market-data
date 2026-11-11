@@ -10,6 +10,7 @@ import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.EventVolume;
 import group.gnometrading.collection.model.Interval;
 import group.gnometrading.collection.model.Lease;
+import group.gnometrading.collection.model.ListingVolume;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Rule;
@@ -232,6 +233,17 @@ class ReconcilerTest {
                 @Override
                 public Map<Integer, Set<Integer>> streamsOfEvents(
                         final Collection<Integer> eventIds, final RuleSelector.EventFilter filter) {
+                    return Map.of();
+                }
+
+                @Override
+                public List<ListingVolume> listings(
+                        final RuleSelector.ListingFilter filter, final double minVolume24h, final int limit) {
+                    return List.of();
+                }
+
+                @Override
+                public Map<Integer, Integer> streamsOfListings(final Collection<Integer> listingIds) {
                     return Map.of();
                 }
             },

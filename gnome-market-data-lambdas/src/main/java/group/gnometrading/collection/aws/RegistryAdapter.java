@@ -6,6 +6,7 @@ import group.gnometrading.RegistryConnection;
 import group.gnometrading.SecurityMaster;
 import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.EventVolume;
+import group.gnometrading.collection.model.ListingVolume;
 import group.gnometrading.collection.model.RuleSelector;
 import group.gnometrading.collection.model.SourceLimits;
 import group.gnometrading.collection.model.StreamInfo;
@@ -15,7 +16,9 @@ import group.gnometrading.md.SourceAccount;
 import group.gnometrading.md.Stream;
 import group.gnometrading.sm.Event;
 import group.gnometrading.sm.EventQuery;
+import group.gnometrading.sm.ListingQuery;
 import group.gnometrading.sm.PropositionFilter;
+import group.gnometrading.sm.SecurityType;
 import group.gnometrading.strings.ViewString;
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -156,6 +159,33 @@ public final class RegistryAdapter implements Registry {
             if (stream.active()) {
                 streams.computeIfAbsent(stream.eventId(), event -> new HashSet<>())
                         .add(stream.streamId());
+            }
+        }
+        return streams;
+    }
+
+    @Override
+    public List<ListingVolume> listings(
+            final RuleSelector.ListingFilter filter, final double minVolume24h, final int limit) {
+        final ListingQuery query = new ListingQuery(
+                filter.exchangeIds(),
+                filter.securityTypes().stream().map(SecurityType::valueOf).toList(),
+                minVolume24h,
+                limit);
+        final List<ListingVolume> listings = new ArrayList<>();
+        for (group.gnometrading.sm.ListingVolume listing : securityMaster.getListingVolumes(query)) {
+            listings.add(new ListingVolume(listing.listingId(), listing.volume24h()));
+        }
+        return listings;
+    }
+
+    @Override
+    public Map<Integer, Integer> streamsOfListings(final Collection<Integer> listingIds) {
+        final Map<Integer, Integer> streams = new HashMap<>();
+        final int[] ids = listingIds.stream().mapToInt(Integer::intValue).toArray();
+        for (Stream stream : securityMaster.getStreamsForListings(ids)) {
+            if (stream.active()) {
+                streams.put(stream.listingId(), stream.streamId());
             }
         }
         return streams;

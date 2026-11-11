@@ -2,6 +2,7 @@ package group.gnometrading.collection.ports;
 
 import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.EventVolume;
+import group.gnometrading.collection.model.ListingVolume;
 import group.gnometrading.collection.model.RuleSelector;
 import group.gnometrading.collection.model.SourceLimits;
 import group.gnometrading.collection.model.StreamInfo;
@@ -46,4 +47,13 @@ public interface Registry {
      * when it is not null) and its vendor streams; an event with none is left out.
      */
     Map<Integer, Set<Integer>> streamsOfEvents(Collection<Integer> eventIds, RuleSelector.EventFilter filter);
+
+    /**
+     * Up to {@code limit} active listings matching {@code filter}'s exchanges and security types, with at least
+     * {@code minVolume24h} (0: any), largest volume first.
+     */
+    List<ListingVolume> listings(RuleSelector.ListingFilter filter, double minVolume24h, int limit);
+
+    /** Each listing's active book stream, by listing; a listing with none is left out. */
+    Map<Integer, Integer> streamsOfListings(Collection<Integer> listingIds);
 }
