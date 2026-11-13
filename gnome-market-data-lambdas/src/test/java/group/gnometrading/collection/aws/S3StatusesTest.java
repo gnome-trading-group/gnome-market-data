@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.collection.model.StreamState;
+import group.gnometrading.collection.model.TaskErrors;
 import group.gnometrading.collection.model.TaskStatus;
 import group.gnometrading.collection.model.Transition;
 import java.util.List;
@@ -25,7 +26,8 @@ class S3StatusesTest {
                             {"id":13,"state":"FAILED","last_event_ns":0,"last_receive_ns":0,"last_verified_ns":0,
                              "resyncs":0,"records":0,"failure":"IllegalStateException: bad"}],
                  "transitions_recorded":3,
-                 "transitions":[[12,"NONE","SUBSCRIBING",10],[12,"SUBSCRIBING","LIVE",20],[13,"NONE","FAILED",30]]}
+                 "transitions":[[12,"NONE","SUBSCRIBING",10],[12,"SUBSCRIBING","LIVE",20],[13,"NONE","FAILED",30]],
+                 "errors":{"total":9,"last_hour":4,"latest":"Shard tick failed: boom","latest_at_ns":88}}
                 """;
 
         TaskStatus status = S3Statuses.parse(new ObjectMapper().readTree(json));
@@ -39,8 +41,23 @@ class S3StatusesTest {
                         List.of(
                                 new Transition(12, "NONE", "SUBSCRIBING", 10),
                                 new Transition(12, "SUBSCRIBING", "LIVE", 20),
-                                new Transition(13, "NONE", "FAILED", 30))),
+                                new Transition(13, "NONE", "FAILED", 30)),
+                        new TaskErrors(9, 4, "Shard tick failed: boom", 88)),
                 status);
         assertEquals("collection/shards/use1-1/status/", S3Statuses.prefix("use1-1"));
+    }
+
+    @Test
+    void aStatusFromAReleaseThatDoesntReportErrorsHasNone() throws Exception {
+        TaskStatus status = S3Statuses.parse(new ObjectMapper()
+                .readTree("{\"shard_id\":\"use1-1\",\"task_id\":\"t\",\"written_at_ns\":1,\"streams\":[],"
+                        + "\"transitions\":[],\"errors\":{\"total\":0,\"last_hour\":0,\"latest\":null,"
+                        + "\"latest_at_ns\":0}}"));
+        TaskStatus older = S3Statuses.parse(new ObjectMapper()
+                .readTree("{\"shard_id\":\"use1-1\",\"task_id\":\"t\",\"written_at_ns\":1,\"streams\":[],"
+                        + "\"transitions\":[]}"));
+
+        assertEquals(TaskErrors.NONE, status.errors());
+        assertEquals(TaskErrors.NONE, older.errors());
     }
 }

@@ -5,7 +5,7 @@ and write one-minute files straight to the final bucket `gnome-market-data-<stag
 (gnomepy, gnome-backtest). The collection reconciler (a Java Lambda) decides what is collected where: it turns rules
 into targets, places them on shards, starts and stops shard services, hands streams between shards, and records
 coverage and gaps. The `market-data-api` REST API backs the controller's Market Data pages. A failure here delays or
-holes historical data; live trading does not depend on it.
+holes historical data, and sessions read their live market data from shards (live sessions from PRODUCTION shards), so a shard problem shows in trading as bad market data.
 
 ## Commands
 
@@ -56,7 +56,8 @@ holes historical data; live trading does not depend on it.
     `gnome/api-keys/market-data`) on `collection/rules`, `collection/leases` (the registry's launcher, sessions),
     `collection/coverage/{streamId}` and `collection/missing` (backtests); bots read the last two. Publishes the API
     URL to SSM `/gnome/market-data/api-url` (read by the registry's launcher; no export, which would be a cycle)
-  - `monitoring-stack`: the reconciler's fault alarm
+  - `monitoring-stack`: the reconciler's and the shard log digest's fault alarms, and the digest itself
+    (`lambda/functions/monitoring/shard-log-digest`, daily at 13:00 UTC)
 - `cdk/lib/constructs/java-lambda.ts`: shared Java Lambda (2048 MB default, 15 min timeout, JSON logs, one-month retention). Images are pinned to
   `linux/amd64`: one built on an arm64 Mac otherwise fails with `Runtime.InvalidEntrypoint`.
 - `cdk/lambda/`: Python API handlers (`functions/collection/*`) and the
@@ -202,7 +203,8 @@ holes historical data; live trading does not depend on it.
     schedule) → one tick.
 - Logs: Lambdas `/aws/lambda/<function name>` (JSON); shards `/collection/shards-<region>` in that region, stream
   `shard/ShardContainer/<task>`, one-week retention (also `GET collection/shards/{id}/logs`).
-- Alerts: the reconciler raises `COLLECTOR_SHARD_DOWN`, `STREAM_NOT_LIVE`, `STREAM_STALE`, `COLLECTION_BUDGET` (no
+- Alerts: the reconciler raises `COLLECTOR_SHARD_DOWN`, `SHARD_ERRORS` (a shard's fresh statuses report 3+ unexpected
+  errors, `UNKNOWN_ERROR`s, in the last hour; stays open while any remain in the hour; title carries the latest line), `STREAM_NOT_LIVE`, `STREAM_STALE`, `COLLECTION_BUDGET` (no
   account room per source, or a partition at `max_shards`), `LEASED_STREAM_UNPLACED` (a leased stream on no shard 5
   minutes after it went unplaced or was leased, whichever is later, including an unknown stream that can never be
   placed; an ended listing is skipped, nothing is left to collect; one per source and region, label `streams`;
@@ -213,4 +215,10 @@ holes historical data; live trading does not depend on it.
   alerting stack raises `CLOUDWATCH_ALARM` for:
   - `MarketData--ReconcilerLambda-Fault-Count-Error` (RECONCILER_FAILING): 3+ failed ticks in the period. Read
     `/aws/lambda/<Stage>-MarketDataReconcilerStack-Reconciler-v1`.
+  - `MarketData--ShardLogDigestLambda-Fault-Count-Error` (DIGEST_FAILING): the daily digest failed. Read
+    `/aws/lambda/<its function name>`.
+- Shard log digest: once a day the `ShardLogDigestFunction` Lambda counts the last 24 h of `UNKNOWN_ERROR` and
+  `FATAL_ERROR_EXITING` lines in every region's shard log group by kind (ids and numbers taken out), against the day
+  before, and raises one INFO `SHARD_LOG_DIGEST:<date>` alert (Slack only) naming the top 15 and which are new. A day
+  with none posts nothing. Logic in `digest.py`, tested by `cdk/lambda/tests/test_shard_log_digest.py`.
 - Runbooks: gnome-registry `docs/runbooks/cloudwatch/MarketData.md` and `docs/runbooks/alerts/<TYPE>.md`.

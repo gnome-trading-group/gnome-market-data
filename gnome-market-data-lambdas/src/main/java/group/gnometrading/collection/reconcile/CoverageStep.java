@@ -4,6 +4,7 @@ import group.gnometrading.collection.model.Interval;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.StreamState;
 import group.gnometrading.collection.model.Target;
+import group.gnometrading.collection.model.TaskErrors;
 import group.gnometrading.collection.model.TaskStatus;
 import group.gnometrading.collection.ports.Statuses;
 import group.gnometrading.collection.ports.Store;
@@ -75,6 +76,7 @@ final class CoverageStep {
                 status.streams()
                         .forEach(stream -> states.merge(
                                 stream.streamId(), stream.state(), (a, b) -> Tick.COVERED.contains(a) ? a : b));
+                tick.shardErrors.merge(shard.shardId(), status.errors(), TaskErrors::and);
             }
             tick.lastStatusNanos.merge(shard.shardId(), status.writtenAtNanos(), Math::max);
         }

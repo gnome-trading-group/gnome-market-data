@@ -27,6 +27,10 @@ final class AlertStep {
     // leaves
     // someone half of that to act.
     static final long LEASE_UNPLACED_ALERT_NANOS = TimeUnit.MINUTES.toNanos(5);
+    // A week of prod logs, replayed: three in an hour caught every real bug there (one recurred only about hourly) in
+    // 12 alerts, while one error alone would have opened 30. Once open, it stays open until an hour passes without one.
+    static final int SHARD_ERRORS_PER_HOUR = 3;
+    private static final int TITLE_LATEST_CHARS = 300;
 
     private final Store store;
     private final Alerts alerts;
@@ -46,6 +50,7 @@ final class AlertStep {
     void run(final Tick tick) {
         final Map<String, Firing> firing = new HashMap<>();
         shardsDown(tick, firing);
+        shardErrors(tick, firing);
         streamsUncovered(tick, firing);
         leasedStreamsUnplaced(tick, firing);
         leasesOnEndedStreams(tick, firing);
@@ -104,6 +109,44 @@ final class AlertStep {
                                         shard.partition().region())));
             }
         }
+    }
+
+    /**
+     * Shards whose tasks logged {@link #SHARD_ERRORS_PER_HOUR} or more unexpected errors in the last hour; one already
+     * firing stays so while any remain in it, so a slowly recurring error is one alert rather than one an hour.
+     */
+    private void shardErrors(final Tick tick, final Map<String, Firing> firing) {
+        final Map<String, String> open = store.firingAlerts();
+        tick.shardErrors.forEach((shardId, errors) -> {
+            final String key = "SHARD_ERRORS:" + shardId;
+            final boolean fires =
+                    errors.lastHour() >= SHARD_ERRORS_PER_HOUR || (open.containsKey(key) && errors.lastHour() > 0);
+            final ShardRecord shard = tick.shards.get(shardId);
+            if (!fires || shard == null) {
+                return;
+            }
+            final String latest = errors.latest() == null ? "" : errors.latest();
+            firing.put(
+                    key,
+                    new Firing(
+                            "SHARD_ERRORS",
+                            "Shard " + shardId + " logged " + errors.lastHour()
+                                    + " unexpected errors in the last hour; the latest: "
+                                    + abbreviate(latest, TITLE_LATEST_CHARS),
+                            Map.of(
+                                    "shard",
+                                    shardId,
+                                    "region",
+                                    shard.partition().region(),
+                                    "last_hour",
+                                    Integer.toString(errors.lastHour()),
+                                    "latest",
+                                    latest)));
+        });
+    }
+
+    private static String abbreviate(final String text, final int chars) {
+        return text.length() <= chars ? text : text.substring(0, chars) + "…";
     }
 
     /**

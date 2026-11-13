@@ -22,6 +22,7 @@ import group.gnometrading.collection.model.SourceLimits;
 import group.gnometrading.collection.model.StreamInfo;
 import group.gnometrading.collection.model.StreamState;
 import group.gnometrading.collection.model.Target;
+import group.gnometrading.collection.model.TaskErrors;
 import group.gnometrading.collection.model.TaskStatus;
 import group.gnometrading.collection.model.Transition;
 import group.gnometrading.collection.ports.Alerts;
@@ -64,6 +65,7 @@ class ReconcilerTest {
     private final Map<String, List<TaskStatus>> statuses = new HashMap<>();
     private final Set<String> services = new java.util.HashSet<>();
     private final List<String> alertEvents = new ArrayList<>();
+    private final Map<String, String> alertTitles = new HashMap<>();
     private final String version = "1.23.0";
     // Set to roll: until then a newer release changes nothing for running shards.
     private String rollTo;
@@ -289,6 +291,7 @@ class ReconcilerTest {
                         final Map<String, String> labels,
                         final String sessionId) {
                     alertEvents.add("FIRING " + key);
+                    alertTitles.put(key, title);
                     if (sessionId != null) {
                         alertSessions.put(key, sessionId);
                     }
@@ -367,6 +370,16 @@ class ReconcilerTest {
         shard.streams().forEach(id -> states.add(new StreamState(id, state)));
         shard.draining().forEach(id -> states.add(new StreamState(id, state)));
         statuses.put(shardId, List.of(new TaskStatus(shardId, task, at, states, List.of(transitions))));
+    }
+
+    private void reportErrors(final String shardId, final long at, final int lastHour, final String latest) {
+        ShardRecord shard = shards.get(shardId);
+        List<StreamState> states = new ArrayList<>();
+        shard.streams().forEach(id -> states.add(new StreamState(id, "LIVE")));
+        statuses.put(
+                shardId,
+                List.of(new TaskStatus(
+                        shardId, "t1", at, states, List.of(), new TaskErrors(lastHour, lastHour, latest, at))));
     }
 
     // ----- tests -----
@@ -850,6 +863,42 @@ class ReconcilerTest {
         report("use1-1", "t1", T0 + 7 * MINUTE, "LIVE");
         reconciler.tick(T0 + 7 * MINUTE);
         assertTrue(alertEvents.contains("RESOLVED COLLECTOR_SHARD_DOWN:use1-1"));
+    }
+
+    @Test
+    void aShardWithThreeUnexpectedErrorsInAnHourRaisesAnAlertNamingTheLatest() {
+        wantStreams(1);
+        reconciler.tick(T0);
+
+        reportErrors("use1-1", T0 + MINUTE, 2, "Shard status failed: IndexOutOfBoundsException");
+        reconciler.tick(T0 + MINUTE);
+        assertFalse(firingAlerts.containsKey("SHARD_ERRORS:use1-1"), "two is short of three");
+
+        reportErrors("use1-1", T0 + 2 * MINUTE, 3, "Error occurred in POLYMARKET_US-5: IllegalStateException");
+        reconciler.tick(T0 + 2 * MINUTE);
+        assertTrue(alertEvents.contains("FIRING SHARD_ERRORS:use1-1"));
+        assertTrue(
+                alertTitles
+                        .get("SHARD_ERRORS:use1-1")
+                        .endsWith("Error occurred in POLYMARKET_US-5: IllegalStateException"),
+                alertTitles.get("SHARD_ERRORS:use1-1"));
+    }
+
+    @Test
+    void aShardErrorsAlertStaysOpenWhileAnyRemainInTheHourAndResolvesAfter() {
+        wantStreams(1);
+        reconciler.tick(T0);
+        reportErrors("use1-1", T0 + MINUTE, 3, "boom");
+        reconciler.tick(T0 + MINUTE);
+
+        reportErrors("use1-1", T0 + 2 * MINUTE, 1, "boom");
+        reconciler.tick(T0 + 2 * MINUTE);
+        assertTrue(firingAlerts.containsKey("SHARD_ERRORS:use1-1"), "one recurring error keeps it open");
+        assertFalse(alertEvents.contains("RESOLVED SHARD_ERRORS:use1-1"));
+
+        reportErrors("use1-1", T0 + 3 * MINUTE, 0, "boom");
+        reconciler.tick(T0 + 3 * MINUTE);
+        assertTrue(alertEvents.contains("RESOLVED SHARD_ERRORS:use1-1"));
     }
 
     @Test

@@ -7,6 +7,7 @@ import group.gnometrading.collection.model.Settings;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.StreamInfo;
 import group.gnometrading.collection.model.Target;
+import group.gnometrading.collection.model.TaskErrors;
 import group.gnometrading.collection.ports.Store;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -41,6 +42,8 @@ final class Tick {
     // Per shard: each stream's state in its fresh statuses, and when the shard last wrote any status.
     final Map<String, Map<Integer, String>> streamStates = new HashMap<>();
     final Map<String, Long> lastStatusNanos = new HashMap<>();
+    // Per shard: the unexpected errors its fresh statuses report, every task's together.
+    final Map<String, TaskErrors> shardErrors = new HashMap<>();
     // Per source: streams that couldn't be placed for want of account budget.
     final Map<String, Integer> budgetShort = new HashMap<>();
     // Per partition: streams that couldn't be placed because it is at its max_shards.

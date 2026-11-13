@@ -3,6 +3,7 @@ package group.gnometrading.collection.aws;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.collection.model.StreamState;
+import group.gnometrading.collection.model.TaskErrors;
 import group.gnometrading.collection.model.TaskStatus;
 import group.gnometrading.collection.model.Transition;
 import group.gnometrading.collection.ports.Statuses;
@@ -85,6 +86,20 @@ public final class S3Statuses implements Statuses {
                 status.path("task_id").asText(),
                 status.path("written_at_ns").asLong(),
                 streams,
-                transitions);
+                transitions,
+                errors(status.path("errors")));
+    }
+
+    /** A release that doesn't report its errors reports none. */
+    private static TaskErrors errors(final JsonNode errors) {
+        if (!errors.isObject()) {
+            return TaskErrors.NONE;
+        }
+        final JsonNode latest = errors.path("latest");
+        return new TaskErrors(
+                errors.path("total").asLong(),
+                errors.path("last_hour").asInt(),
+                latest.isTextual() ? latest.asText() : null,
+                errors.path("latest_at_ns").asLong());
     }
 }

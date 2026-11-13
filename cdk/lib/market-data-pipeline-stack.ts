@@ -69,6 +69,7 @@ class AppStage extends cdk.Stage {
       config,
       api: backendStack.api,
       reconcilerLambda: reconcilerStack.reconcilerLambda,
+      collectionRegions: COLLECTION_REGIONS,
     });
   }
 }
