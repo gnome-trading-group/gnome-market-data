@@ -125,6 +125,8 @@ public final class EcsServices implements Services {
                         .requiresCompatibilities(base.requiresCompatibilities())
                         .memory(base.memory())
                         .cpu(base.cpu())
+                        // The container's mount points name the base's volumes, so a copy without them is refused.
+                        .volumes(base.volumes())
                         .containerDefinitions(containers))
                 .taskDefinition()
                 .taskDefinitionArn();

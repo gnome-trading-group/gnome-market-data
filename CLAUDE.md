@@ -45,7 +45,7 @@ holes historical data; live trading does not depend on it.
   - `collection-regional-stack`: per region, cluster `CollectionCluster-<region>` in the platform network, on-demand and
     Spot capacity providers (one shard per host, host networking; `SPOT_TYPES` r7a.medium then m7a.large/m6a.large,
     lowest-price allocation), base task definition
-    `collection-shard-<region>` (512 MiB `/dev/shm` for Aeron; `EcsServices` copies the container, so only shards
+    `collection-shard-<region>` (512 MiB `/dev/shm` for Aeron; `EcsServices` copies the container and the volumes, so only shards
     started after a change get it), roles (the task role may `PutItem` `shard#*` items in us-east-1
     `service-endpoints`, gnome-shared-cdk `SERVICE_ENDPOINTS`), log group `/collection/shards-<region>`.
     `collectionNames()` must match `EcsServices`.
