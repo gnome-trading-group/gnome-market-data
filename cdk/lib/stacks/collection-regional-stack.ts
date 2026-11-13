@@ -5,10 +5,13 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecrAssets from "aws-cdk-lib/aws-ecr-assets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as path from "path";
 import * as fs from "fs";
 import { Construct } from "constructs";
-import { lookupPlatformNetwork, PRIMARY_REGION, SERVICE_ENDPOINTS } from "@gnome-trading-group/gnome-shared-cdk";
+import {
+  CLOCK_STATUS_DIR, hostClockUserData, lookupPlatformNetwork, PLATFORM_SSM, PRIMARY_REGION, SERVICE_ENDPOINTS,
+} from "@gnome-trading-group/gnome-shared-cdk";
 import { MarketDataConfig } from "../config";
 
 export interface CollectionRegionalStackProps extends cdk.StackProps {
@@ -65,20 +68,33 @@ export class CollectionRegionalStack extends cdk.Stack {
         iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore"),
       ],
     });
-    const hostTemplate = (id: string, instanceType: string) => new ec2.LaunchTemplate(this, id, {
-      instanceType: new ec2.InstanceType(instanceType),
-      machineImage: ecs.EcsOptimizedImage.amazonLinux2023(),
-      role: hostRole,
-      securityGroup,
-      requireImdsv2: true,
-      userData: ec2.UserData.forLinux(),
-      blockDevices: [{ deviceName: "/dev/xvda", volume: ec2.BlockDeviceVolume.ebs(30, { encrypted: true }) }],
-    });
+    const hostTemplate = (id: string, instanceType: string, placementGroup?: string) => {
+      const userData = ec2.UserData.forLinux();
+      userData.addCommands(...hostClockUserData());
+      const template = new ec2.LaunchTemplate(this, id, {
+        instanceType: new ec2.InstanceType(instanceType),
+        machineImage: ecs.EcsOptimizedImage.amazonLinux2023(),
+        role: hostRole,
+        securityGroup,
+        requireImdsv2: true,
+        userData,
+        blockDevices: [{ deviceName: "/dev/xvda", volume: ec2.BlockDeviceVolume.ebs(30, { encrypted: true }) }],
+      });
+      if (placementGroup) {
+        (template.node.defaultChild as ec2.CfnLaunchTemplate)
+          .addPropertyOverride("LaunchTemplateData.Placement.GroupName", placementGroup);
+      }
+      return template;
+    };
+    // Production shards feed live sessions, which compare the shard's receive time with their own, so their hosts get
+    // the Nitro hardware clock. Spot hosts (research) stay on Amazon Time Sync: the group's capacity would narrow the
+    // Spot pool for no use.
+    const precisionTimeGroup = ssm.StringParameter.valueForStringParameter(this, PLATFORM_SSM.precisionTimeGroup);
 
     const onDemand = new autoscaling.AutoScalingGroup(this, "OnDemandHosts", {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      launchTemplate: hostTemplate("OnDemandTemplate", ON_DEMAND_TYPE),
+      launchTemplate: hostTemplate("OnDemandTemplate", ON_DEMAND_TYPE, precisionTimeGroup),
       minCapacity: 0,
       maxCapacity: MAX_HOSTS,
       newInstancesProtectedFromScaleIn: true,
@@ -177,8 +193,10 @@ export class CollectionRegionalStack extends cdk.Stack {
       networkMode: ecs.NetworkMode.HOST,
       taskRole,
       executionRole,
+      // The host's clock state, which the shard reports in its heartbeat.
+      volumes: [{ name: "clock", host: { sourcePath: CLOCK_STATUS_DIR } }],
     });
-    taskDefinition.addContainer("ShardContainer", {
+    const container = taskDefinition.addContainer("ShardContainer", {
       containerName: "ShardContainer",
       image: ecs.ContainerImage.fromDockerImageAsset(new ecrAssets.DockerImageAsset(this, "ShardImage", {
         directory: this.ensureDockerfile(),
@@ -214,6 +232,7 @@ export class CollectionRegionalStack extends cdk.Stack {
       // On SIGTERM the shard stops its streams, flushes every partial minute and drains the uploader within 60 + 45 s.
       stopTimeout: cdk.Duration.seconds(120),
     });
+    container.addMountPoints({ sourceVolume: "clock", containerPath: CLOCK_STATUS_DIR, readOnly: true });
   }
 
   private ensureDockerfile() {
