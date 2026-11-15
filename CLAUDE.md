@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Historical market data. Shards (gnome-orchestrator `ShardOrchestrator`, ECS on EC2 in three regions) collect venue feeds
+Historical market data. Shards (gnome-orchestrator `ShardOrchestrator`, ECS on EC2 in four regions) collect venue feeds
 and write one-minute files straight to the final bucket `gnome-market-data-<stage>`, which feeds backtests and research
 (gnomepy, gnome-backtest). The collection reconciler (a Java Lambda) decides what is collected where: it turns rules
 into targets, places them on shards, starts and stops shard services, hands streams between shards, and records
@@ -38,7 +38,7 @@ holes historical data, and sessions read their live market data from shards (liv
     take what they need from it and read no env vars themselves), `SqsBatch`, `S3Utils`; `common/config/`:
     `MarketDataConfig` + `MarketDataServiceConfig` (the Service Config entry `market-data`, typed, defaults sent as
     `x-config-defaults`).
-- `cdk/lib/market-data-pipeline-stack.ts`: `MarketDataPipeline` and the per-stage `AppStage`. `COLLECTION_REGIONS` = us-east-1, ap-northeast-1, eu-west-1.
+- `cdk/lib/market-data-pipeline-stack.ts`: `MarketDataPipeline` and the per-stage `AppStage`. `COLLECTION_REGIONS` = us-east-1, ap-northeast-1, eu-west-1, us-east-2.
 - `cdk/lib/stacks/`:
   - `storage-stack`: buckets, DynamoDB tables (incl. `collection-*`; `collection-leases` has TTL on `ttl`), queues +
     DLQs, S3 wiring
@@ -193,7 +193,7 @@ holes historical data, and sessions read their live market data from shards (liv
 - Deploys:
   - Push to `main` → `bump-and-deploy` runs the maven release (`major:` bumps major, `feat:` minor, anything else patch), publishes to GitHub Packages and tags.
   - The tag → `push-release` force-pushes `release`. `MarketDataPipeline` (InfraPipelines account) builds from `release`: Dev stage → `ApproveProd` manual step → Prod stage.
-  - Each stage deploys, prefixed `Dev-` or `Prod-`: `MarketDataStorageStack`, `CollectionRegionalStack-{us-east-1,ap-northeast-1,eu-west-1}`, `MarketDataReconcilerStack`, `MarketDataBackendStack`, `MarketDataMonitoringStack`.
+  - Each stage deploys, prefixed `Dev-` or `Prod-`: `MarketDataStorageStack`, `CollectionRegionalStack-{us-east-1,ap-northeast-1,eu-west-1,us-east-2}`, `MarketDataReconcilerStack`, `MarketDataBackendStack`, `MarketDataMonitoringStack`.
   - The pipeline never deletes a stack removed from the app; delete it by hand once nothing imports from it.
   - Lambdas build core from source in the pipeline. gnome-backtest picks up a core change only after a release and a version bump there.
 - What runs (Java function names are `<Stage>-MarketData<X>Stack-<Name>-v1`):

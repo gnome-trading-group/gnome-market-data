@@ -30,7 +30,7 @@ public final class ReconcilerLambdaHandler implements RequestHandler<SQSEvent, V
     private static final Logger LOGGER = LogManager.getLogger(ReconcilerLambdaHandler.class);
     // The collection regions (cdk COLLECTION_REGIONS), each with its shard id prefix.
     private static final Map<String, String> REGION_PREFIXES =
-            Map.of("us-east-1", "use1", "ap-northeast-1", "apne1", "eu-west-1", "euw1");
+            Map.of("us-east-1", "use1", "ap-northeast-1", "apne1", "eu-west-1", "euw1", "us-east-2", "use2");
 
     private final Reconciler reconciler;
     private final Clock clock;
