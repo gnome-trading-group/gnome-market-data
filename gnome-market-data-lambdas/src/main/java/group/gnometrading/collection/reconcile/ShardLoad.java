@@ -5,8 +5,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * What placement counts on one shard: its streams per source (draining ones included, as the shard still collects them)
- * and the account each signed source is bound to. Placement adds to it as it assigns.
+ * What placement counts on one shard: its streams per source, how many it publishes and their summed records per
+ * second (draining ones included, as the shard still collects and publishes them), and the account each signed source
+ * is bound to. Placement adds to it as it assigns.
  */
 public final class ShardLoad {
 
@@ -16,6 +17,8 @@ public final class ShardLoad {
     private final Map<String, String> accounts;
     private final Map<String, Integer> streamsBySource = new HashMap<>();
     private int streams;
+    private int published;
+    private double recordsPerSecond;
 
     /** @param accepting whether new streams may go on it: false while it drains or is replaced in a roll */
     public ShardLoad(
@@ -54,10 +57,26 @@ public final class ShardLoad {
         return streamsBySource.getOrDefault(source, 0);
     }
 
-    /** Counts a stream already on the shard, or one placement just put there. */
-    public void add(final String source) {
+    public int published() {
+        return published;
+    }
+
+    public double recordsPerSecond() {
+        return recordsPerSecond;
+    }
+
+    /**
+     * Counts a stream already on the shard, or one placement just put there.
+     *
+     * @param isPublished whether a session leases it, so the shard offers it over Aeron
+     */
+    public void add(final String source, final boolean isPublished, final double rate) {
         streamsBySource.merge(source, 1, Integer::sum);
         streams++;
+        if (isPublished) {
+            published++;
+        }
+        recordsPerSecond += rate;
     }
 
     void bind(final String source, final String label) {

@@ -58,6 +58,22 @@ final class CoverageStep {
                 track(tick, target, seen);
             }
         }
+        sourceRateP90(tick);
+    }
+
+    private static void sourceRateP90(final Tick tick) {
+        final Map<String, List<Double>> bySource = new HashMap<>();
+        tick.streamRates.forEach((streamId, rate) -> {
+            final Target target = tick.targets.get(streamId);
+            if (target != null) {
+                bySource.computeIfAbsent(target.source(), source -> new ArrayList<>())
+                        .add(rate);
+            }
+        });
+        bySource.forEach((source, rates) -> {
+            rates.sort(null);
+            tick.sourceRateP90.put(source, rates.get((int) Math.ceil(0.9 * rates.size()) - 1));
+        });
     }
 
     private Map<Integer, Seen> observe(final Tick tick, final ShardRecord shard) {
@@ -71,12 +87,7 @@ final class CoverageStep {
         for (TaskStatus status : statuses.latest(shard.shardId())) {
             statusByTask.put(status.taskId(), status);
             if (tick.now - status.writtenAtNanos() <= STATUS_FRESH_NANOS) {
-                final Map<Integer, String> states =
-                        tick.streamStates.computeIfAbsent(shard.shardId(), id -> new HashMap<>());
-                status.streams()
-                        .forEach(stream -> states.merge(
-                                stream.streamId(), stream.state(), (a, b) -> Tick.COVERED.contains(a) ? a : b));
-                tick.shardErrors.merge(shard.shardId(), status.errors(), TaskErrors::and);
+                fresh(tick, shard, status);
             }
             tick.lastStatusNanos.merge(shard.shardId(), status.writtenAtNanos(), Math::max);
         }
@@ -108,6 +119,18 @@ final class CoverageStep {
             stillOpen(openByTask.getOrDefault(task, List.of()), result, byStream);
         }
         return byStream;
+    }
+
+    /** A fresh status: its streams' states and rates, and its errors. */
+    private static void fresh(final Tick tick, final ShardRecord shard, final TaskStatus status) {
+        final Map<Integer, String> states = tick.streamStates.computeIfAbsent(shard.shardId(), id -> new HashMap<>());
+        for (StreamState stream : status.streams()) {
+            states.merge(stream.streamId(), stream.state(), (a, b) -> Tick.COVERED.contains(a) ? a : b);
+            if (stream.recordsPerSecond() != null) {
+                tick.streamRates.merge(stream.streamId(), stream.recordsPerSecond(), Math::max);
+            }
+        }
+        tick.shardErrors.merge(shard.shardId(), status.errors(), TaskErrors::and);
     }
 
     /** Open intervals this tick didn't write (an extension is written only every few minutes) and didn't close. */

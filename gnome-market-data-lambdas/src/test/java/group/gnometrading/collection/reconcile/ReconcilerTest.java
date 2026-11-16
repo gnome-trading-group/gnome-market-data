@@ -17,6 +17,7 @@ import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.RuleSelector;
 import group.gnometrading.collection.model.RuleStatus;
 import group.gnometrading.collection.model.Settings;
+import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.SourceLimits;
 import group.gnometrading.collection.model.StreamInfo;
@@ -72,6 +73,12 @@ class ReconcilerTest {
     private boolean consolidate;
     private boolean dryRun;
     private int maxStreamsPerShard = 500;
+    private int maxPublished = 400;
+    private double maxRecordsPerSecond = 2_000;
+    private boolean relieve = true;
+    private boolean relieveDryRun;
+    private int maxMoves = 25;
+    private int maxLeasedMoves = 3;
     // Stream ids asked of the registry, per lookup.
     private final List<Integer> streamLookups = new ArrayList<>();
     // A shard whose service calls throw, as when its region's base task definition isn't deployed.
@@ -303,7 +310,8 @@ class ReconcilerTest {
                 }
             },
             () -> new Settings(
-                    maxStreamsPerShard,
+                    Map.of("standard", new ShardCaps(maxStreamsPerShard, maxPublished, maxRecordsPerSecond)),
+                    1.0,
                     5,
                     Map.of(),
                     rollTo == null ? version : rollTo,
@@ -314,12 +322,22 @@ class ReconcilerTest {
                     5 * MINUTE,
                     5 * MINUTE,
                     60 * MINUTE,
+                    10 * MINUTE,
                     consolidate,
                     dryRun,
                     15 * MINUTE,
                     0.8,
                     Map.copyOf(minShards),
-                    Map.copyOf(maxShards)),
+                    Map.copyOf(maxShards),
+                    new Settings.Rebalance(
+                            relieve,
+                            relieveDryRun,
+                            10 * MINUTE,
+                            0.8,
+                            30 * MINUTE,
+                            60 * MINUTE,
+                            maxMoves,
+                            maxLeasedMoves)),
             partition -> "use1-" + shardIds.incrementAndGet());
 
     ReconcilerTest() {
@@ -380,6 +398,38 @@ class ReconcilerTest {
                 shardId,
                 List.of(new TaskStatus(
                         shardId, "t1", at, states, List.of(), new TaskErrors(lastHour, lastHour, latest, at))));
+    }
+
+    /** Every live shard's task reports each stream it carries LIVE at {@code rates} (a stream not in it: no rate). */
+    private void reportRates(final long at, final Map<Integer, Double> rates) {
+        for (ShardRecord shard : shards.values()) {
+            if (shard.state() == ShardRecord.State.DELETED) {
+                continue;
+            }
+            List<StreamState> states = new ArrayList<>();
+            List<Integer> carried = new ArrayList<>(shard.streams());
+            carried.addAll(shard.draining());
+            carried.forEach(id -> states.add(new StreamState(id, "LIVE", rates.get(id))));
+            statuses.put(
+                    shard.shardId(),
+                    List.of(new TaskStatus(shard.shardId(), "t-" + shard.shardId(), at, states, List.of())));
+        }
+    }
+
+    /** Ticks each minute from {@code from} through {@code to}, shards reporting {@code rates}; the last summary. */
+    private Reconciler.Summary tickWithRates(final long from, final long to, final Map<Integer, Double> rates) {
+        Reconciler.Summary summary = null;
+        for (long at = from; at <= to; at += MINUTE) {
+            reportRates(at, rates);
+            summary = reconciler.tick(at);
+        }
+        return summary;
+    }
+
+    private void kalshiStreams(final int... ids) {
+        for (int id : ids) {
+            streams.put(id, new StreamInfo(id, "KALSHI", "VENUE", "us-east-1", true));
+        }
     }
 
     // ----- tests -----
@@ -576,7 +626,9 @@ class ReconcilerTest {
                         stored.state(),
                         stored.createdAtNanos(),
                         stored.emptySinceNanos(),
-                        stored.mergeableSinceNanos()));
+                        stored.mergeableSinceNanos(),
+                        stored.overCapacitySinceNanos(),
+                        stored.rebalancedAtNanos()));
 
         reconciler.tick(T0 + MINUTE);
 
@@ -948,7 +1000,9 @@ class ReconcilerTest {
                         stored.state(),
                         stored.createdAtNanos(),
                         stored.emptySinceNanos(),
-                        stored.mergeableSinceNanos()));
+                        stored.mergeableSinceNanos(),
+                        stored.overCapacitySinceNanos(),
+                        stored.rebalancedAtNanos()));
         wantStreams(1, 2);
 
         reconciler.tick(T0 + MINUTE);
@@ -1477,5 +1531,239 @@ class ReconcilerTest {
         reconciler.tick(T0 + MINUTE);
 
         assertEquals(2, shards.size());
+    }
+
+    // ----- capacity and relief -----
+
+    private static final Map<Integer, Double> HOT = Map.of(1, 50.0, 2, 30.0, 3, 20.0, 4, 10.0, 5, 5.0, 6, 5.0);
+
+    /** Six streams on use1-1 at 120 records/s against a cap of 100, over since T0 + 1 minute. */
+    private void oneHotShard() {
+        maxRecordsPerSecond = 100;
+        kalshiStreams(4, 5, 6);
+        wantStreams(1, 2, 3, 4, 5, 6);
+        reconciler.tick(T0);
+        assertEquals(List.of(1, 2, 3, 4, 5, 6), shards.get("use1-1").streams(), "unread, each counted at 1/s");
+    }
+
+    @Test
+    void aShardOverItsRateCapForTenMinutesHandsItsBusiestStreamsOffMakeBeforeBreak() {
+        oneHotShard();
+
+        tickWithRates(T0 + MINUTE, T0 + 10 * MINUTE, HOT);
+        assertEquals(T0 + MINUTE, shards.get("use1-1").overCapacitySinceNanos());
+        assertTrue(targets.values().stream().allMatch(t -> t.drainingFromShardId() == null), "not ten minutes yet");
+        assertFalse(alertEvents.contains("FIRING SHARD_OVER_CAPACITY:use1-1"));
+
+        Reconciler.Summary summary = tickWithRates(T0 + 11 * MINUTE, T0 + 11 * MINUTE, HOT);
+
+        assertEquals(1, summary.relieved(), "50/s off leaves 70, under 0.8 of the cap");
+        assertEquals("use1-2", targets.get(1).shardId());
+        assertEquals("use1-1", targets.get(1).drainingFromShardId());
+        assertEquals(List.of(1), shards.get("use1-1").draining(), "the old shard keeps collecting it until the cut");
+        assertEquals(T0 + 11 * MINUTE, targets.get(1).movedAtNanos());
+        assertEquals(T0 + 11 * MINUTE, shards.get("use1-1").rebalancedAtNanos());
+        assertEquals(T0 + 11 * MINUTE, shards.get("use1-2").rebalancedAtNanos());
+        assertTrue(alertEvents.contains("FIRING SHARD_OVER_CAPACITY:use1-1"));
+        assertTrue(alertTitles.get("SHARD_OVER_CAPACITY:use1-1").contains("120/100 records/s"));
+
+        tickWithRates(T0 + 12 * MINUTE, T0 + 20 * MINUTE, HOT);
+
+        assertNull(targets.get(1).drainingFromShardId(), "handed off");
+        assertEquals(0, shards.get("use1-1").overCapacitySinceNanos());
+        assertTrue(alertEvents.contains("RESOLVED SHARD_OVER_CAPACITY:use1-1"));
+        assertEquals(List.of(2, 3, 4, 5, 6), shards.get("use1-1").streams());
+    }
+
+    @Test
+    void aLeasedStreamIsLeftWhileUnleasedOnesCanBringTheShardUnder() {
+        oneHotShard();
+        lease("s1", "paper", T0, 1);
+
+        tickWithRates(T0 + MINUTE, T0 + 11 * MINUTE, HOT);
+
+        assertEquals("use1-1", targets.get(1).shardId(), "leased, so moved last");
+        assertEquals("use1-2", targets.get(2).shardId());
+        assertEquals("use1-2", targets.get(3).shardId(), "30 + 20 off leaves 70");
+        assertEquals("use1-1", targets.get(4).shardId());
+    }
+
+    @Test
+    void aStreamMovedWithinTheStreamCooldownIsLeft() {
+        oneHotShard();
+        targets.put(1, targets.get(1).movedAt(T0));
+
+        tickWithRates(T0 + MINUTE, T0 + 11 * MINUTE, HOT);
+
+        assertEquals("use1-1", targets.get(1).shardId());
+        assertEquals("use1-2", targets.get(2).shardId());
+        assertEquals("use1-2", targets.get(3).shardId());
+    }
+
+    @Test
+    void reliefMovesAtMostMaxMovesPerTickThenWaitsOutTheShardCooldown() {
+        oneHotShard();
+        maxMoves = 1;
+        Map<Integer, Double> veryHot = Map.of(1, 50.0, 2, 50.0, 3, 50.0, 4, 10.0, 5, 5.0, 6, 5.0);
+
+        Reconciler.Summary summary = tickWithRates(T0 + MINUTE, T0 + 11 * MINUTE, veryHot);
+        assertEquals(1, summary.relieved());
+        assertEquals("use1-2", targets.get(1).shardId());
+
+        tickWithRates(T0 + 12 * MINUTE, T0 + 40 * MINUTE, veryHot);
+        assertNull(targets.get(1).drainingFromShardId());
+        assertEquals("use1-1", targets.get(2).shardId(), "still over, but within the 30-minute shard cooldown");
+
+        tickWithRates(T0 + 41 * MINUTE, T0 + 41 * MINUTE, veryHot);
+        assertEquals("use1-1", targets.get(2).drainingFromShardId(), "relieved again once the cooldown passed");
+    }
+
+    @Test
+    void aShardOverItsPublishedCapMovesItsQuietestLeasedStreamsWithinTheLeasedLimit() {
+        maxPublished = 4;
+        maxLeasedMoves = 1;
+        kalshiStreams(4, 5, 6);
+        wantStreams(1, 2, 3, 4, 5, 6);
+        reconciler.tick(T0);
+        lease("s1", "paper", T0 + MINUTE, 1, 2, 3, 4, 5);
+        Map<Integer, Double> rates = Map.of(1, 9.0, 2, 1.0, 3, 3.0, 4, 2.0, 5, 8.0);
+
+        tickWithRates(T0 + MINUTE, T0 + 2 * MINUTE, rates);
+        assertEquals(List.of(1, 2, 3, 4, 5, 6), shards.get("use1-1").streams(), "a new lease doesn't move a stream");
+        assertEquals(List.of(1, 2, 3, 4, 5), shards.get("use1-1").publish());
+
+        Reconciler.Summary summary = tickWithRates(T0 + 3 * MINUTE, T0 + 11 * MINUTE, rates);
+
+        assertEquals(1, summary.relieved(), "goal 3 published needs two moves, the leased limit allows one");
+        assertEquals("use1-2", targets.get(2).shardId(), "the quietest leased stream");
+        assertEquals(List.of(2), shards.get("use1-2").publish());
+        assertEquals(List.of(1, 2, 3, 4, 5), shards.get("use1-1").publish(), "it publishes 2 until the cut too");
+    }
+
+    @Test
+    void aDryRunOnlyLogsReliefButStillAlerts() {
+        oneHotShard();
+        relieveDryRun = true;
+
+        Reconciler.Summary summary = tickWithRates(T0 + MINUTE, T0 + 15 * MINUTE, HOT);
+
+        assertEquals(0, summary.relieved());
+        assertEquals(1, shards.size(), "no shard started");
+        assertTrue(targets.values().stream().allMatch(t -> "use1-1".equals(t.shardId())));
+        assertTrue(alertEvents.contains("FIRING SHARD_OVER_CAPACITY:use1-1"));
+    }
+
+    @Test
+    void reliefNeverStartsAShardPastMaxShardsAndRaisesNoBudgetAlert() {
+        oneHotShard();
+        maxShards.put(RESEARCH_US, 1);
+
+        Reconciler.Summary summary = tickWithRates(T0 + MINUTE, T0 + 15 * MINUTE, HOT);
+
+        assertEquals(0, summary.relieved());
+        assertEquals(0, summary.unplaced());
+        assertEquals(1, shards.size());
+        assertTrue(alertEvents.stream().noneMatch(event -> event.contains("COLLECTION_BUDGET")));
+        assertTrue(alertEvents.contains("FIRING SHARD_OVER_CAPACITY:use1-1"), "stays up while nothing can move");
+    }
+
+    @Test
+    void reliefMovesOntoAnExistingShardWithRoomBeforeStartingOne() {
+        maxRecordsPerSecond = 100;
+        maxStreamsPerShard = 3;
+        kalshiStreams(4);
+        wantStreams(1, 2, 3, 4);
+        reconciler.tick(T0);
+        assertEquals(List.of(4), shards.get("use1-2").streams());
+        maxStreamsPerShard = 500;
+        Map<Integer, Double> rates = Map.of(1, 60.0, 2, 40.0, 3, 10.0, 4, 1.0);
+
+        tickWithRates(T0 + MINUTE, T0 + 11 * MINUTE, rates);
+
+        assertEquals("use1-2", targets.get(1).shardId());
+        assertEquals(2, shards.size());
+    }
+
+    @Test
+    void aShardWhoseReleaseReportsNoRatesIsNeverOverButPlacementCountsItsStreamsAtTheDefault() {
+        maxRecordsPerSecond = 2.5;
+        wantStreams(1, 2, 3);
+        reconciler.tick(T0);
+
+        assertEquals(List.of(1, 2), shards.get("use1-1").streams());
+        assertEquals(List.of(3), shards.get("use1-2").streams(), "a third unread stream would make 3/s");
+
+        maxRecordsPerSecond = 0.5;
+        for (long at = T0 + MINUTE; at <= T0 + 20 * MINUTE; at += MINUTE) {
+            report("use1-1", "t1", at, "LIVE");
+            report("use1-2", "t2", at, "LIVE");
+            reconciler.tick(at);
+        }
+        assertEquals(0, shards.get("use1-1").overCapacitySinceNanos(), "nothing read, nothing over");
+        assertTrue(alertEvents.stream().noneMatch(event -> event.contains("SHARD_OVER_CAPACITY")));
+    }
+
+    @Test
+    void anUnreadStreamCountsAtItsSourcesNinetiethPercentile() {
+        maxRecordsPerSecond = 45;
+        wantStreams(1, 2);
+        reconciler.tick(T0);
+        reportRates(T0 + MINUTE, Map.of(1, 10.0, 2, 20.0));
+        wantStreams(1, 2, 3);
+
+        reconciler.tick(T0 + MINUTE);
+
+        assertEquals("use1-2", targets.get(3).shardId(), "30 + 20 is over 45; at the default 1 it would fit");
+    }
+
+    @Test
+    void aMergeIsJudgedOnRateAsWellAsStreams() {
+        long at = twoUnderFilledShards();
+        maxRecordsPerSecond = 100;
+
+        tickWithRates(at + MINUTE, at + MINUTE, Map.of(4, 50.0, 5, 20.0, 6, 20.0));
+
+        assertEquals(0, shards.get("use1-1").mergeableSinceNanos(), "40 + 50 is over 0.8 of 100");
+        assertEquals(0, shards.get("use1-2").mergeableSinceNanos());
+
+        tickWithRates(at + 2 * MINUTE, at + 2 * MINUTE, Map.of(4, 30.0, 5, 20.0, 6, 20.0));
+
+        assertTrue(shards.get("use1-1").mergeableSinceNanos() > 0, "70 fits");
+    }
+
+    @Test
+    void aMergeIsJudgedOnPublishedStreams() {
+        long at = twoUnderFilledShards();
+        maxPublished = 2;
+        lease("s1", "paper", at, 4, 5);
+
+        reconciler.tick(at + MINUTE);
+
+        assertEquals(0, shards.get("use1-1").mergeableSinceNanos(), "two published is over 0.8 of 2");
+        assertEquals(0, shards.get("use1-2").mergeableSinceNanos());
+    }
+
+    @Test
+    void aShardWithinItsRebalanceCooldownIsNotMergeable() {
+        long at = twoUnderFilledShards();
+        shards.put("use1-1", shards.get("use1-1").withRebalancedAt(at).withMergeableSince(0));
+        shards.put("use1-2", shards.get("use1-2").withRebalancedAt(at).withMergeableSince(0));
+
+        reconciler.tick(at + MINUTE);
+        assertEquals(0, shards.get("use1-1").mergeableSinceNanos());
+
+        reconciler.tick(at + 30 * MINUTE);
+        assertTrue(shards.get("use1-1").mergeableSinceNanos() > 0, "the cooldown has passed");
+    }
+
+    @Test
+    void reliefOffLeavesOverCapShardsAloneButStillAlerts() {
+        oneHotShard();
+        relieve = false;
+
+        Reconciler.Summary summary = tickWithRates(T0 + MINUTE, T0 + 15 * MINUTE, HOT);
+
+        assertEquals(0, summary.relieved());
+        assertTrue(alertEvents.contains("FIRING SHARD_OVER_CAPACITY:use1-1"));
     }
 }

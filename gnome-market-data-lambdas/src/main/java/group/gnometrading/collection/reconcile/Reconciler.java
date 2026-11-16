@@ -15,7 +15,7 @@ import org.apache.logging.log4j.Logger;
 /**
  * One tick of the collection control plane, run every minute (reserved concurrency 1): rules resolve to streams and,
  * with session leases, become targets, shard statuses become coverage and gaps, targets are handed off and placed,
- * shards rolled, merged, scaled down and run, and alerts raised and resolved.
+ * shards rolled, merged, relieved, scaled down and run, and alerts raised and resolved.
  *
  * <p>Targets are the source of truth: each tick rebuilds every shard's {@code streams}, {@code draining} and
  * {@code cuts} from them ({@link AssignmentStep}), so a shard item that missed a write is corrected by the next tick.
@@ -33,6 +33,7 @@ public final class Reconciler {
             int handedOff,
             int retired,
             int merged,
+            int relieved,
             int gaps,
             int alerts,
             int serviceErrors,
@@ -50,6 +51,7 @@ public final class Reconciler {
     private final LifecycleStep lifecycleStep;
     private final ConsolidationStep consolidationStep;
     private final PlacementStep placementStep;
+    private final RebalanceStep rebalanceStep;
     private final PersistStep persistStep;
     private final AlertStep alertStep;
 
@@ -70,6 +72,7 @@ public final class Reconciler {
         this.coverageStep = new CoverageStep(store, statuses);
         this.consolidationStep = new ConsolidationStep(registry);
         this.placementStep = new PlacementStep(registry, newShardId);
+        this.rebalanceStep = new RebalanceStep(registry, newShardId);
         this.persistStep = new PersistStep(store, services);
         this.alertStep = new AlertStep(store, alerts);
     }
@@ -85,6 +88,7 @@ public final class Reconciler {
         lifecycleStep.rollAndScaleDown(tick);
         consolidationStep.run(tick);
         placementStep.run(tick);
+        rebalanceStep.run(tick);
         assignmentStep.run(tick);
         lifecycleStep.deleteDrained(tick);
         persistStep.run(tick);
@@ -97,6 +101,7 @@ public final class Reconciler {
                 tick.handedOff,
                 tick.retired,
                 tick.merged,
+                tick.relieved,
                 tick.gaps,
                 tick.alerts,
                 tick.serviceErrors,

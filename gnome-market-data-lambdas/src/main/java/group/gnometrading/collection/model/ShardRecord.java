@@ -20,6 +20,10 @@ import java.util.Map;
  *     deleted
  * @param mergeableSinceNanos since when all its streams would fit on its partition's other shards, 0 while they
  *     wouldn't: one mergeable long enough drains into them ({@code ConsolidationStep})
+ * @param overCapacitySinceNanos since when its measured load has been over its tier's published or records-per-second
+ *     cap, 0 while it isn't: one over long enough is relieved and alerted on ({@code RebalanceStep})
+ * @param rebalancedAtNanos when a merge or relief last moved streams off or onto it, 0 if never: neither touches it
+ *     again within the shard cooldown
  */
 public record ShardRecord(
         String shardId,
@@ -34,7 +38,9 @@ public record ShardRecord(
         State state,
         long createdAtNanos,
         long emptySinceNanos,
-        long mergeableSinceNanos) {
+        long mergeableSinceNanos,
+        long overCapacitySinceNanos,
+        long rebalancedAtNanos) {
 
     /** A cut meaning: collect, but write no minute until the hand-off sets one. */
     public static final int WARMING = Integer.MAX_VALUE;
@@ -68,7 +74,9 @@ public record ShardRecord(
                 state,
                 createdAtNanos,
                 emptySinceNanos,
-                mergeableSinceNanos);
+                mergeableSinceNanos,
+                overCapacitySinceNanos,
+                rebalancedAtNanos);
     }
 
     public ShardRecord withAccounts(final Map<String, String> newAccounts) {
@@ -85,7 +93,9 @@ public record ShardRecord(
                 state,
                 createdAtNanos,
                 emptySinceNanos,
-                mergeableSinceNanos);
+                mergeableSinceNanos,
+                overCapacitySinceNanos,
+                rebalancedAtNanos);
     }
 
     public ShardRecord withState(final State newState) {
@@ -102,7 +112,9 @@ public record ShardRecord(
                 newState,
                 createdAtNanos,
                 emptySinceNanos,
-                mergeableSinceNanos);
+                mergeableSinceNanos,
+                overCapacitySinceNanos,
+                rebalancedAtNanos);
     }
 
     public ShardRecord withEmptySince(final long nanos) {
@@ -119,7 +131,9 @@ public record ShardRecord(
                 state,
                 createdAtNanos,
                 nanos,
-                mergeableSinceNanos);
+                mergeableSinceNanos,
+                overCapacitySinceNanos,
+                rebalancedAtNanos);
     }
 
     public ShardRecord withMergeableSince(final long nanos) {
@@ -136,6 +150,46 @@ public record ShardRecord(
                 state,
                 createdAtNanos,
                 emptySinceNanos,
+                nanos,
+                overCapacitySinceNanos,
+                rebalancedAtNanos);
+    }
+
+    public ShardRecord withOverCapacitySince(final long nanos) {
+        return new ShardRecord(
+                shardId,
+                partition,
+                generation,
+                streams,
+                draining,
+                accounts,
+                cuts,
+                publish,
+                version,
+                state,
+                createdAtNanos,
+                emptySinceNanos,
+                mergeableSinceNanos,
+                nanos,
+                rebalancedAtNanos);
+    }
+
+    public ShardRecord withRebalancedAt(final long nanos) {
+        return new ShardRecord(
+                shardId,
+                partition,
+                generation,
+                streams,
+                draining,
+                accounts,
+                cuts,
+                publish,
+                version,
+                state,
+                createdAtNanos,
+                emptySinceNanos,
+                mergeableSinceNanos,
+                overCapacitySinceNanos,
                 nanos);
     }
 
@@ -153,7 +207,9 @@ public record ShardRecord(
                 state,
                 createdAtNanos,
                 emptySinceNanos,
-                mergeableSinceNanos);
+                mergeableSinceNanos,
+                overCapacitySinceNanos,
+                rebalancedAtNanos);
     }
 
     /** A new shard: no streams yet, generation -1 until first written. */
@@ -171,6 +227,8 @@ public record ShardRecord(
                 version,
                 State.ACTIVE,
                 nowNanos,
+                0,
+                0,
                 0,
                 0);
     }

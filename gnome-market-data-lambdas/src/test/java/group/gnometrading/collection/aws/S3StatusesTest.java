@@ -60,4 +60,24 @@ class S3StatusesTest {
         assertEquals(TaskErrors.NONE, status.errors());
         assertEquals(TaskErrors.NONE, older.errors());
     }
+
+    @Test
+    void readsEachStreamsRecordRateAndLeavesAMissingOneUnknown() throws Exception {
+        TaskStatus status = S3Statuses.parse(new ObjectMapper()
+                .readTree("{\"shard_id\":\"use1-1\",\"task_id\":\"t\",\"written_at_ns\":1,\"streams\":["
+                        + "{\"id\":1,\"state\":\"LIVE\",\"records\":9,\"records_per_second\":12.25},"
+                        + "{\"id\":2,\"state\":\"LIVE\",\"records\":0,\"records_per_second\":0},"
+                        + "{\"id\":3,\"state\":\"LIVE\",\"records\":0},"
+                        + "{\"id\":4,\"state\":\"LIVE\",\"records_per_second\":null}],"
+                        + "\"transitions\":[]}"));
+
+        assertEquals(
+                List.of(
+                        new StreamState(1, "LIVE", 12.25),
+                        new StreamState(2, "LIVE", 0.0),
+                        new StreamState(3, "LIVE", null),
+                        new StreamState(4, "LIVE", null)),
+                status.streams(),
+                "a release before the field, or a stream's first status, is unknown, not idle");
+    }
 }

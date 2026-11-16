@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Settings;
+import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.common.config.MarketDataConfig;
 import group.gnometrading.common.config.MarketDataServiceConfig;
 import java.net.http.HttpClient;
@@ -29,7 +30,29 @@ class ServiceConfigSettingsTest {
     void theDefaultsAreThePlansDecisions() {
         Settings settings = ServiceConfigSettings.of(MarketDataConfig.DEFAULTS, () -> "1.23.0", REGIONS);
 
-        assertEquals(900, settings.maxStreamsPerShard());
+        assertEquals(new ShardCaps(900, 400, 2_000), settings.caps(US_PRODUCTION));
+        assertEquals(
+                new ShardCaps(900, 300, 50_000),
+                settings.caps(new Partition("us-east-1", "VENUE", Priority.PRODUCTION, "low_latency")));
+        assertEquals(
+                settings.caps(US_PRODUCTION),
+                settings.caps(new Partition("us-east-1", "VENUE", Priority.PRODUCTION, "unheard_of")),
+                "an unlisted tier takes standard's");
+        assertEquals(1.0, settings.defaultStreamRecordsPerSecond());
+        assertEquals(TimeUnit.MINUTES.toNanos(10), settings.overCapacityAlertNanos());
+        assertEquals(
+                new Settings.Rebalance(
+                        true,
+                        true,
+                        TimeUnit.MINUTES.toNanos(10),
+                        0.8,
+                        TimeUnit.MINUTES.toNanos(30),
+                        TimeUnit.MINUTES.toNanos(60),
+                        25,
+                        3),
+                settings.rebalance(),
+                "relief ships as a dry run");
+        assertTrue(settings.consolidationEnabled());
         assertEquals(5, settings.defaultRetireGraceMinutes());
         assertEquals(Map.of("HYPERLIQUID", 0), settings.endedRetireGraceMinutes());
         assertEquals("1.23.0", settings.newShardVersion(), "the latest release, with no roll asked for");
@@ -43,22 +66,34 @@ class ServiceConfigSettingsTest {
     void theDefaultsAreSentAsSnakeCaseJson() throws Exception {
         var json = MAPPER.valueToTree(MarketDataConfig.DEFAULTS);
 
-        assertEquals(900, json.get("max_streams_per_shard").asInt());
+        assertEquals(
+                400, json.get("shard_caps").get("standard").get("max_published").asInt());
+        assertEquals(
+                50_000,
+                json.get("shard_caps")
+                        .get("low_latency")
+                        .get("max_records_per_second")
+                        .asDouble());
+        assertTrue(json.get("rebalance").get("dry_run").asBoolean());
         assertTrue(json.get("roll_to_version").isNull(), "present, so the stored config shows the key");
         assertEquals(10, json.get("alerts").get("not_live_minutes").asInt());
     }
 
     @Test
     void aStoredConfigOverridesOnlyWhatItSets() throws Exception {
-        MarketDataConfig config =
-                serviceConfig.parse(MAPPER.readTree("{\"roll_to_version\": \"1.24.0\", \"max_streams_per_shard\": 400,"
+        MarketDataConfig config = serviceConfig.parse(MAPPER.readTree(
+                "{\"roll_to_version\": \"1.24.0\", \"shard_caps\": {\"standard\": {\"max_published\": 350}},"
                         + " \"alerts\": {\"stale_minutes\": 2},"
                         + " \"something_removed\": 1}"));
         Settings settings = ServiceConfigSettings.of(config, () -> "1.23.0", REGIONS);
 
         assertEquals("1.24.0", settings.newShardVersion());
         assertEquals("1.24.0", settings.rollToVersion());
-        assertEquals(400, settings.maxStreamsPerShard());
+        assertEquals(new ShardCaps(900, 350, 2_000), settings.caps(US_PRODUCTION), "one cap set, the others kept");
+        assertEquals(
+                300,
+                settings.caps(new Partition("us-east-1", "VENUE", Priority.PRODUCTION, "low_latency"))
+                        .maxPublished());
         assertEquals(TimeUnit.MINUTES.toNanos(2), settings.staleAlertNanos());
         assertEquals(
                 TimeUnit.MINUTES.toNanos(10), settings.notLiveAlertNanos(), "the rest of alerts keeps its defaults");

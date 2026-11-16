@@ -13,6 +13,7 @@ import java.util.Set;
  * the new one from it on, and after it the old shard lets the stream go.
  *
  * @param retireGraceMinutes the wanting rules' grace, kept for when none wants it any more; null for the default
+ * @param movedAtNanos when a merge or relief last moved it, 0 if never: relief leaves it be within the stream cooldown
  */
 public record Target(
         int streamId,
@@ -27,7 +28,8 @@ public record Target(
         String uncoveredReason,
         String drainingFromShardId,
         long handoffCoveredSinceNanos,
-        int cutMinute) {
+        int cutMinute,
+        long movedAtNanos) {
 
     public enum State {
         DESIRED,
@@ -57,6 +59,7 @@ public record Target(
                 nowNanos,
                 NOT_PLACED,
                 null,
+                0,
                 0,
                 0);
     }
@@ -92,6 +95,11 @@ public record Target(
                 .handoffCoveredSince(0)
                 .cut(0)
                 .build();
+    }
+
+    /** Moved by a merge or relief at {@code nanos}. */
+    public Target movedAt(final long nanos) {
+        return copy().movedAt(nanos).build();
     }
 
     public Target handoffCoveredSince(final long nanos) {
@@ -132,6 +140,7 @@ public record Target(
         private String drainingFromShardId;
         private long handoffCoveredSinceNanos;
         private int cutMinute;
+        private long movedAtNanos;
 
         Builder(final Target target) {
             this.streamId = target.streamId;
@@ -147,6 +156,7 @@ public record Target(
             this.drainingFromShardId = target.drainingFromShardId;
             this.handoffCoveredSinceNanos = target.handoffCoveredSinceNanos;
             this.cutMinute = target.cutMinute;
+            this.movedAtNanos = target.movedAtNanos;
         }
 
         Builder partition(final Partition value) {
@@ -199,6 +209,11 @@ public record Target(
             return this;
         }
 
+        Builder movedAt(final long value) {
+            movedAtNanos = value;
+            return this;
+        }
+
         Builder handoffCoveredSince(final long value) {
             handoffCoveredSinceNanos = value;
             return this;
@@ -218,7 +233,8 @@ public record Target(
                     uncoveredReason,
                     drainingFromShardId,
                     handoffCoveredSinceNanos,
-                    cutMinute);
+                    cutMinute,
+                    movedAtNanos);
         }
     }
 }

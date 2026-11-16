@@ -2,6 +2,7 @@ package group.gnometrading.collection.reconcile;
 
 import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.Partition;
+import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Registry;
@@ -41,19 +42,36 @@ final class PlacementStep {
                 .toList();
         requests.removeAll(merging);
         final Placement.Result result = new Placement(
-                        registry.sources(),
-                        accounts,
-                        tick.config.maxStreamsPerShard(),
-                        tick.config.maxShards(),
-                        newShardId)
+                        registry.sources(), accounts, tick.config::caps, tick.config.maxShards(), newShardId)
                 .place(loads, requests);
-        final int maxFill = (int) Math.floor(tick.config.maxStreamsPerShard() * tick.config.consolidationMaxFill());
         final Placement.Result merged = new Placement(
-                        registry.sources(), accounts, maxFill, tick.config.maxShards(), newShardId)
+                        registry.sources(), accounts, mergeCaps(tick), tick.config.maxShards(), newShardId)
                 .place(loads, merging);
-        apply(tick, result, loads, moving);
-        apply(tick, merged, loads, moving);
+        apply(tick, result, loads, moving, false);
+        apply(tick, merged, loads, moving, true);
         tick.unplaced = result.unplaced().size() + merged.unplaced().size();
+    }
+
+    /** The caps a merge fills its receivers to: {@code consolidation_max_fill} of each. */
+    static Function<Partition, ShardCaps> mergeCaps(final Tick tick) {
+        return partition -> tick.config.caps(partition).scaled(tick.config.consolidationMaxFill());
+    }
+
+    /** What placement asks for the target: its rate as counted, and whether a session leases it. */
+    static Placement.Request request(
+            final Tick tick,
+            final Target target,
+            final Partition partition,
+            final boolean makeBeforeBreak,
+            final String avoidShardId) {
+        return new Placement.Request(
+                target.streamId(),
+                target.source(),
+                partition,
+                makeBeforeBreak,
+                tick.leasedStreams.contains(target.streamId()),
+                tick.rateOf(target),
+                avoidShardId);
     }
 
     /**
@@ -80,10 +98,9 @@ final class PlacementStep {
                 .toList();
         for (Target target : waiting) {
             if (target.shardId() == null) {
-                requests.add(new Placement.Request(target.streamId(), target.source(), target.partition()));
+                requests.add(request(tick, target, target.partition(), false, null));
             } else if (target.drainingFromShardId() == null && mustMove(tick, target, accounts)) {
-                requests.add(new Placement.Request(
-                        target.streamId(), target.source(), target.partition(), isDraining(tick, target.shardId())));
+                requests.add(request(tick, target, target.partition(), isDraining(tick, target.shardId()), null));
                 moving.put(target.streamId(), target.shardId());
             }
         }
@@ -96,11 +113,16 @@ final class PlacementStep {
         return shard != null && shard.state() == ShardRecord.State.DRAINING;
     }
 
-    private static void apply(
+    /**
+     * Writes placement's decisions into the tick. {@code rebalancing}: a merge or relief made them, so each moved stream
+     * and the shards on both sides of its move start their cooldowns.
+     */
+    static void apply(
             final Tick tick,
             final Placement.Result result,
             final List<ShardLoad> loads,
-            final Map<Integer, String> moving) {
+            final Map<Integer, String> moving,
+            final boolean rebalancing) {
         for (ShardLoad created : result.created()) {
             tick.shards.put(
                     created.shardId(),
@@ -114,7 +136,14 @@ final class PlacementStep {
             }
         }
         for (Placement.Assigned assigned : result.assigned()) {
-            assign(tick, assigned, moving.get(assigned.streamId()));
+            final String from = moving.get(assigned.streamId());
+            assign(tick, assigned, from);
+            if (rebalancing) {
+                final Target target = tick.targets.get(assigned.streamId());
+                tick.targets.put(target.streamId(), target.movedAt(tick.now));
+                stampRebalanced(tick, assigned.shardId());
+                stampRebalanced(tick, from);
+            }
         }
         for (Placement.Unplaced unplaced : result.unplaced()) {
             final Target target = tick.targets.get(unplaced.streamId());
@@ -128,7 +157,14 @@ final class PlacementStep {
         }
     }
 
-    private static List<ShardLoad> loads(final Tick tick) {
+    private static void stampRebalanced(final Tick tick, final String shardId) {
+        final ShardRecord shard = shardId == null ? null : tick.shards.get(shardId);
+        if (shard != null && shard.rebalancedAtNanos() != tick.now) {
+            tick.shards.put(shardId, shard.withRebalancedAt(tick.now));
+        }
+    }
+
+    static List<ShardLoad> loads(final Tick tick) {
         final List<ShardLoad> loads = new ArrayList<>();
         for (ShardRecord shard : tick.shards.values()) {
             if (shard.state() != ShardRecord.State.DELETED) {
@@ -146,7 +182,7 @@ final class PlacementStep {
         for (int streamId : carried) {
             final Target target = tick.targets.get(streamId);
             if (target != null) {
-                load.add(target.source());
+                load.add(target.source(), tick.leasedStreams.contains(streamId), tick.rateOf(target));
             }
         }
         return load;

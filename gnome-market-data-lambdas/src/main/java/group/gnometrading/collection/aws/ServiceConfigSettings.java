@@ -3,6 +3,7 @@ package group.gnometrading.collection.aws;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Settings;
+import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.common.config.MarketDataConfig;
 import java.util.HashMap;
 import java.util.List;
@@ -21,7 +22,7 @@ import org.apache.logging.log4j.Logger;
 public final class ServiceConfigSettings implements Supplier<Settings> {
 
     private static final Logger LOGGER = LogManager.getLogger(ServiceConfigSettings.class);
-    private static final String DEFAULT_TIER = "standard";
+    private static final String DEFAULT_TIER = Settings.STANDARD_TIER;
 
     private final Supplier<MarketDataConfig> config;
     private final Supplier<String> latestVersion;
@@ -46,8 +47,10 @@ public final class ServiceConfigSettings implements Supplier<Settings> {
     static Settings of(final MarketDataConfig config, final Supplier<String> latestVersion, final Set<String> regions) {
         final String rollTo = config.rollToVersion();
         final Map<Partition, Integer> maxShards = partitionShards("max_shards", config.maxShards(), regions);
+        final MarketDataConfig.Rebalance rebalance = config.rebalance();
         return new Settings(
-                config.maxStreamsPerShard(),
+                shardCaps(config.shardCaps()),
+                config.defaultStreamRecordsPerSecond(),
                 config.retireGraceMinutes(),
                 config.endedRetireGraceMinutes(),
                 rollTo != null ? rollTo : latestVersion.get(),
@@ -58,12 +61,50 @@ public final class ServiceConfigSettings implements Supplier<Settings> {
                 minutes(config.alerts().staleMinutes()),
                 minutes(config.alerts().shardDownMinutes()),
                 minutes(config.alerts().leaseOnEndedStreamMinutes()),
+                minutes(config.alerts().overCapacityMinutes()),
                 config.consolidation().enabled(),
                 config.consolidation().dryRun(),
                 minutes(config.consolidation().afterMinutes()),
                 config.consolidation().maxFill(),
                 minShards(partitionShards("min_shards", config.minShards(), regions), maxShards),
-                maxShards);
+                maxShards,
+                new Settings.Rebalance(
+                        rebalance.enabled(),
+                        rebalance.dryRun(),
+                        minutes(rebalance.relieveAfterMinutes()),
+                        rebalance.relieveTargetFill(),
+                        minutes(rebalance.shardCooldownMinutes()),
+                        minutes(rebalance.streamCooldownMinutes()),
+                        rebalance.maxMovesPerTick(),
+                        rebalance.maxLeasedMovesPerTick()));
+    }
+
+    /**
+     * {@code shard_caps} by tier. An entry with a cap at or below zero is skipped rather than letting nothing place;
+     * {@code standard} falls back to the defaults', as every unlisted tier takes it.
+     */
+    static Map<String, ShardCaps> shardCaps(final Map<String, MarketDataConfig.ShardCaps> configured) {
+        final Map<String, ShardCaps> caps = new HashMap<>();
+        if (configured != null) {
+            configured.forEach((tier, entry) -> {
+                if (entry == null
+                        || entry.maxStreams() <= 0
+                        || entry.maxPublished() <= 0
+                        || entry.maxRecordsPerSecond() <= 0) {
+                    LOGGER.warn("Ignoring shard_caps entry for tier {}: {}", tier, entry);
+                    return;
+                }
+                caps.put(tier, new ShardCaps(entry.maxStreams(), entry.maxPublished(), entry.maxRecordsPerSecond()));
+            });
+        }
+        if (!caps.containsKey(DEFAULT_TIER)) {
+            final MarketDataConfig.ShardCaps standard =
+                    MarketDataConfig.DEFAULTS.shardCaps().get(DEFAULT_TIER);
+            caps.put(
+                    DEFAULT_TIER,
+                    new ShardCaps(standard.maxStreams(), standard.maxPublished(), standard.maxRecordsPerSecond()));
+        }
+        return Map.copyOf(caps);
     }
 
     /** {@code min_shards} with any count above the partition's {@code max_shards} lowered to it: the cap wins. */

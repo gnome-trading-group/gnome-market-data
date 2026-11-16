@@ -42,6 +42,12 @@ final class Tick {
     // Per shard: each stream's state in its fresh statuses, and when the shard last wrote any status.
     final Map<String, Map<Integer, String>> streamStates = new HashMap<>();
     final Map<String, Long> lastStatusNanos = new HashMap<>();
+    // Each stream's records per second in fresh statuses (the higher reading mid hand-off), and per source the 90th
+    // percentile of its streams' readings: what placement counts for a stream not read yet.
+    final Map<Integer, Double> streamRates = new HashMap<>();
+    final Map<String, Double> sourceRateP90 = new HashMap<>();
+    // Per shard not deleted: what it carries by its fresh statuses, against its caps (RebalanceStep).
+    final Map<String, RebalanceStep.Usage> shardUsage = new HashMap<>();
     // Per shard: the unexpected errors its fresh statuses report, every task's together.
     final Map<String, TaskErrors> shardErrors = new HashMap<>();
     // Per source: streams that couldn't be placed for want of account budget.
@@ -53,6 +59,7 @@ final class Tick {
     int handedOff;
     int retired;
     int merged;
+    int relieved;
     int gaps;
     int alerts;
     int serviceErrors;
@@ -73,6 +80,24 @@ final class Tick {
     boolean covered(final String shardId, final int streamId) {
         final String state = streamStates.getOrDefault(shardId, Map.of()).get(streamId);
         return state != null && COVERED.contains(state);
+    }
+
+    /**
+     * The rate placement counts for the stream: its reading, else its source's 90th percentile, else the default. An
+     * unread stream is counted high rather than at nothing, so placement can't stack a shard past its cap blind.
+     */
+    double rateOf(final Target target) {
+        final Double measured = streamRates.get(target.streamId());
+        if (measured != null) {
+            return measured;
+        }
+        final Double p90 = sourceRateP90.get(target.source());
+        return p90 != null ? p90 : config.defaultStreamRecordsPerSecond();
+    }
+
+    /** The stream's reading, 0 if none: what judging a shard over its cap counts, so an unread shard never is. */
+    double measuredRateOf(final int streamId) {
+        return streamRates.getOrDefault(streamId, 0.0);
     }
 
     boolean exists(final String shardId) {

@@ -70,8 +70,12 @@ public final class S3Statuses implements Statuses {
     static TaskStatus parse(final JsonNode status) {
         final List<StreamState> streams = new ArrayList<>();
         for (JsonNode stream : status.path("streams")) {
+            final JsonNode rate = stream.path("records_per_second");
+            // A release before the field, or a stream's first status, reads as unknown rather than idle.
             streams.add(new StreamState(
-                    stream.path("id").asInt(), stream.path("state").asText()));
+                    stream.path("id").asInt(),
+                    stream.path("state").asText(),
+                    rate.isNumber() ? rate.asDouble() : null));
         }
         final List<Transition> transitions = new ArrayList<>();
         for (JsonNode transition : status.path("transitions")) {

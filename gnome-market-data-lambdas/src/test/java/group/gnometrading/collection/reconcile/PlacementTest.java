@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
+import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.collection.model.SourceLimits;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,10 +35,14 @@ class PlacementTest {
             "POLYMARKET_US", List.of(new Account("POLYMARKET_US", "md-1", 0, true))));
 
     private Placement placement(final int maxStreamsPerShard) {
+        return placement(new ShardCaps(maxStreamsPerShard, 1_000_000, 1e12));
+    }
+
+    private Placement placement(final ShardCaps caps) {
         return new Placement(
                 Map.of("KALSHI", KALSHI, "HYPERLIQUID", HYPERLIQUID, "POLYMARKET_US", PM_US),
                 accounts,
-                maxStreamsPerShard,
+                partition -> caps,
                 maxShards,
                 partition -> "shard-" + ids.incrementAndGet());
     }
@@ -67,7 +72,7 @@ class PlacementTest {
     void anExistingShardWithRoomIsFilledBeforeANewOne() {
         ShardLoad existing = new ShardLoad("old", US, true, Map.of("KALSHI", "md-1"));
         for (int i = 0; i < 10; i++) {
-            existing.add("KALSHI");
+            existing.add("KALSHI", false, 0);
         }
         loads.add(existing);
 
@@ -189,8 +194,9 @@ class PlacementTest {
     void aStreamLeavingADrainingShardMayTakeThePartitionOneOverMaxShards() {
         maxShards.put(US, 1);
         loads.add(new ShardLoad("rolling", US, false, Map.of()));
-        List<Placement.Request> moving =
-                List.of(new Placement.Request(1, "KALSHI", US, true), new Placement.Request(2, "KALSHI", US, true));
+        List<Placement.Request> moving = List.of(
+                new Placement.Request(1, "KALSHI", US, true, false, 0, null),
+                new Placement.Request(2, "KALSHI", US, true, false, 0, null));
 
         Placement.Result result = placement(1).place(loads, moving);
 
@@ -214,5 +220,88 @@ class PlacementTest {
         Placement.Result result = placement(500).place(loads, requests("LIGHTER", TOKYO, 1));
 
         assertEquals(Placement.Unplaced.Reason.SOURCE, result.unplaced().get(0).reason());
+    }
+
+    // ----- caps -----
+
+    private static Placement.Request leased(final int id, final double rate) {
+        return new Placement.Request(id, "HYPERLIQUID", US, false, true, rate, null);
+    }
+
+    private static Placement.Request unleased(final int id, final double rate) {
+        return new Placement.Request(id, "HYPERLIQUID", US, false, false, rate, null);
+    }
+
+    @Test
+    void thePublishedCapCountsOnlyLeasedStreams() {
+        Placement.Result result = placement(new ShardCaps(100, 2, 1e9))
+                .place(loads, List.of(leased(1, 0), unleased(2, 0), leased(3, 0), leased(4, 0)));
+
+        assertEquals("shard-1", result.assigned().get(1).shardId(), "an unleased stream doesn't count");
+        assertEquals("shard-1", result.assigned().get(2).shardId());
+        assertEquals("shard-2", result.assigned().get(3).shardId(), "a third published stream doesn't fit");
+        assertEquals(2, loads.get(0).published());
+        assertEquals(3, loads.get(0).streams());
+    }
+
+    @Test
+    void theRateCapSumsTheStreamsRates() {
+        Placement.Result result = placement(new ShardCaps(100, 100, 100))
+                .place(loads, List.of(unleased(1, 60), unleased(2, 40), unleased(3, 0.5)));
+
+        assertEquals(Map.of("shard-1", 2L, "shard-2", 1L), perShard(result), "100 fits exactly, 100.5 doesn't");
+        assertEquals(100, loads.get(0).recordsPerSecond());
+    }
+
+    @Test
+    void theStreamCapStillHoldsWhateverTheOtherCaps() {
+        Placement.Result result = placement(new ShardCaps(2, 100, 1e9))
+                .place(loads, List.of(unleased(1, 0), unleased(2, 0), unleased(3, 0)));
+
+        assertEquals(Map.of("shard-1", 2L, "shard-2", 1L), perShard(result));
+    }
+
+    @Test
+    void anEmptyShardTakesAStreamBusierThanTheRateCapAlone() {
+        Placement.Result result =
+                placement(new ShardCaps(100, 100, 100)).place(loads, List.of(unleased(1, 500), unleased(2, 1)));
+
+        assertEquals(Map.of("shard-1", 1L, "shard-2", 1L), perShard(result), "collected, not left unplaced");
+        assertTrue(result.unplaced().isEmpty());
+    }
+
+    @Test
+    void eachTierHasItsOwnCaps() {
+        Partition lowLatency = new Partition("us-east-1", "VENUE", Priority.RESEARCH, "low_latency");
+        Placement placement = new Placement(
+                Map.of("HYPERLIQUID", HYPERLIQUID),
+                accounts,
+                partition -> partition.tier().equals("low_latency")
+                        ? new ShardCaps(100, 1, 1e9)
+                        : new ShardCaps(100, 100, 1e9),
+                maxShards,
+                partition -> "shard-" + ids.incrementAndGet());
+
+        Placement.Result result = placement.place(
+                loads,
+                List.of(
+                        new Placement.Request(1, "HYPERLIQUID", lowLatency, false, true, 0, null),
+                        new Placement.Request(2, "HYPERLIQUID", lowLatency, false, true, 0, null),
+                        leased(3, 0),
+                        leased(4, 0)));
+
+        assertEquals(Map.of("shard-1", 1L, "shard-2", 1L, "shard-3", 2L), perShard(result));
+    }
+
+    @Test
+    void aStreamBeingMovedOffAShardNeverLandsBackOnIt() {
+        ShardLoad hot = new ShardLoad("hot", US, true, Map.of());
+        hot.add("HYPERLIQUID", false, 10);
+        loads.add(hot);
+
+        Placement.Result result = placement(500)
+                .place(loads, List.of(new Placement.Request(1, "HYPERLIQUID", US, false, false, 10, "hot")));
+
+        assertEquals("shard-1", result.assigned().get(0).shardId());
     }
 }

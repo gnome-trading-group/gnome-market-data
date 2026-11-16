@@ -54,6 +54,8 @@ class DynamoStoreTest {
                 ShardRecord.State.ACTIVE,
                 100,
                 0,
+                0,
+                0,
                 0);
 
         Map<String, AttributeValue> item = DynamoStore.fromShard(shard);
@@ -84,7 +86,9 @@ class DynamoStoreTest {
                 ShardRecord.State.DRAINING,
                 5,
                 9,
-                11);
+                11,
+                13,
+                17);
 
         assertEquals(shard, DynamoStore.toShard(DynamoStore.fromShard(shard)));
     }

@@ -51,6 +51,7 @@ final class AlertStep {
         final Map<String, Firing> firing = new HashMap<>();
         shardsDown(tick, firing);
         shardErrors(tick, firing);
+        shardsOverCapacity(tick, firing);
         streamsUncovered(tick, firing);
         leasedStreamsUnplaced(tick, firing);
         leasesOnEndedStreams(tick, firing);
@@ -108,6 +109,41 @@ final class AlertStep {
                                         "region",
                                         shard.partition().region())));
             }
+        }
+    }
+
+    /**
+     * Shards over their tier's published or records-per-second cap, by their fresh statuses, for
+     * {@code alerts.over_capacity_minutes}: relief moves streams off when it can, and this stays up until it has.
+     */
+    private static void shardsOverCapacity(final Tick tick, final Map<String, Firing> firing) {
+        for (ShardRecord shard : tick.shards.values()) {
+            final RebalanceStep.Usage usage = tick.shardUsage.get(shard.shardId());
+            if (usage == null
+                    || shard.overCapacitySinceNanos() == 0
+                    || tick.now - shard.overCapacitySinceNanos() < tick.config.overCapacityAlertNanos()) {
+                continue;
+            }
+            final long rate = Math.round(usage.recordsPerSecond());
+            final long maxRate = Math.round(usage.caps().maxRecordsPerSecond());
+            firing.put(
+                    "SHARD_OVER_CAPACITY:" + shard.shardId(),
+                    new Firing(
+                            "SHARD_OVER_CAPACITY",
+                            "Shard " + shard.shardId() + " is over its "
+                                    + shard.partition().tier() + " caps: "
+                                    + usage.published() + "/" + usage.caps().maxPublished() + " published, " + rate
+                                    + "/" + maxRate + " records/s",
+                            Map.of(
+                                    "shard", shard.shardId(),
+                                    "region", shard.partition().region(),
+                                    "tier", shard.partition().tier(),
+                                    "streams", Integer.toString(usage.streams()),
+                                    "published", Integer.toString(usage.published()),
+                                    "max_published",
+                                            Integer.toString(usage.caps().maxPublished()),
+                                    "records_per_second", Long.toString(rate),
+                                    "max_records_per_second", Long.toString(maxRate))));
         }
     }
 

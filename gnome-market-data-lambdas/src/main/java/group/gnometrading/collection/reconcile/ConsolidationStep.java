@@ -14,9 +14,10 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * Merges under-filled shards. A shard is mergeable while its streams would all fit on its partition's other shards,
- * each left at most {@code consolidationMaxFill} full and within every connection limit and account budget (a dry
- * run of {@link Placement}, with the shard itself taking nothing but still counting toward its accounts, as it does
- * while it hands off). One mergeable for {@code consolidateAfterNanos} drains like a rolled shard: placement hands its
+ * each left at most {@code consolidationMaxFill} of every cap (streams, published streams and records per second) and
+ * within every connection limit and account budget (a dry run of {@link Placement}, with the shard itself taking
+ * nothing but still counting toward its accounts, as it does while it hands off). A shard a merge or relief moved
+ * streams onto or off within the shard cooldown isn't, so a fresh relief isn't undone by the next merge. One mergeable for {@code consolidateAfterNanos} drains like a rolled shard: placement hands its
  * streams to the others make-before-break, and once empty it is deleted. Retirements and rule churn otherwise leave a
  * partition spread over half-empty hosts.
  *
@@ -76,7 +77,6 @@ final class ConsolidationStep {
     private ShardRecord markMergeable(final Tick tick) {
         final Map<String, SourceLimits> sources = registry.sources();
         final Map<String, List<Account>> accounts = registry.accounts();
-        final int maxFill = (int) Math.floor(tick.config.maxStreamsPerShard() * tick.config.consolidationMaxFill());
         final List<ShardRecord> mergeable = new ArrayList<>();
         for (ShardRecord shard : List.copyOf(tick.shards.values())) {
             if (shard.state() != ShardRecord.State.ACTIVE) {
@@ -84,7 +84,8 @@ final class ConsolidationStep {
             }
             final boolean fits = !shard.isEmpty()
                     && !LifecycleStep.atMinimum(tick, shard)
-                    && fitsElsewhere(tick, shard, sources, accounts, maxFill);
+                    && !RebalanceStep.coolingDown(tick, shard)
+                    && fitsElsewhere(tick, shard, sources, accounts);
             final ShardRecord updated = since(shard, fits, tick.now);
             tick.shards.put(shard.shardId(), updated);
             if (fits) {
@@ -111,8 +112,7 @@ final class ConsolidationStep {
             final Tick tick,
             final ShardRecord shard,
             final Map<String, SourceLimits> sources,
-            final Map<String, List<Account>> accounts,
-            final int maxFill) {
+            final Map<String, List<Account>> accounts) {
         if (!shard.draining().isEmpty()) {
             return false;
         }
@@ -130,20 +130,27 @@ final class ConsolidationStep {
             if (target == null) {
                 return false;
             }
-            requests.add(new Placement.Request(streamId, target.source(), shard.partition()));
+            requests.add(PlacementStep.request(tick, target, shard.partition(), false, null));
         }
         final Placement.Result result = new Placement(
-                        sources, accounts, maxFill, Map.of(), partition -> SIMULATED_SHARD)
+                        sources, accounts, PlacementStep.mergeCaps(tick), Map.of(), partition -> SIMULATED_SHARD)
                 .place(loads, requests);
         return result.created().isEmpty() && result.unplaced().isEmpty();
     }
 
     /** A roll, a hand-off or a stream waiting for a shard: the dry run's room might not be there when placement runs. */
     private static boolean busy(final Tick tick) {
+        return moving(tick)
+                || tick.targets.values().stream()
+                        .anyMatch(target -> target.state() == Target.State.DESIRED && target.shardId() == null);
+    }
+
+    /** A roll, a merge or a hand-off under way: one kind of move at a time, each seeing the room the last left. */
+    static boolean moving(final Tick tick) {
         return tick.shards.values().stream().anyMatch(shard -> moving(tick, shard))
                 || tick.targets.values().stream()
-                        .anyMatch(target -> target.state() == Target.State.DESIRED
-                                && (target.shardId() == null || target.drainingFromShardId() != null));
+                        .anyMatch(target ->
+                                target.state() == Target.State.DESIRED && target.drainingFromShardId() != null);
     }
 
     /** Draining its streams away, or about to: a roll still has it on an old version. */

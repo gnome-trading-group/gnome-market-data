@@ -15,6 +15,7 @@ import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.RuleSelector;
 import group.gnometrading.collection.model.RuleStatus;
 import group.gnometrading.collection.model.Settings;
+import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.SourceLimits;
 import group.gnometrading.collection.model.StreamInfo;
@@ -36,7 +37,8 @@ class RuleResolverTest {
     private static final long MINUTE = TimeUnit.MINUTES.toNanos(1);
     private static final long T0 = 20_000L * TimeUnit.DAYS.toNanos(1);
     private static final Settings SETTINGS = new Settings(
-            500,
+            Map.of("standard", new ShardCaps(500, 400, 2_000)),
+            1.0,
             5,
             Map.of(),
             "1.23.0",
@@ -47,12 +49,14 @@ class RuleResolverTest {
             5 * MINUTE,
             5 * MINUTE,
             60 * MINUTE,
+            10 * MINUTE,
             false,
             false,
             15 * MINUTE,
             0.8,
             Map.of(),
-            Map.of());
+            Map.of(),
+            new Settings.Rebalance(false, false, 10 * MINUTE, 0.8, 30 * MINUTE, 60 * MINUTE, 25, 3));
 
     // ----- fakes -----
 

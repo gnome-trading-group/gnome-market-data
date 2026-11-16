@@ -2,11 +2,13 @@ package group.gnometrading.collection.reconcile;
 
 import group.gnometrading.collection.model.Account;
 import group.gnometrading.collection.model.Partition;
+import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.collection.model.SourceLimits;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -14,7 +16,9 @@ import java.util.function.Function;
  * room, so streams pack onto few shards; failing that onto a new shard. Room means:
  *
  * <ul>
- *   <li>the shard stays at or under {@code maxStreamsPerShard};
+ *   <li>the shard stays within its tier's {@link ShardCaps}: streams, published streams (a leased stream counts), and
+ *       summed records per second. An empty shard takes any one stream, so a stream busier than the rate cap alone is
+ *       still collected rather than left unplaced;
  *   <li>its connections for the source ({@link SourceLimits#connectionsFor}) stay within the source's limit per IP,
  *       counted per shard, as each runs on its own instance;
  *   <li>for a source limited per account or key, the connections of every shard bound to that account stay within its
@@ -32,11 +36,20 @@ public final class Placement {
 
     /**
      * A stream to place. {@code makeBeforeBreak}: it is leaving a draining shard, so a new shard for it may take the
-     * partition one over its {@code max_shards}.
+     * partition one over its {@code max_shards}. {@code published}: a session leases it. {@code recordsPerSecond}: what
+     * it counts toward the rate cap. {@code avoidShardId}: the shard it is being moved off, which mustn't take it back;
+     * null for none.
      */
-    public record Request(int streamId, String source, Partition partition, boolean makeBeforeBreak) {
+    public record Request(
+            int streamId,
+            String source,
+            Partition partition,
+            boolean makeBeforeBreak,
+            boolean published,
+            double recordsPerSecond,
+            String avoidShardId) {
         public Request(final int streamId, final String source, final Partition partition) {
-            this(streamId, source, partition, false);
+            this(streamId, source, partition, false, false, 0, null);
         }
     }
 
@@ -58,20 +71,23 @@ public final class Placement {
 
     private final Map<String, SourceLimits> sources;
     private final Map<String, List<Account>> accounts;
-    private final int maxStreamsPerShard;
+    private final Function<Partition, ShardCaps> caps;
     private final Map<Partition, Integer> maxShards;
     private final Function<Partition, String> newShardId;
 
-    /** @param maxShards the most shards each listed partition may run; a partition not listed has no cap */
+    /**
+     * @param caps each partition's shard caps
+     * @param maxShards the most shards each listed partition may run; a partition not listed has no cap
+     */
     public Placement(
             final Map<String, SourceLimits> sources,
             final Map<String, List<Account>> accounts,
-            final int maxStreamsPerShard,
+            final Function<Partition, ShardCaps> caps,
             final Map<Partition, Integer> maxShards,
             final Function<Partition, String> newShardId) {
         this.sources = sources;
         this.accounts = accounts;
-        this.maxStreamsPerShard = maxStreamsPerShard;
+        this.caps = caps;
         this.maxShards = maxShards;
         this.newShardId = newShardId;
     }
@@ -95,7 +111,7 @@ public final class Placement {
                 }
                 final ShardLoad fresh =
                         new ShardLoad(newShardId.apply(request.partition()), request.partition(), true, Map.of());
-                if (!fits(loads, fresh, limits)) {
+                if (!fits(loads, fresh, limits, request)) {
                     unplaced.add(new Unplaced(
                             request.streamId(), limits.signed() ? Unplaced.Reason.BUDGET : Unplaced.Reason.SOURCE));
                     continue;
@@ -105,7 +121,7 @@ public final class Placement {
                 shard = fresh;
             }
             bindIfNeeded(loads, shard, limits);
-            shard.add(limits.code());
+            shard.add(limits.code(), request.published(), request.recordsPerSecond());
             assigned.add(new Assigned(request.streamId(), shard.shardId()));
         }
         return new Result(assigned, created, unplaced);
@@ -125,17 +141,20 @@ public final class Placement {
 
     private ShardLoad fullestWithRoom(final List<ShardLoad> loads, final Request request, final SourceLimits limits) {
         return loads.stream()
-                .filter(shard -> shard.accepting() && shard.partition().equals(request.partition()))
+                .filter(shard -> shard.accepting()
+                        && shard.partition().equals(request.partition())
+                        && !Objects.equals(shard.shardId(), request.avoidShardId()))
                 .sorted(Comparator.comparingInt((ShardLoad shard) -> -shard.streams())
                         .thenComparing(ShardLoad::shardId))
-                .filter(shard -> fits(loads, shard, limits))
+                .filter(shard -> fits(loads, shard, limits, request))
                 .findFirst()
                 .orElse(null);
     }
 
-    /** Whether one more stream of the source fits on {@code shard}, binding an account if it would need one. */
-    private boolean fits(final List<ShardLoad> loads, final ShardLoad shard, final SourceLimits limits) {
-        if (shard.streams() + 1 > maxStreamsPerShard) {
+    /** Whether the request's stream fits on {@code shard}, binding an account if it would need one. */
+    private boolean fits(
+            final List<ShardLoad> loads, final ShardLoad shard, final SourceLimits limits, final Request request) {
+        if (!withinCaps(shard, request)) {
             return false;
         }
         final int before = limits.connectionsFor(shard.streams(limits.code()));
@@ -154,6 +173,14 @@ public final class Placement {
             return account != null && account.active() && room(loads, limits, account) >= after - before;
         }
         return bestAccount(loads, limits, after) != null;
+    }
+
+    private boolean withinCaps(final ShardLoad shard, final Request request) {
+        final ShardCaps shardCaps = caps.apply(shard.partition());
+        return shard.streams() + 1 <= shardCaps.maxStreams()
+                && (!request.published() || shard.published() + 1 <= shardCaps.maxPublished())
+                && (shard.streams() == 0
+                        || shard.recordsPerSecond() + request.recordsPerSecond() <= shardCaps.maxRecordsPerSecond());
     }
 
     private void bindIfNeeded(final List<ShardLoad> loads, final ShardLoad shard, final SourceLimits limits) {

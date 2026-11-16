@@ -31,7 +31,9 @@ holes historical data, and sessions read their live market data from shards (liv
       the streams it selects now), `LeaseStep` (ACTIVE session leases → rules `lease:<sessionId>`; releases and
       extends leases; the streams shards publish), `TargetsStep` (rules → targets, via `Evaluation`), `CoverageStep` (statuses → intervals and gaps, via `CoverageTracker`), `HandoffStep`,
       `AssignmentStep` (rebuilds each shard's streams/draining/cuts/publish from the targets and leases),
-      `LifecycleStep` (rolls, scale-down, `min_shards` up to `max_shards`, delete), `PlacementStep` (via `Placement`), `PersistStep`, `AlertStep`.
+      `LifecycleStep` (rolls, scale-down, `min_shards` up to `max_shards`, delete), `ConsolidationStep` (merges),
+      `PlacementStep` (via `Placement`), `RebalanceStep` (measures shards, relieves those over a cap), `PersistStep`,
+      `AlertStep`.
     - `aws/`: the ports' adapters (`DynamoStore`, `S3Statuses`, `EcsServices`, `EventBridgeAlerts`,
       `RegistryAdapter`, `ServiceConfigSettings`).
   - `common/`: `Dependencies` (every client, table and env var, built lazily once per execution environment; handlers
@@ -118,9 +120,30 @@ holes historical data, and sessions read their live market data from shards (liv
 - `TargetsStep` caches registry stream info for 5 minutes; streams whose source retires them with no grace are
   re-read every tick. Stream liveness is the registry's `COALESCE(stream.active, listing.active)`.
 - During a roll (`roll_to_version` set), placement only uses shards already on that version.
+- Shard caps (Service Config `shard_caps`, by the partition's tier; an unlisted tier takes `standard`'s): `standard`
+  {`max_streams` 900, `max_published` 400, `max_records_per_second` 2000} (r7a.medium), `low_latency` {900, 300,
+  50000} (r7a.large), each below where load tests failed latency targets. Host CPU is not a capacity signal (agents
+  spin). Placement keeps every shard within all three, draining streams included: published = carried streams in an
+  active (or recently released) lease, the shard's `publish`; rate = each stream's `records_per_second` from fresh
+  statuses (the higher one mid hand-off), else its source's 90th percentile this tick, else
+  `default_stream_records_per_second` (1). An empty shard takes any one stream. A lease on a stream already placed
+  never moves it.
+- Over capacity (`RebalanceStep`): a shard's measured load counts only rates read, so a shard on a release without
+  `records_per_second` is never over (but placement counts its streams at the estimate: roll shards before relying on
+  the caps). An ACTIVE shard over `max_published` or `max_records_per_second` records `over_capacity_since_ns`;
+  `alerts.over_capacity_minutes` (10) later it raises `SHARD_OVER_CAPACITY:<shard>` (WARNING).
+- Relief (Service Config `rebalance`: `enabled` true, `dry_run` true, `relieve_after_minutes` 10,
+  `relieve_target_fill` 0.8, `shard_cooldown_minutes` 30, `stream_cooldown_minutes` 60, `max_moves_per_tick` 25,
+  `max_leased_moves_per_tick` 3): after placement, while no roll, merge or hand-off is under way, the furthest-over
+  shard (over `relieve_after_minutes`, outside its cooldown) hands streams off make-before-break, never back onto
+  itself, onto shards left at most `relieve_target_fill` of their caps or a new one within `max_shards` (never one
+  over), until each cap it was over is at most that fill. Rate: unleased busiest first, then leased; published:
+  leased quietest first. Streams mid hand-off or moved within the stream cooldown stay. A stream with no room stays
+  put (no `COLLECTION_BUDGET`). Moved streams get `moved_at_ns`; both shards `rebalanced_at_ns`. `dry_run` only logs
+  "Would relieve shard ...".
 - Consolidation (`ConsolidationStep`, Service Config `consolidation`: `enabled`, `dry_run`, `after_minutes` 15,
-  `max_fill` 0.8): an ACTIVE shard whose streams would all fit on its partition's other shards, each left at most
-  `max_fill` full and within connection and account limits (a dry run of `Placement`), records `mergeable_since_ns`;
+  `max_fill` 0.8): an ACTIVE shard outside its rebalance cooldown whose streams would all fit on its partition's other
+  shards, each left at most `max_fill` of every shard cap and within connection and account limits (a dry run of `Placement`), records `mergeable_since_ns`;
   once that has held `after_minutes` it drains like a rolled shard and its streams hand off make-before-break, at the
   same `max_fill` ceiling. One merge at a time, none during a roll, a hand-off or with a stream unplaced; the
   emptiest goes first. `dry_run` only logs "Would merge shard ...".
@@ -210,8 +233,9 @@ holes historical data, and sessions read their live market data from shards (liv
   placed; an ended listing is skipped, nothing is left to collect; one per source and region, label `streams`;
   sessions give up at 10), `LEASE_ON_ENDED_STREAM` (a session still leasing streams
   `alerts.lease_on_ended_stream_minutes`, default 60, after the reconciler first saw their listings end; one per
-  session, linked to it; first-seen times kept in the `_reconciler` row's `ended_leased_streams`) and
-  `LEASE_HOLDERS_UNREADABLE` (the registry's sessions unreadable 15 minutes with leases held) on the `gnome-alerts` bus, resolving them when the condition clears. CloudWatch alarms carry no actions; the registry's
+  session, linked to it; first-seen times kept in the `_reconciler` row's `ended_leased_streams`),
+  `LEASE_HOLDERS_UNREADABLE` (the registry's sessions unreadable 15 minutes with leases held) and `SHARD_OVER_CAPACITY`
+  (see Over capacity) on the `gnome-alerts` bus, resolving them when the condition clears. CloudWatch alarms carry no actions; the registry's
   alerting stack raises `CLOUDWATCH_ALARM` for:
   - `MarketData--ReconcilerLambda-Fault-Count-Error` (RECONCILER_FAILING): 3+ failed ticks in the period. Read
     `/aws/lambda/<Stage>-MarketDataReconcilerStack-Reconciler-v1`.

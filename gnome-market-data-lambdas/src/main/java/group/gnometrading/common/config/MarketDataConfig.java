@@ -19,7 +19,8 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.ALWAYS)
 public record MarketDataConfig(
-        int maxStreamsPerShard,
+        Map<String, ShardCaps> shardCaps,
+        double defaultStreamRecordsPerSecond,
         int retireGraceMinutes,
         Map<String, Integer> endedRetireGraceMinutes,
         String rollToVersion,
@@ -27,13 +28,28 @@ public record MarketDataConfig(
         int emptyShardMinutes,
         Alerts alerts,
         Consolidation consolidation,
+        Rebalance rebalance,
         List<PartitionShards> minShards,
         List<PartitionShards> maxShards) {
+
+    /**
+     * What one shard of a tier ({@code standard}, {@code low_latency}) may carry: collected streams, published (Aeron)
+     * streams and collected records per second. Placement never exceeds any; a shard over the published or rate cap
+     * is relieved and alerted on.
+     */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ShardCaps(int maxStreams, int maxPublished, double maxRecordsPerSecond) {}
 
     /** How long a condition lasts before the reconciler alerts on it. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Alerts(int notLiveMinutes, int staleMinutes, int shardDownMinutes, int leaseOnEndedStreamMinutes) {}
+    public record Alerts(
+            int notLiveMinutes,
+            int staleMinutes,
+            int shardDownMinutes,
+            int leaseOnEndedStreamMinutes,
+            int overCapacityMinutes) {}
 
     /**
      * Merging a partition's under-filled shards. A shard whose streams would all fit on the partition's others, each
@@ -43,6 +59,26 @@ public record MarketDataConfig(
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Consolidation(boolean enabled, boolean dryRun, int afterMinutes, double maxFill) {}
+
+    /**
+     * Relieving a shard over its published or records-per-second cap for {@code relieveAfterMinutes}: streams move
+     * make-before-break onto shards left at most {@code relieveTargetFill} full (or a new one within
+     * {@code max_shards}) until it is at most that full too. A shard a merge or relief touched is left alone for
+     * {@code shardCooldownMinutes}, a stream one moved for {@code streamCooldownMinutes}; at most
+     * {@code maxMovesPerTick} streams move a tick, {@code maxLeasedMovesPerTick} of them leased. {@code dryRun} only
+     * logs the moves.
+     */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Rebalance(
+            boolean enabled,
+            boolean dryRun,
+            int relieveAfterMinutes,
+            double relieveTargetFill,
+            int shardCooldownMinutes,
+            int streamCooldownMinutes,
+            int maxMovesPerTick,
+            int maxLeasedMovesPerTick) {}
 
     /**
      * A shard count for one partition (region, source kind, priority, tier; tier defaults to {@code standard}), as
@@ -57,7 +93,14 @@ public record MarketDataConfig(
     public record PartitionShards(String region, String sourceKind, String priority, String tier, int count) {}
 
     public static final MarketDataConfig DEFAULTS = new MarketDataConfig(
-            900,
+            // Each below the load at which the tier's latency targets failed in load tests: standard (r7a.medium)
+            // failed near 550 published streams, low_latency (r7a.large) near 450; neither tier's rate was the limit at
+            // any real load. Collected streams lengthen the tail on one vCPU even when quiet.
+            Map.of(
+                    "standard", new ShardCaps(900, 400, 2_000),
+                    "low_latency", new ShardCaps(900, 300, 50_000)),
+            // Typical streams run well under one record a second; this keeps 900 unread streams under the rate cap.
+            1.0,
             5,
             // Hyperliquid drops a connection holding both sides of an expired outcome market: retire those at once.
             Map.of("HYPERLIQUID", 0),
@@ -65,9 +108,11 @@ public record MarketDataConfig(
             2,
             10,
             // A session normally exits within minutes of its market closing; an hour on means it is stuck.
-            new Alerts(10, 5, 5, 60),
+            new Alerts(10, 5, 5, 60, 10),
             // Fifteen minutes is three rule resolutions plus a retire grace: long enough that a dip has settled.
             new Consolidation(true, false, 15, 0.8),
+            // Relief starts above a cap and stops at 0.8 of it, the fill merges leave, so neither undoes the other.
+            new Rebalance(true, true, 10, 0.8, 30, 60, 25, 3),
             // No warm shards until cold starts prove too slow for launches.
             List.of(),
             List.of());

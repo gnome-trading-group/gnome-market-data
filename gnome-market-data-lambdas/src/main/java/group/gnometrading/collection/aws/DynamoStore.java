@@ -300,7 +300,8 @@ public final class DynamoStore implements Store {
                 string(item, "uncovered_reason"),
                 string(item, "draining_from_shard_id"),
                 number(item, "handoff_covered_since_ns"),
-                (int) number(item, "cut_minute"));
+                (int) number(item, "cut_minute"),
+                number(item, "moved_at_ns"));
     }
 
     static Map<String, AttributeValue> fromTarget(final Target target) {
@@ -324,6 +325,7 @@ public final class DynamoStore implements Store {
         putString(item, "draining_from_shard_id", target.drainingFromShardId());
         putNumber(item, "handoff_covered_since_ns", target.handoffCoveredSinceNanos());
         putNumber(item, "cut_minute", target.cutMinute());
+        putNumber(item, "moved_at_ns", target.movedAtNanos());
         return item;
     }
 
@@ -383,7 +385,9 @@ public final class DynamoStore implements Store {
                 ShardRecord.State.valueOf(string(item, "state")),
                 number(item, "created_at_ns"),
                 number(item, "empty_since_ns"),
-                number(item, "mergeable_since_ns"));
+                number(item, "mergeable_since_ns"),
+                number(item, "over_capacity_since_ns"),
+                number(item, "rebalanced_at_ns"));
     }
 
     static Map<String, AttributeValue> fromShard(final ShardRecord shard) {
@@ -406,6 +410,8 @@ public final class DynamoStore implements Store {
         item.put("created_at_ns", AttributeValue.fromN(Long.toString(shard.createdAtNanos())));
         item.put("empty_since_ns", AttributeValue.fromN(Long.toString(shard.emptySinceNanos())));
         item.put("mergeable_since_ns", AttributeValue.fromN(Long.toString(shard.mergeableSinceNanos())));
+        item.put("over_capacity_since_ns", AttributeValue.fromN(Long.toString(shard.overCapacitySinceNanos())));
+        item.put("rebalanced_at_ns", AttributeValue.fromN(Long.toString(shard.rebalancedAtNanos())));
         return item;
     }
 
