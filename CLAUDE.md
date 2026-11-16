@@ -121,9 +121,12 @@ holes historical data, and sessions read their live market data from shards (liv
   re-read every tick. Stream liveness is the registry's `COALESCE(stream.active, listing.active)`.
 - During a roll (`roll_to_version` set), placement only uses shards already on that version.
 - Shard caps (Service Config `shard_caps`, by the partition's tier; an unlisted tier takes `standard`'s): `standard`
-  {`max_streams` 900, `max_published` 400, `max_records_per_second` 3000} (r7a.medium), `low_latency` {900, 300,
-  50000} (r7a.large), each below where load tests failed latency targets. Host CPU is not a capacity signal (agents
-  spin). Placement keeps every shard within all three, draining streams included: published = carried streams in an
+  {`max_streams` 900, `max_published` 300, `max_records_per_second` 4500} (r7a.medium), `low_latency` {900, 300,
+  50000} (r7a.large). Published streams and records/s cost the same cores, so they count together: a shard's load is
+  `published / max_published + records_per_second / max_records_per_second`, at most 1 (`ShardCaps.load`); load tests
+  measured them adding up (standard: network p99 ~ 127 us + 2.1 us per published stream + 0.15 us per record/s), and
+  each cap is the most of it alone with a margin. Host CPU is not a capacity signal (agents spin). Placement keeps every
+  shard within `max_streams` and a load of 1, draining streams included: published = carried streams in an
   active (or recently released) lease, the shard's `publish`; rate = each stream's `records_per_second` from fresh
   statuses (the higher one mid hand-off), else its last reading if under 10 minutes old (`stream_rates`, packed on
   the `_reconciler` row, so a replaced task's first status, which has no rates, doesn't make its shard look empty),
@@ -132,20 +135,20 @@ holes historical data, and sessions read their live market data from shards (liv
   never moves it.
 - Over capacity (`RebalanceStep`): a shard's measured load counts only rates read, so a shard on a release without
   `records_per_second` is never over (but placement counts its streams at the estimate: roll shards before relying on
-  the caps). An ACTIVE shard over `max_published` or `max_records_per_second` records `over_capacity_since_ns`;
+  the caps). An ACTIVE shard whose load is over 1 records `over_capacity_since_ns`;
   `alerts.over_capacity_minutes` (10) later it raises `SHARD_OVER_CAPACITY:<shard>` (WARNING).
 - Relief (Service Config `rebalance`: `enabled` true, `dry_run` true, `relieve_after_minutes` 10,
   `relieve_target_fill` 0.8, `shard_cooldown_minutes` 30, `stream_cooldown_minutes` 60, `max_moves_per_tick` 25,
   `max_leased_moves_per_tick` 3): after placement, while no roll, merge or hand-off is under way, the furthest-over
   shard (over `relieve_after_minutes`, outside its cooldown) hands streams off make-before-break, never back onto
-  itself, onto shards left at most `relieve_target_fill` of their caps or a new one within `max_shards` (never one
-  over), until each cap it was over is at most that fill. Rate: unleased busiest first, then leased; published:
-  leased quietest first. Streams mid hand-off or moved within the stream cooldown stay. A stream with no room stays
+  itself, onto shards left at most `relieve_target_fill` of their load or a new one within `max_shards` (never one
+  over), until its load is at most that fill. Unleased streams first, then leased, each the one taking most off the
+  load first (a leased one also frees a published place). Streams mid hand-off or moved within the stream cooldown stay. A stream with no room stays
   put (no `COLLECTION_BUDGET`). Moved streams get `moved_at_ns`; both shards `rebalanced_at_ns`. `dry_run` only logs
   "Would relieve shard ...".
 - Consolidation (`ConsolidationStep`, Service Config `consolidation`: `enabled`, `dry_run`, `after_minutes` 15,
   `max_fill` 0.8): an ACTIVE shard outside its rebalance cooldown whose streams would all fit on its partition's other
-  shards, each left at most `max_fill` of every shard cap and within connection and account limits (a dry run of `Placement`), records `mergeable_since_ns`;
+  shards, each left at most `max_fill` of its streams cap and its load and within connection and account limits (a dry run of `Placement`), records `mergeable_since_ns`;
   once that has held `after_minutes` it drains like a rolled shard and its streams hand off make-before-break, at the
   same `max_fill` ceiling. One merge at a time, none during a roll, a hand-off or with a stream unplaced; the
   emptiest goes first. `dry_run` only logs "Would merge shard ...".

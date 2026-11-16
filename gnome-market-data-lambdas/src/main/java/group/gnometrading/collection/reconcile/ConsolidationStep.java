@@ -14,7 +14,8 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * Merges under-filled shards. A shard is mergeable while its streams would all fit on its partition's other shards,
- * each left at most {@code consolidationMaxFill} of every cap (streams, published streams and records per second) and
+ * each left at most {@code consolidationMaxFill} of its streams cap and of its load (published streams and records per
+ * second together) and
  * within every connection limit and account budget (a dry run of {@link Placement}, with the shard itself taking
  * nothing but still counting toward its accounts, as it does while it hands off). A shard a merge or relief moved
  * streams onto or off within the shard cooldown isn't, so a fresh relief isn't undone by the next merge. One mergeable for {@code consolidateAfterNanos} drains like a rolled shard: placement hands its

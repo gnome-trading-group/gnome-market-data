@@ -113,7 +113,8 @@ final class AlertStep {
     }
 
     /**
-     * Shards over their tier's published or records-per-second cap, by their fresh statuses, for
+     * Shards whose load (published streams and records per second together) is over their tier's caps, by their fresh
+     * statuses, for
      * {@code alerts.over_capacity_minutes}: relief moves streams off when it can, and this stays up until it has.
      */
     private static void shardsOverCapacity(final Tick tick, final Map<String, Firing> firing) {
@@ -126,19 +127,21 @@ final class AlertStep {
             }
             final long rate = Math.round(usage.recordsPerSecond());
             final long maxRate = Math.round(usage.caps().maxRecordsPerSecond());
+            final long loadPercent = Math.round(usage.fill() * 100);
             firing.put(
                     "SHARD_OVER_CAPACITY:" + shard.shardId(),
                     new Firing(
                             "SHARD_OVER_CAPACITY",
                             "Shard " + shard.shardId() + " is over its "
-                                    + shard.partition().tier() + " caps: "
+                                    + shard.partition().tier() + " caps: load " + loadPercent + "% ("
                                     + usage.published() + "/" + usage.caps().maxPublished() + " published, " + rate
-                                    + "/" + maxRate + " records/s",
+                                    + "/" + maxRate + " records/s)",
                             Map.of(
                                     "shard", shard.shardId(),
                                     "region", shard.partition().region(),
                                     "tier", shard.partition().tier(),
                                     "streams", Integer.toString(usage.streams()),
+                                    "load_percent", Long.toString(loadPercent),
                                     "published", Integer.toString(usage.published()),
                                     "max_published",
                                             Integer.toString(usage.caps().maxPublished()),

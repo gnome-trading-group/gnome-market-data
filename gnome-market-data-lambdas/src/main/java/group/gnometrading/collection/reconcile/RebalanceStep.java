@@ -18,14 +18,14 @@ import org.apache.logging.log4j.Logger;
 /**
  * Relieves shards over a cap. Every tick it measures each shard from its fresh statuses: the streams it carries, how
  * many it publishes, and their summed records per second, draining ones included. Only rates read count, so a shard
- * whose release doesn't report them is never over. An ACTIVE shard over its tier's published or rate cap records since
- * when; one over for {@code relieveAfterNanos}, outside its cooldown, has streams handed off make-before-break onto
- * shards with room (or a new one within {@code max_shards}), until it is at most {@code relieveTargetFill} of the caps
- * it was over, its receivers at most that full too.
+ * whose release doesn't report them is never over. An ACTIVE shard whose load ({@link ShardCaps#load}: published streams
+ * and records per second together) is over 1 records since when; one over for {@code relieveAfterNanos}, outside its
+ * cooldown, has streams handed off make-before-break onto shards with room (or a new one within {@code max_shards}),
+ * until its load is at most {@code relieveTargetFill}, its receivers' at most that too.
  *
- * <p>For the rate cap, unleased streams go first, busiest first, so the fewest move; a leased stream moves only when
- * those aren't enough, as a session reading it sees the hand-off. For the published cap only leased streams count, the
- * quietest first. A stream with no room stays where it is, and {@code SHARD_OVER_CAPACITY} stays up.
+ * <p>Unleased streams go first, busiest first, so the fewest move and no session sees it; a leased stream moves only
+ * when those aren't enough, the one taking most off the load first (it frees a published place and its rate). A stream
+ * with no room stays where it is, and {@code SHARD_OVER_CAPACITY} stays up.
  *
  * <p>Runs after placement, so streams waiting for a shard take the room first, and only while no roll, merge or
  * hand-off is under way. One shard a tick, the furthest over first.
@@ -37,21 +37,13 @@ final class RebalanceStep {
 
     /** What a shard carries by its fresh statuses, against its tier's caps. */
     record Usage(int streams, int published, double recordsPerSecond, ShardCaps caps) {
-        boolean overPublished() {
-            return published > caps.maxPublished();
-        }
-
-        boolean overRate() {
-            return recordsPerSecond > caps.maxRecordsPerSecond();
-        }
-
         boolean over() {
-            return overPublished() || overRate();
+            return fill() > 1;
         }
 
-        /** How far over its fuller cap it is, as a fraction of that cap. */
+        /** Its load against its tier's caps; over 1 is over. */
         double fill() {
-            return Math.max(published / (double) caps.maxPublished(), recordsPerSecond / caps.maxRecordsPerSecond());
+            return caps.load(published, recordsPerSecond);
         }
     }
 
@@ -187,8 +179,8 @@ final class RebalanceStep {
     }
 
     /**
-     * The streams to move: enough to bring each cap the shard is over to {@code relieveTargetFill} of it, within the
-     * per-tick limits. Streams mid hand-off or moved within the stream cooldown are left.
+     * The streams to move: enough to bring the shard's load to {@code relieveTargetFill}, within the per-tick limits.
+     * Streams mid hand-off or moved within the stream cooldown are left.
      */
     private static List<Target> choose(final Tick tick, final ShardRecord shard, final Usage usage) {
         final List<Target> leased = new ArrayList<>();
@@ -202,20 +194,15 @@ final class RebalanceStep {
             }
         }
         final Selection selection = new Selection(tick, usage);
-        if (usage.overPublished()) {
-            leased.sort(Comparator.comparingDouble((Target target) -> tick.measuredRateOf(target.streamId()))
-                    .thenComparingInt(Target::streamId));
-            selection.shedPublished(leased);
-        }
-        if (usage.overRate()) {
-            final Comparator<Target> busiestFirst = Comparator.comparingDouble(
-                            (Target target) -> -tick.measuredRateOf(target.streamId()))
-                    .thenComparingInt(Target::streamId);
-            unleased.sort(busiestFirst);
-            leased.sort(busiestFirst);
-            selection.shedRate(unleased);
-            selection.shedRate(leased);
-        }
+        // Moving a stream takes its rate off the load, and a leased one its published place too: busiest first, so the
+        // fewest move.
+        final Comparator<Target> mostOffFirst = Comparator.comparingDouble(
+                        (Target target) -> -selection.relief(target, tick.leasedStreams.contains(target.streamId())))
+                .thenComparingInt(Target::streamId);
+        unleased.sort(mostOffFirst);
+        leased.sort(mostOffFirst);
+        selection.shed(unleased);
+        selection.shed(leased);
         return selection.chosen;
     }
 
@@ -223,7 +210,7 @@ final class RebalanceStep {
     private static final class Selection {
         private final Tick tick;
         private final Settings.Rebalance settings;
-        private final ShardCaps goal;
+        private final ShardCaps caps;
         private final List<Target> chosen = new ArrayList<>();
         private int published;
         private double rate;
@@ -232,30 +219,24 @@ final class RebalanceStep {
         Selection(final Tick tick, final Usage usage) {
             this.tick = tick;
             this.settings = tick.config.rebalance();
-            this.goal = usage.caps().scaled(settings.relieveTargetFill());
+            this.caps = usage.caps();
             this.published = usage.published();
             this.rate = usage.recordsPerSecond();
         }
 
-        /** Leased streams in order until the shard publishes few enough. */
-        void shedPublished(final List<Target> leased) {
-            for (Target target : List.copyOf(leased)) {
-                if (published <= goal.maxPublished() || !canTake(true)) {
-                    return;
-                }
-                take(target, true);
-                leased.remove(target);
-            }
+        /** What moving the stream takes off the shard's load. */
+        double relief(final Target target, final boolean leased) {
+            return caps.load(leased ? 1 : 0, tick.measuredRateOf(target.streamId()));
         }
 
-        /** Streams in order until the shard's rate is low enough; one with no reading wouldn't lower it. */
-        void shedRate(final List<Target> candidates) {
+        /** Streams in order until the shard's load is low enough; one that wouldn't lower it stays. */
+        void shed(final List<Target> candidates) {
             for (Target target : candidates) {
-                if (rate <= goal.maxRecordsPerSecond()) {
+                if (caps.load(published, rate) <= settings.relieveTargetFill()) {
                     return;
                 }
                 final boolean leased = tick.leasedStreams.contains(target.streamId());
-                if (tick.measuredRateOf(target.streamId()) > 0 && canTake(leased) && !chosen.contains(target)) {
+                if (relief(target, leased) > 0 && canTake(leased) && !chosen.contains(target)) {
                     take(target, leased);
                 }
             }

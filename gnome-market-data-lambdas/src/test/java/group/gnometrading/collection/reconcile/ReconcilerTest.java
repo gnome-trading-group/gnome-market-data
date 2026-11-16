@@ -1631,7 +1631,7 @@ class ReconcilerTest {
     }
 
     @Test
-    void aShardOverItsPublishedCapMovesItsQuietestLeasedStreamsWithinTheLeasedLimit() {
+    void aShardOverItsLoadOnPublishedStreamsMovesTheLeasedStreamTakingMostOffItWithinTheLeasedLimit() {
         maxPublished = 4;
         maxLeasedMoves = 1;
         kalshiStreams(4, 5, 6);
@@ -1646,10 +1646,10 @@ class ReconcilerTest {
 
         Reconciler.Summary summary = tickWithRates(T0 + 3 * MINUTE, T0 + 11 * MINUTE, rates);
 
-        assertEquals(1, summary.relieved(), "goal 3 published needs two moves, the leased limit allows one");
-        assertEquals("use1-2", targets.get(2).shardId(), "the quietest leased stream");
-        assertEquals(List.of(2), shards.get("use1-2").publish());
-        assertEquals(List.of(1, 2, 3, 4, 5), shards.get("use1-1").publish(), "it publishes 2 until the cut too");
+        assertEquals(1, summary.relieved(), "back to its target load needs two moves, the leased limit allows one");
+        assertEquals("use1-2", targets.get(1).shardId(), "the busiest leased stream frees the most load");
+        assertEquals(List.of(1), shards.get("use1-2").publish());
+        assertEquals(List.of(1, 2, 3, 4, 5), shards.get("use1-1").publish(), "it publishes 1 until the cut too");
     }
 
     @Test

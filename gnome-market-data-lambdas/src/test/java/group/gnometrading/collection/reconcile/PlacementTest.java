@@ -254,6 +254,35 @@ class PlacementTest {
     }
 
     @Test
+    void publishedStreamsAndRateCountTogetherSoAShardNearBothIsFull() {
+        // Half the published cap plus half the rate cap is a whole shard: each alone would fit twice over.
+        Placement.Result result = placement(new ShardCaps(100, 10, 100))
+                .place(
+                        loads,
+                        List.of(
+                                leased(1, 10),
+                                leased(2, 10),
+                                leased(3, 10),
+                                leased(4, 10),
+                                leased(5, 10),
+                                leased(6, 0)));
+
+        assertEquals(Map.of("shard-1", 5L, "shard-2", 1L), perShard(result), "5/10 published + 50/100 rate is full");
+        assertEquals(
+                1.0,
+                new ShardCaps(100, 10, 100)
+                        .load(loads.get(0).published(), loads.get(0).recordsPerSecond()));
+    }
+
+    @Test
+    void aShardPublishingNothingTakesItsWholeRateCap() {
+        Placement.Result result = placement(new ShardCaps(100, 10, 100))
+                .place(loads, List.of(unleased(1, 50), unleased(2, 50), unleased(3, 1)));
+
+        assertEquals(Map.of("shard-1", 2L, "shard-2", 1L), perShard(result));
+    }
+
+    @Test
     void theStreamCapStillHoldsWhateverTheOtherCaps() {
         Placement.Result result = placement(new ShardCaps(2, 100, 1e9))
                 .place(loads, List.of(unleased(1, 0), unleased(2, 0), unleased(3, 0)));

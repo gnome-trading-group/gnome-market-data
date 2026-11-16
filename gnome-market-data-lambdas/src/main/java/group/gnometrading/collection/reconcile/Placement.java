@@ -16,9 +16,9 @@ import java.util.function.Function;
  * room, so streams pack onto few shards; failing that onto a new shard. Room means:
  *
  * <ul>
- *   <li>the shard stays within its tier's {@link ShardCaps}: streams, published streams (a leased stream counts), and
- *       summed records per second. An empty shard takes any one stream, so a stream busier than the rate cap alone is
- *       still collected rather than left unplaced;
+ *   <li>the shard stays within its tier's {@link ShardCaps}: streams, and its load (published streams, a leased
+ *       stream counting, and summed records per second, together). An empty shard takes any one stream, so a stream
+ *       busier than a whole shard is still collected rather than left unplaced;
  *   <li>its connections for the source ({@link SourceLimits#connectionsFor}) stay within the source's limit per IP,
  *       counted per shard, as each runs on its own instance;
  *   <li>for a source limited per account or key, the connections of every shard bound to that account stay within its
@@ -37,7 +37,7 @@ public final class Placement {
     /**
      * A stream to place. {@code makeBeforeBreak}: it is leaving a draining shard, so a new shard for it may take the
      * partition one over its {@code max_shards}. {@code published}: a session leases it. {@code recordsPerSecond}: what
-     * it counts toward the rate cap. {@code avoidShardId}: the shard it is being moved off, which mustn't take it back;
+     * it adds to a shard's load. {@code avoidShardId}: the shard it is being moved off, which mustn't take it back;
      * null for none.
      */
     public record Request(
@@ -177,10 +177,13 @@ public final class Placement {
 
     private boolean withinCaps(final ShardLoad shard, final Request request) {
         final ShardCaps shardCaps = caps.apply(shard.partition());
+        // An empty shard always takes its first stream, however busy, or that stream could never be placed.
         return shard.streams() + 1 <= shardCaps.maxStreams()
-                && (!request.published() || shard.published() + 1 <= shardCaps.maxPublished())
                 && (shard.streams() == 0
-                        || shard.recordsPerSecond() + request.recordsPerSecond() <= shardCaps.maxRecordsPerSecond());
+                        || shardCaps.load(
+                                        shard.published() + (request.published() ? 1 : 0),
+                                        shard.recordsPerSecond() + request.recordsPerSecond())
+                                <= 1);
     }
 
     private void bindIfNeeded(final List<ShardLoad> loads, final ShardLoad shard, final SourceLimits limits) {

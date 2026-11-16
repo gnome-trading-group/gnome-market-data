@@ -30,7 +30,7 @@ class ServiceConfigSettingsTest {
     void theDefaultsAreThePlansDecisions() {
         Settings settings = ServiceConfigSettings.of(MarketDataConfig.DEFAULTS, () -> "1.23.0", REGIONS);
 
-        assertEquals(new ShardCaps(900, 400, 3_000), settings.caps(US_PRODUCTION));
+        assertEquals(new ShardCaps(900, 300, 4_500), settings.caps(US_PRODUCTION));
         assertEquals(
                 new ShardCaps(900, 300, 50_000),
                 settings.caps(new Partition("us-east-1", "VENUE", Priority.PRODUCTION, "low_latency")));
@@ -67,7 +67,7 @@ class ServiceConfigSettingsTest {
         var json = MAPPER.valueToTree(MarketDataConfig.DEFAULTS);
 
         assertEquals(
-                400, json.get("shard_caps").get("standard").get("max_published").asInt());
+                300, json.get("shard_caps").get("standard").get("max_published").asInt());
         assertEquals(
                 50_000,
                 json.get("shard_caps")
@@ -89,7 +89,7 @@ class ServiceConfigSettingsTest {
 
         assertEquals("1.24.0", settings.newShardVersion());
         assertEquals("1.24.0", settings.rollToVersion());
-        assertEquals(new ShardCaps(900, 350, 3_000), settings.caps(US_PRODUCTION), "one cap set, the others kept");
+        assertEquals(new ShardCaps(900, 350, 4_500), settings.caps(US_PRODUCTION), "one cap set, the others kept");
         assertEquals(
                 300,
                 settings.caps(new Partition("us-east-1", "VENUE", Priority.PRODUCTION, "low_latency"))

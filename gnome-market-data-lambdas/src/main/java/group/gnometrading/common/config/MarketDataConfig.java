@@ -33,9 +33,10 @@ public record MarketDataConfig(
         List<PartitionShards> maxShards) {
 
     /**
-     * What one shard of a tier ({@code standard}, {@code low_latency}) may carry: collected streams, published (Aeron)
-     * streams and collected records per second. Placement never exceeds any; a shard over the published or rate cap
-     * is relieved and alerted on.
+     * What one shard of a tier ({@code standard}, {@code low_latency}) may carry: collected streams, and its load,
+     * published (Aeron) streams and collected records per second counted together ({@code published / max_published +
+     * records_per_second / max_records_per_second}, at most 1). Placement never exceeds either; a shard over its load is
+     * relieved and alerted on.
      */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -100,7 +101,7 @@ public record MarketDataConfig(
             // when
             // quiet.
             Map.of(
-                    "standard", new ShardCaps(900, 400, 3_000),
+                    "standard", new ShardCaps(900, 300, 4_500),
                     "low_latency", new ShardCaps(900, 300, 50_000)),
             // Typical streams run well under one record a second; this keeps 900 unread streams under the rate cap.
             1.0,
