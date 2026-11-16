@@ -11,6 +11,7 @@ import group.gnometrading.collection.model.Lease;
 import group.gnometrading.collection.model.Partition;
 import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.ShardRecord;
+import group.gnometrading.collection.model.StreamRate;
 import group.gnometrading.collection.model.Target;
 import java.util.HashMap;
 import java.util.List;
@@ -178,5 +179,16 @@ class DynamoStoreTest {
         assertEquals(open, DynamoStore.toInterval(DynamoStore.fromInterval(open)));
         assertEquals(closed, DynamoStore.toInterval(DynamoStore.fromInterval(closed)));
         assertTrue(DynamoStore.unpack(null).isEmpty());
+    }
+
+    @Test
+    void streamRatesRoundTripPacked() {
+        Map<Integer, StreamRate> rates =
+                Map.of(7, new StreamRate(12.5, 1_794_000_000_000_000_000L), 3, new StreamRate(0, 5));
+
+        Map<Integer, StreamRate> back = DynamoStore.unpackRates(AttributeValue.fromB(DynamoStore.packRates(rates)));
+
+        assertEquals(rates, back);
+        assertEquals(2 * 16, DynamoStore.packRates(rates).asByteArray().length, "16 bytes a stream");
     }
 }

@@ -19,6 +19,7 @@ import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.SourceLimits;
 import group.gnometrading.collection.model.StreamInfo;
+import group.gnometrading.collection.model.StreamRate;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Registry;
 import group.gnometrading.collection.ports.Store;
@@ -155,6 +156,14 @@ class RuleResolverTest {
 
         @Override
         public void putEndedLeasedStreams(final Map<Integer, Long> firstSeenEndedNanos) {}
+
+        @Override
+        public Map<Integer, StreamRate> streamRates() {
+            return Map.of();
+        }
+
+        @Override
+        public void putStreamRates(final Map<Integer, StreamRate> rates) {}
     };
 
     private final Registry registry = new Registry() {

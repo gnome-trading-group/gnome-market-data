@@ -21,6 +21,7 @@ import group.gnometrading.collection.model.ShardCaps;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.SourceLimits;
 import group.gnometrading.collection.model.StreamInfo;
+import group.gnometrading.collection.model.StreamRate;
 import group.gnometrading.collection.model.StreamState;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.model.TaskErrors;
@@ -59,6 +60,7 @@ class ReconcilerTest {
     private final List<String> gapReasons = new ArrayList<>();
     private Map<String, String> firingAlerts = new HashMap<>();
     private Map<Integer, Long> endedLeasedStreams = new HashMap<>();
+    private Map<Integer, StreamRate> storedRates = new HashMap<>();
     // The session each FIRING event named, by alert key.
     private final Map<String, String> alertSessions = new HashMap<>();
     private final Map<Integer, StreamInfo> streams = new HashMap<>();
@@ -194,6 +196,16 @@ class ReconcilerTest {
         @Override
         public void putEndedLeasedStreams(final Map<Integer, Long> firstSeenEndedNanos) {
             endedLeasedStreams = new HashMap<>(firstSeenEndedNanos);
+        }
+
+        @Override
+        public Map<Integer, StreamRate> streamRates() {
+            return new HashMap<>(storedRates);
+        }
+
+        @Override
+        public void putStreamRates(final Map<Integer, StreamRate> rates) {
+            storedRates = new HashMap<>(rates);
         }
     };
 
@@ -1765,5 +1777,50 @@ class ReconcilerTest {
 
         assertEquals(0, summary.relieved());
         assertTrue(alertEvents.contains("FIRING SHARD_OVER_CAPACITY:use1-1"));
+    }
+
+    @Test
+    void aReplacedTaskWithNoRatesYetKeepsItsShardOverItsCapOnTheLastReadings() {
+        oneHotShard();
+        tickWithRates(T0 + MINUTE, T0 + 5 * MINUTE, HOT);
+        long overSince = shards.get("use1-1").overCapacitySinceNanos();
+        assertTrue(overSince > 0);
+
+        // A new task: its first status reports every stream, none with a rate yet.
+        report("use1-1", "t-replacement", T0 + 6 * MINUTE, "LIVE");
+        reconciler.tick(T0 + 6 * MINUTE);
+
+        assertEquals(overSince, shards.get("use1-1").overCapacitySinceNanos(), "the last readings still count");
+        assertEquals(50.0, storedRates.get(1).recordsPerSecond(), 0.001);
+        assertEquals(T0 + 5 * MINUTE, storedRates.get(1).readAtNanos(), "kept as last read, not refreshed");
+    }
+
+    @Test
+    void aReadingOlderThanTheRateMemoryIsForgotten() {
+        oneHotShard();
+        tickWithRates(T0 + MINUTE, T0 + MINUTE, HOT);
+
+        for (long at = T0 + 2 * MINUTE; at <= T0 + 12 * MINUTE; at += MINUTE) {
+            report("use1-1", "t-replacement", at, "LIVE");
+            reconciler.tick(at);
+        }
+
+        assertEquals(0, shards.get("use1-1").overCapacitySinceNanos(), "nothing read for over ten minutes");
+        assertTrue(storedRates.isEmpty());
+    }
+
+    @Test
+    void aMergeIsNotJudgedOnAShardThatLooksEmptyWhileItsTaskIsReplaced() {
+        long at = twoUnderFilledShards();
+        maxRecordsPerSecond = 100;
+        tickWithRates(at + MINUTE, at + MINUTE, Map.of(4, 50.0, 5, 20.0, 6, 20.0));
+        assertEquals(0, shards.get("use1-1").mergeableSinceNanos());
+
+        report("use1-1", "t-replacement", at + 2 * MINUTE, "LIVE");
+        report("use1-2", "t-other", at + 2 * MINUTE, "LIVE");
+        reconciler.tick(at + 2 * MINUTE);
+
+        assertEquals(0, shards.get("use1-1").mergeableSinceNanos(), "the remembered 50/s still doesn't fit");
+        assertEquals(0, shards.get("use1-2").mergeableSinceNanos());
     }
 }

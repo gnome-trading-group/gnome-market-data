@@ -94,10 +94,13 @@ public record MarketDataConfig(
 
     public static final MarketDataConfig DEFAULTS = new MarketDataConfig(
             // Each below the load at which the tier's latency targets failed in load tests: standard (r7a.medium)
-            // failed near 550 published streams, low_latency (r7a.large) near 450; neither tier's rate was the limit at
-            // any real load. Collected streams lengthen the tail on one vCPU even when quiet.
+            // failed near 550 published streams, low_latency (r7a.large) near 450. Standard passed 5.6k records/s with
+            // 30 published, but 250 published at 2.8k failed and nothing between was tested, so its rate cap stays near
+            // that mix rather than the light-publishing limit. Collected streams lengthen the tail on one vCPU even
+            // when
+            // quiet.
             Map.of(
-                    "standard", new ShardCaps(900, 400, 2_000),
+                    "standard", new ShardCaps(900, 400, 3_000),
                     "low_latency", new ShardCaps(900, 300, 50_000)),
             // Typical streams run well under one record a second; this keeps 900 unread streams under the rate cap.
             1.0,

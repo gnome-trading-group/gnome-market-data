@@ -5,6 +5,7 @@ import group.gnometrading.collection.model.Lease;
 import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.RuleStatus;
 import group.gnometrading.collection.model.ShardRecord;
+import group.gnometrading.collection.model.StreamRate;
 import group.gnometrading.collection.model.Target;
 import java.util.List;
 import java.util.Map;
@@ -62,4 +63,9 @@ public interface Store {
     Map<Integer, Long> endedLeasedStreams();
 
     void putEndedLeasedStreams(Map<Integer, Long> firstSeenEndedNanos);
+
+    /** Each stream's last measured rate, as the last tick kept it. */
+    Map<Integer, StreamRate> streamRates();
+
+    void putStreamRates(Map<Integer, StreamRate> rates);
 }

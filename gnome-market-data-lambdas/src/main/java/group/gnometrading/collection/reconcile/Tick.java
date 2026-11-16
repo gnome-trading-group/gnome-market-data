@@ -42,8 +42,9 @@ final class Tick {
     // Per shard: each stream's state in its fresh statuses, and when the shard last wrote any status.
     final Map<String, Map<Integer, String>> streamStates = new HashMap<>();
     final Map<String, Long> lastStatusNanos = new HashMap<>();
-    // Each stream's records per second in fresh statuses (the higher reading mid hand-off), and per source the 90th
-    // percentile of its streams' readings: what placement counts for a stream not read yet.
+    // Each stream's records per second in fresh statuses (the higher reading mid hand-off), else its last reading
+    // under CoverageStep.RATE_MEMORY_NANOS old; and per source the 90th percentile of its streams' readings: what
+    // placement counts for a stream not read yet.
     final Map<Integer, Double> streamRates = new HashMap<>();
     final Map<String, Double> sourceRateP90 = new HashMap<>();
     // Per shard not deleted: what it carries by its fresh statuses, against its caps (RebalanceStep).
@@ -95,7 +96,10 @@ final class Tick {
         return p90 != null ? p90 : config.defaultStreamRecordsPerSecond();
     }
 
-    /** The stream's reading, 0 if none: what judging a shard over its cap counts, so an unread shard never is. */
+    /**
+     * The stream's reading (fresh, or remembered for a few minutes), 0 if none: what judging a shard over its cap
+     * counts, so a shard whose release reports no rates never is.
+     */
     double measuredRateOf(final int streamId) {
         return streamRates.getOrDefault(streamId, 0.0);
     }

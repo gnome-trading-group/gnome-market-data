@@ -7,6 +7,7 @@ import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.RuleStatus;
 import group.gnometrading.collection.model.ShardRecord;
+import group.gnometrading.collection.model.StreamRate;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Store;
 import java.nio.ByteBuffer;
@@ -42,6 +43,9 @@ public final class DynamoStore implements Store {
     private static final String RECONCILER_ROW = "_reconciler";
     private static final String FIRING_ALERTS = "firing_alerts";
     private static final String ENDED_LEASED_STREAMS = "ended_leased_streams";
+    private static final String STREAM_RATES = "stream_rates";
+    // Stream id (int32), records per second (float32), read at (int64 epoch nanos).
+    private static final int STREAM_RATE_BYTES = Integer.BYTES + Float.BYTES + Long.BYTES;
 
     /** The table names, from the Lambda's environment. */
     public record Tables(String rules, String targets, String shards, String coverage, String gaps, String leases) {}
@@ -147,6 +151,53 @@ public final class DynamoStore implements Store {
         firstSeenEndedNanos.forEach(
                 (streamId, since) -> ended.put(Integer.toString(streamId), AttributeValue.fromN(Long.toString(since))));
         dynamo.updateItem(reconcilerUpdate(tables.rules(), ENDED_LEASED_STREAMS, ended));
+    }
+
+    @Override
+    public Map<Integer, StreamRate> streamRates() {
+        final Map<String, AttributeValue> item = dynamo.getItem(request -> request.tableName(tables.rules())
+                        .key(Map.of("rule_id", AttributeValue.fromS(RECONCILER_ROW)))
+                        .consistentRead(true))
+                .item();
+        return item == null ? Map.of() : unpackRates(item.get(STREAM_RATES));
+    }
+
+    /** One binary attribute: thousands of streams as a map of numbers would near the 400 KB item limit. */
+    @Override
+    public void putStreamRates(final Map<Integer, StreamRate> rates) {
+        dynamo.updateItem(UpdateItemRequest.builder()
+                .tableName(tables.rules())
+                .key(Map.of("rule_id", AttributeValue.fromS(RECONCILER_ROW)))
+                .updateExpression("SET #status = :status, #attribute = :value")
+                .expressionAttributeNames(Map.of("#status", "status", "#attribute", STREAM_RATES))
+                .expressionAttributeValues(Map.of(
+                        ":status", AttributeValue.fromS("INTERNAL"),
+                        ":value", AttributeValue.fromB(packRates(rates))))
+                .build());
+    }
+
+    static SdkBytes packRates(final Map<Integer, StreamRate> rates) {
+        final ByteBuffer bytes = ByteBuffer.allocate(rates.size() * STREAM_RATE_BYTES);
+        rates.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(rate -> {
+            bytes.putInt(rate.getKey());
+            bytes.putFloat((float) rate.getValue().recordsPerSecond());
+            bytes.putLong(rate.getValue().readAtNanos());
+        });
+        return SdkBytes.fromByteArray(bytes.array());
+    }
+
+    static Map<Integer, StreamRate> unpackRates(final AttributeValue value) {
+        if (value == null || value.b() == null) {
+            return Map.of();
+        }
+        final ByteBuffer bytes = value.b().asByteBuffer();
+        final Map<Integer, StreamRate> rates = new HashMap<>();
+        while (bytes.remaining() >= STREAM_RATE_BYTES) {
+            final int streamId = bytes.getInt();
+            final float rate = bytes.getFloat();
+            rates.put(streamId, new StreamRate(rate, bytes.getLong()));
+        }
+        return rates;
     }
 
     private Map<String, AttributeValue> reconcilerAttribute(final String attribute) {

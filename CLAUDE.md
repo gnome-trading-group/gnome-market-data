@@ -121,11 +121,13 @@ holes historical data, and sessions read their live market data from shards (liv
   re-read every tick. Stream liveness is the registry's `COALESCE(stream.active, listing.active)`.
 - During a roll (`roll_to_version` set), placement only uses shards already on that version.
 - Shard caps (Service Config `shard_caps`, by the partition's tier; an unlisted tier takes `standard`'s): `standard`
-  {`max_streams` 900, `max_published` 400, `max_records_per_second` 2000} (r7a.medium), `low_latency` {900, 300,
+  {`max_streams` 900, `max_published` 400, `max_records_per_second` 3000} (r7a.medium), `low_latency` {900, 300,
   50000} (r7a.large), each below where load tests failed latency targets. Host CPU is not a capacity signal (agents
   spin). Placement keeps every shard within all three, draining streams included: published = carried streams in an
   active (or recently released) lease, the shard's `publish`; rate = each stream's `records_per_second` from fresh
-  statuses (the higher one mid hand-off), else its source's 90th percentile this tick, else
+  statuses (the higher one mid hand-off), else its last reading if under 10 minutes old (`stream_rates`, packed on
+  the `_reconciler` row, so a replaced task's first status, which has no rates, doesn't make its shard look empty),
+  else its source's 90th percentile this tick, else
   `default_stream_records_per_second` (1). An empty shard takes any one stream. A lease on a stream already placed
   never moves it.
 - Over capacity (`RebalanceStep`): a shard's measured load counts only rates read, so a shard on a release without

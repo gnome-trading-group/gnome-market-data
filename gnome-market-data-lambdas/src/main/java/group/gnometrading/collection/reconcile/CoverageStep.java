@@ -2,6 +2,7 @@ package group.gnometrading.collection.reconcile;
 
 import group.gnometrading.collection.model.Interval;
 import group.gnometrading.collection.model.ShardRecord;
+import group.gnometrading.collection.model.StreamRate;
 import group.gnometrading.collection.model.StreamState;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.model.TaskErrors;
@@ -26,6 +27,10 @@ final class CoverageStep {
     // Shards write a status every 15 s: three missed and a task no longer counts as collecting anything.
     // The lease API's STATUS_FRESH_NS too; both sides test against lease-constants.json (test resources).
     static final long STATUS_FRESH_NANOS = TimeUnit.SECONDS.toNanos(45);
+    // A replaced task's first status has no rates (a rate needs two readings), and a Spot reclaim or hand-off leaves a
+    // stream unread for a minute or two; meanwhile its last rate stands in, rather than an estimate that makes a full
+    // shard look empty to placement and merges.
+    static final long RATE_MEMORY_NANOS = TimeUnit.MINUTES.toNanos(10);
     private static final String NO_STATUS = "NO_STATUS";
 
     /** What a shard's tasks showed of one stream this tick: its open coverage's start and its last covered moment. */
@@ -58,7 +63,28 @@ final class CoverageStep {
                 track(tick, target, seen);
             }
         }
+        rememberRates(tick);
         sourceRateP90(tick);
+    }
+
+    /**
+     * Fills in a stream with no fresh reading from its last one, if under {@link #RATE_MEMORY_NANOS} old and still
+     * wanted, and keeps every fresh reading for the next tick.
+     */
+    private void rememberRates(final Tick tick) {
+        final Map<Integer, StreamRate> kept = new HashMap<>();
+        tick.streamRates.forEach((streamId, rate) -> kept.put(streamId, new StreamRate(rate, tick.now)));
+        store.streamRates().forEach((streamId, last) -> {
+            final Target target = tick.targets.get(streamId);
+            if (!kept.containsKey(streamId)
+                    && target != null
+                    && target.state() != Target.State.RETIRED
+                    && tick.now - last.readAtNanos() <= RATE_MEMORY_NANOS) {
+                tick.streamRates.put(streamId, last.recordsPerSecond());
+                kept.put(streamId, last);
+            }
+        });
+        store.putStreamRates(kept);
     }
 
     private static void sourceRateP90(final Tick tick) {
