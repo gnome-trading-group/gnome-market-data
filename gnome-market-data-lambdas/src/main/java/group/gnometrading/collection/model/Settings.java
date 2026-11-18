@@ -28,6 +28,7 @@ public record Settings(
         long shardDownNanos,
         long leaseOnEndedStreamAlertNanos,
         long overCapacityAlertNanos,
+        long homeZoneUnplacedNanos,
         boolean consolidationEnabled,
         boolean consolidationDryRun,
         long consolidateAfterNanos,

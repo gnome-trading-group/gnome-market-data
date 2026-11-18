@@ -333,4 +333,18 @@ class PlacementTest {
 
         assertEquals("shard-1", result.assigned().get(0).shardId());
     }
+
+    @Test
+    void productionStreamsOfDifferentHomeZonesNeverShareAShard() {
+        Partition zoneA = new Partition("us-east-1", "VENUE", Priority.PRODUCTION, "standard", "use1-az2");
+        Partition zoneB = new Partition("us-east-1", "VENUE", Priority.PRODUCTION, "standard", "use1-az4");
+        List<Placement.Request> requests = new ArrayList<>(requests("KALSHI", zoneA, 3));
+        requests.addAll(requests("KALSHI", zoneB, 3));
+
+        Placement.Result result = placement(500).place(loads, requests);
+
+        assertEquals(2, result.created().size());
+        assertEquals(zoneA, result.created().get(0).partition());
+        assertEquals(zoneB, result.created().get(1).partition());
+    }
 }

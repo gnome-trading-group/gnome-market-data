@@ -185,4 +185,22 @@ class ServiceConfigSettingsTest {
     void anUnreachableServiceConfigFallsBackToTheDefaults() {
         assertEquals(MarketDataConfig.DEFAULTS, serviceConfig.get());
     }
+
+    @Test
+    void aProductionEntryNamesItsZoneAResearchEntrysZoneIsIgnoredAndAShortHomeZoneWaitsFiveMinutes() throws Exception {
+        MarketDataConfig config = serviceConfig.parse(MAPPER.readTree("{\"max_shards\": ["
+                + "{\"region\": \"us-east-1\", \"source_kind\": \"venue\", \"priority\": \"production\", \"count\": 4,"
+                + " \"zone_id\": \"use1-az2\"},"
+                + "{\"region\": \"us-east-1\", \"source_kind\": \"venue\", \"priority\": \"research\", \"count\": 6,"
+                + " \"zone_id\": \"use1-az4\"}]}"));
+
+        Settings settings = ServiceConfigSettings.of(config, () -> "1.23.0", REGIONS);
+
+        assertEquals(
+                Map.of(
+                        new Partition("us-east-1", "VENUE", Priority.PRODUCTION, "standard", "use1-az2"), 4,
+                        new Partition("us-east-1", "VENUE", Priority.RESEARCH, "standard"), 6),
+                settings.maxShards());
+        assertEquals(TimeUnit.MINUTES.toNanos(5), settings.homeZoneUnplacedNanos());
+    }
 }

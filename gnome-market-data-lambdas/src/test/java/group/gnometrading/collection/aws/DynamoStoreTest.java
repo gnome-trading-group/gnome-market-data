@@ -191,4 +191,36 @@ class DynamoStoreTest {
         assertEquals(rates, back);
         assertEquals(2 * 16, DynamoStore.packRates(rates).asByteArray().length, "16 bytes a stream");
     }
+
+    @Test
+    void aProductionPartitionsZoneRoundTripsOnTargetsAndShardsAndIsLeftOutWithoutOne() {
+        Partition zoned = new Partition("us-east-2", "VENUE", Priority.PRODUCTION, "standard", "use2-az2");
+        Target target = Target.desired(9, "KALSHI", zoned, Set.of("lease:s1"), 5, 1_000);
+        Map<String, AttributeValue> targetItem = DynamoStore.fromTarget(target);
+        assertEquals("use2-az2", targetItem.get("zone_id").s());
+        assertEquals(target, DynamoStore.toTarget(targetItem));
+
+        ShardRecord shard = new ShardRecord(
+                "use2-1",
+                zoned,
+                1,
+                List.of(9),
+                List.of(),
+                Map.of(),
+                Map.of(),
+                List.of(9),
+                "1.23.0",
+                ShardRecord.State.ACTIVE,
+                100,
+                0,
+                0,
+                0,
+                0);
+        Map<String, AttributeValue> shardItem = DynamoStore.fromShard(shard);
+        assertEquals("use2-az2", shardItem.get("zone_id").s());
+        assertEquals(shard, DynamoStore.toShard(shardItem));
+
+        assertFalse(DynamoStore.fromTarget(Target.desired(9, "KALSHI", US, Set.of("r1"), 3, 1_000))
+                .containsKey("zone_id"));
+    }
 }

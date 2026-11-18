@@ -25,8 +25,9 @@ class AppStage extends cdk.Stage {
       config,
     });
 
+    const regionalStacks: CollectionRegionalStack[] = [];
     for (const region of COLLECTION_REGIONS) {
-      new CollectionRegionalStack(this, `CollectionRegionalStack-${region}`, {
+      regionalStacks.push(new CollectionRegionalStack(this, `CollectionRegionalStack-${region}`, {
         env: {
           account: accountId,
           region: region,
@@ -37,7 +38,7 @@ class AppStage extends cdk.Stage {
         exchangeRawBucketName: `gnome-market-data-exchange-raw-${config.account.stage}`,
         metadataBucketName: `gnome-market-data-metadata-${config.account.stage}`,
         registryApiKeyId: config.registryApiKeyId,
-      });
+      }));
     }
 
     const reconcilerStack = new ReconcilerStack(this, "MarketDataReconcilerStack", {
@@ -51,6 +52,9 @@ class AppStage extends cdk.Stage {
       leasesTable: storageStack.collectionLeasesTable,
       metadataBucket: storageStack.metadataBucket,
     });
+    // The reconciler starts shards on the regional stacks' capacity providers by name (a production shard on its home
+    // zone's): it must not run a new release before the providers it names exist.
+    regionalStacks.forEach((regional) => reconcilerStack.addDependency(regional));
 
     const backendStack = new BackendStack(this, "MarketDataBackendStack", {
       metadataBucket: storageStack.metadataBucket,

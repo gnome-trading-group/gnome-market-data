@@ -108,7 +108,8 @@ public final class RegistryAdapter implements Registry {
                             stream.sourceCode(),
                             source.kind().name(),
                             stream.resolvedRegion(),
-                            stream.active() && source.active()));
+                            stream.active() && source.active(),
+                            stream.homeZoneId()));
         }
         return streams;
     }

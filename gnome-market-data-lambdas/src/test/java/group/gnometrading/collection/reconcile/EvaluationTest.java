@@ -144,4 +144,20 @@ class EvaluationTest {
         assertEquals(Target.State.RETIRING, retiring.state());
         assertEquals(NOW + 6 * MINUTE, retiring.retireAfterNanos());
     }
+
+    @Test
+    void onlyAProductionTargetIsHeldToItsExchangesHomeZone() {
+        streams.put(3, new StreamInfo(3, "KALSHI", "VENUE", "us-east-2", true, "use2-az2"));
+
+        Target production = evaluate(List.of(rule("lease", Priority.PRODUCTION, null, 3)), NOW)
+                .get(0);
+        assertEquals(
+                new Partition("us-east-2", "VENUE", Priority.PRODUCTION, "standard", "use2-az2"),
+                production.partition());
+
+        targets.clear();
+        Target research =
+                evaluate(List.of(rule("r1", Priority.RESEARCH, null, 3)), NOW).get(0);
+        assertNull(research.partition().zoneId(), "research shards are zone-free");
+    }
 }

@@ -50,7 +50,8 @@ public record MarketDataConfig(
             int staleMinutes,
             int shardDownMinutes,
             int leaseOnEndedStreamMinutes,
-            int overCapacityMinutes) {}
+            int overCapacityMinutes,
+            int homeZoneUnplacedMinutes) {}
 
     /**
      * Merging a partition's under-filled shards. A shard whose streams would all fit on the partition's others, each
@@ -87,11 +88,14 @@ public record MarketDataConfig(
      * keeps even when empty, so a session lease there skips the 3-5 minute cold start. {@code max_shards}: the most
      * shards the partition runs; streams that would need another stay unplaced. A version roll (or a merge) may run one
      * shard over it while it moves streams. Partitions not listed keep none and have no cap; where both are set and min
-     * exceeds max, max wins.
+     * exceeds max, max wins. {@code zoneId} names a production partition's home zone (its exchange's): an entry applies
+     * to exactly the partition it names, so a production partition held to a zone needs its zone here, and one without
+     * a zone covers only zone-free partitions (research, and venues with no home zone). Ignored on research entries.
      */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record PartitionShards(String region, String sourceKind, String priority, String tier, int count) {}
+    public record PartitionShards(
+            String region, String sourceKind, String priority, String tier, int count, String zoneId) {}
 
     public static final MarketDataConfig DEFAULTS = new MarketDataConfig(
             // Each below the load at which the tier's latency targets failed in load tests: standard (r7a.medium)
@@ -112,7 +116,8 @@ public record MarketDataConfig(
             2,
             10,
             // A session normally exits within minutes of its market closing; an hour on means it is stuck.
-            new Alerts(10, 5, 5, 60, 10),
+            // A production shard held to its venue's zone waits 5 minutes for a host there before it is short.
+            new Alerts(10, 5, 5, 60, 10, 5),
             // Fifteen minutes is three rule resolutions plus a retire grace: long enough that a dip has settled.
             new Consolidation(true, false, 15, 0.8),
             // Relief starts above a cap and stops at 0.8 of it, the fill merges leave, so neither undoes the other.

@@ -112,6 +112,13 @@ export class ReconcilerStack extends cdk.Stack {
       actions: ["ecs:CreateService", "ecs:DeleteService", "ecs:DescribeServices", "ecs:TagResource"],
       resources: ecsResources,
     }));
+    // Whether a production shard's task still waits PROVISIONING for a host in its home zone.
+    fn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ecs:ListTasks", "ecs:DescribeTasks"],
+      resources: ["*"],
+      conditions: { ArnEquals: { "ecs:cluster": props.regions.map(
+        (region) => `arn:aws:ecs:${region}:${this.account}:cluster/${collectionNames(region).cluster}`) } },
+    }));
     // Task definitions are described, registered, listed and deregistered by family, which IAM can't scope by resource.
     fn.addToRolePolicy(new iam.PolicyStatement({
       actions: [

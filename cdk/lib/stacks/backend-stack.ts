@@ -166,6 +166,13 @@ export class BackendStack extends cdk.Stack {
     route("collection/shards", "GET", shards);
 
     const shard = handler("CollectionShardFunction", "shard");
+    // Where its task runs (its zone), from the item the shard writes of itself in service-endpoints.
+    shard.addEnvironment("SERVICE_ENDPOINTS_TABLE", SERVICE_ENDPOINTS.tableName);
+    shard.addEnvironment("SERVICE_ENDPOINTS_REGION", SERVICE_ENDPOINTS.region);
+    shard.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["dynamodb:GetItem"],
+      resources: [`arn:aws:dynamodb:${SERVICE_ENDPOINTS.region}:${this.account}:table/${SERVICE_ENDPOINTS.tableName}`],
+    }));
     props.collectionShardsTable.grantReadData(shard);
     props.metadataBucket.grantRead(shard, "collection/shards/*");
     route("collection/shards/{shardId}", "GET", shard);

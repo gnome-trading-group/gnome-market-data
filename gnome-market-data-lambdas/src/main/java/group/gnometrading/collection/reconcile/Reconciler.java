@@ -74,7 +74,7 @@ public final class Reconciler {
         this.placementStep = new PlacementStep(registry, newShardId);
         this.rebalanceStep = new RebalanceStep(registry, newShardId);
         this.persistStep = new PersistStep(store, services);
-        this.alertStep = new AlertStep(store, alerts);
+        this.alertStep = new AlertStep(store, alerts, services);
     }
 
     public Summary tick(final long nowNanos) {

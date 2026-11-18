@@ -10,7 +10,8 @@ import * as path from "path";
 import * as fs from "fs";
 import { Construct } from "constructs";
 import {
-  CLOCK_STATUS_DIR, hostClockUserData, lookupPlatformNetwork, PLATFORM_SSM, PRIMARY_REGION, SERVICE_ENDPOINTS,
+  CLOCK_STATUS_DIR, hostClockUserData, lookupPlatformNetwork, PLATFORM_SSM, platformZoneIds, PRIMARY_REGION,
+  SERVICE_ENDPOINTS,
 } from "@gnome-trading-group/gnome-shared-cdk";
 import { MarketDataConfig } from "../config";
 
@@ -30,12 +31,20 @@ const ON_DEMAND_TYPE = "r7a.medium";
 // research shard is replaced within minutes and its minutes recorded as a gap (decision D5); that is cheaper than
 // paying for steadier pools.
 const SPOT_TYPES = ["r7a.medium", "m7a.large", "m6a.large"];
+// A production shard held to its venue's home zone starts only in that zone, so a shortage of the first type there
+// falls to the next in the same zone, all able to join the precision-time group. Each has 8 GB: one shard per host
+// holds only because a second shard's 6 GiB reservation doesn't fit (shards declare no ports, and a distinct-instance
+// constraint spans one service, so one shard), so a bigger host would take two shards onto one IP and one port set.
+const ZONE_ON_DEMAND_TYPES = ["r7a.medium", "m7a.large", "m7i.large"];
 const MAX_HOSTS = 40;
 
 /** Names the reconciler (gnome-market-data EcsServices) builds from a region; the two must agree. */
 export const collectionNames = (region: string) => ({
   cluster: `CollectionCluster-${region}`,
   onDemandProvider: `collection-ondemand-${region}`,
+  // A zone's on-demand hosts, by zone ID: gnome-market-data EcsServices builds the same name for a production shard
+  // held to its venue's home zone.
+  zoneOnDemandProvider: (zoneId: string) => `collection-ondemand-${region}-${zoneId}`,
   spotProvider: `collection-spot-${region}`,
   taskDefinitionFamily: `collection-shard-${region}`,
   taskRole: `gnome-collection-shard-task-${region}`,
@@ -124,6 +133,40 @@ export class CollectionRegionalStack extends cdk.Stack {
       enableManagedTerminationProtection: true,
       targetCapacityPercent: 100,
     }));
+    // Each zone's on-demand hosts, for production shards held to a venue's home zone. Each holds the region's whole limit:
+    // the venues at home in one zone may be all the region has.
+    for (const zone of platformZoneIds(props.deploymentRegion)) {
+      const zoneSubnets = { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [zone.name] };
+      // An error the synth reports once the network is looked up, not a throw: the first pass of a synth whose lookup
+      // isn't cached sees a placeholder network with no real zones, and a throw would stop the lookup itself.
+      if (vpc.selectSubnets(zoneSubnets).subnetIds.length === 0) {
+        cdk.Annotations.of(this).addError(
+          `The platform network has no public subnet in ${zone.name} for production shard hosts`);
+      }
+      const zoneHosts = new autoscaling.AutoScalingGroup(this, `OnDemandHosts-${zone.id}`, {
+        vpc,
+        vpcSubnets: zoneSubnets,
+        mixedInstancesPolicy: {
+          launchTemplate: hostTemplate(`OnDemandTemplate-${zone.id}`, ZONE_ON_DEMAND_TYPES[0], precisionTimeGroup),
+          launchTemplateOverrides: ZONE_ON_DEMAND_TYPES.map((type) => ({ instanceType: new ec2.InstanceType(type) })),
+          instancesDistribution: {
+            onDemandAllocationStrategy: autoscaling.OnDemandAllocationStrategy.PRIORITIZED,
+            onDemandBaseCapacity: 0,
+            onDemandPercentageAboveBaseCapacity: 100,
+          },
+        },
+        minCapacity: 0,
+        maxCapacity: MAX_HOSTS,
+        newInstancesProtectedFromScaleIn: true,
+      });
+      cluster.addAsgCapacityProvider(new ecs.AsgCapacityProvider(this, `OnDemandProvider-${zone.id}`, {
+        capacityProviderName: names.zoneOnDemandProvider(zone.id),
+        autoScalingGroup: zoneHosts,
+        enableManagedScaling: true,
+        enableManagedTerminationProtection: true,
+        targetCapacityPercent: 100,
+      }));
+    }
     // A Spot interruption notice drains the host: the shard gets SIGTERM and flushes, the reconciler places its
     // streams elsewhere, and the minutes until then are a marked gap (decision D5).
     cluster.addAsgCapacityProvider(new ecs.AsgCapacityProvider(this, "SpotProvider", {
@@ -213,6 +256,9 @@ export class CollectionRegionalStack extends cdk.Stack {
         STAGE: props.config.account.stage,
         REGISTRY_API_KEY_ID: props.registryApiKeyId,
       },
+      // Declared so ECS reserves it on the host: it then never places a second shard there, whatever the host's size.
+      // The shard listens on it for its health check.
+      portMappings: [{ containerPort: 8080, hostPort: 8080, protocol: ecs.Protocol.TCP }],
       healthCheck: {
         command: ["CMD-SHELL", "wget --spider --quiet http://localhost:8080/health || exit 1"],
         interval: cdk.Duration.seconds(15),

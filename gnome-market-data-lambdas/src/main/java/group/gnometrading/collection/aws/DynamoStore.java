@@ -341,7 +341,8 @@ public final class DynamoStore implements Store {
                         string(item, "region"),
                         string(item, "source_kind"),
                         Priority.valueOf(string(item, "priority")),
-                        string(item, "tier")),
+                        string(item, "tier"),
+                        zoneId(item)),
                 wantedBy == null ? Set.of() : Set.copyOf(wantedBy.ss()),
                 item.containsKey("retire_grace_minutes") ? (int) number(item, "retire_grace_minutes") : null,
                 Target.State.valueOf(string(item, "state")),
@@ -363,6 +364,7 @@ public final class DynamoStore implements Store {
         item.put("source_kind", AttributeValue.fromS(target.partition().sourceKind()));
         item.put("priority", AttributeValue.fromS(target.partition().priority().name()));
         item.put("tier", AttributeValue.fromS(target.partition().tier()));
+        putString(item, "zone_id", target.partition().zoneId());
         // DynamoDB refuses an empty set: a target nobody wants any more has none.
         if (!target.wantedBy().isEmpty()) {
             item.put("wanted_by", AttributeValue.fromSs(List.copyOf(target.wantedBy())));
@@ -425,7 +427,8 @@ public final class DynamoStore implements Store {
                         string(item, "region"),
                         string(item, "source_kind"),
                         Priority.valueOf(string(item, "priority")),
-                        string(item, "tier")),
+                        string(item, "tier"),
+                        zoneId(item)),
                 number(item, "generation"),
                 unpack(item.get("streams")),
                 unpack(item.get("draining")),
@@ -448,6 +451,7 @@ public final class DynamoStore implements Store {
         item.put("source_kind", AttributeValue.fromS(shard.partition().sourceKind()));
         item.put("priority", AttributeValue.fromS(shard.partition().priority().name()));
         item.put("tier", AttributeValue.fromS(shard.partition().tier()));
+        putString(item, "zone_id", shard.partition().zoneId());
         item.put("generation", AttributeValue.fromN(Long.toString(shard.generation())));
         item.put("streams", AttributeValue.fromB(pack(shard.streams())));
         item.put("draining", AttributeValue.fromB(pack(shard.draining())));
@@ -589,6 +593,12 @@ public final class DynamoStore implements Store {
                     : null;
         } while (start != null);
         return items;
+    }
+
+    /** A partition's zone, or null: research and zone-free partitions, and items written before zones, have none. */
+    private static String zoneId(final Map<String, AttributeValue> item) {
+        final AttributeValue zone = item.get("zone_id");
+        return zone == null || zone.s() == null || zone.s().isBlank() ? null : zone.s();
     }
 
     private static String string(final Map<String, AttributeValue> item, final String name) {

@@ -6,18 +6,22 @@ import group.gnometrading.collection.ports.Services;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.services.ecs.EcsClient;
 import software.amazon.awssdk.services.ecs.model.CapacityProviderStrategyItem;
 import software.amazon.awssdk.services.ecs.model.ContainerDefinition;
+import software.amazon.awssdk.services.ecs.model.DesiredStatus;
 import software.amazon.awssdk.services.ecs.model.KeyValuePair;
 import software.amazon.awssdk.services.ecs.model.Service;
 import software.amazon.awssdk.services.ecs.model.TaskDefinition;
 
 /**
  * One ECS service per shard ({@code shard-<id>}, one task) in its region's {@code CollectionCluster-<region>}, on the
- * EC2 capacity provider for its priority: production on-demand, research Spot (decision D5). A service can't set its
+ * EC2 capacity provider for its priority: production on-demand, research Spot (decision D5). A production shard held to
+ * a zone (its partition's home zone) runs on that zone's on-demand hosts only, {@code collection-ondemand-<region>-<zone
+ * ID>}; research shards stay on the region's Spot hosts in any zone. A service can't set its
  * task's environment, so each shard gets its own task definition ({@code shard-<id>}): the region's base definition
  * ({@code collection-shard-<region>}, from CDK) with {@code SHARD_ID} and {@code ORCHESTRATOR_VERSION} added.
  *
@@ -44,8 +48,14 @@ public final class EcsServices implements Services {
         return "shard-" + shardId;
     }
 
-    static String capacityProvider(final String region, final Priority priority) {
-        return (priority == Priority.PRODUCTION ? "collection-ondemand-" : "collection-spot-") + region;
+    // What ECS says of a service whose task no host can take.
+    private static final Pattern UNPLACED = Pattern.compile("unable to place a task", Pattern.CASE_INSENSITIVE);
+
+    static String capacityProvider(final String region, final Priority priority, final String zoneId) {
+        if (priority != Priority.PRODUCTION) {
+            return "collection-spot-" + region;
+        }
+        return zoneId == null ? "collection-ondemand-" + region : "collection-ondemand-" + region + "-" + zoneId;
     }
 
     @Override
@@ -64,8 +74,10 @@ public final class EcsServices implements Services {
                 .taskDefinition(taskDefinition)
                 .desiredCount(1)
                 .capacityProviderStrategy(CapacityProviderStrategyItem.builder()
-                        .capacityProvider(
-                                capacityProvider(region, shard.partition().priority()))
+                        .capacityProvider(capacityProvider(
+                                region,
+                                shard.partition().priority(),
+                                shard.partition().zoneId()))
                         .weight(1)
                         .build())
                 .deploymentConfiguration(
@@ -94,6 +106,36 @@ public final class EcsServices implements Services {
                 .taskDefinitionArns()
                 .forEach(arn -> ecs.deregisterTaskDefinition(request -> request.taskDefinition(arn)));
         LOGGER.info("Deleted shard {} ({})", shard.shardId(), region);
+    }
+
+    @Override
+    public boolean unplaced(final ShardRecord shard) {
+        final String region = shard.partition().region();
+        final List<Service> found = ecs(region)
+                .describeServices(request -> request.cluster(cluster(region)).services(serviceName(shard.shardId())))
+                .services();
+        if (found.isEmpty() || !"ACTIVE".equals(found.get(0).status())) {
+            return false;
+        }
+        final Service service = found.get(0);
+        if (service.desiredCount() == 0 || service.runningCount() > 0) {
+            return false;
+        }
+        if (!service.events().isEmpty()
+                && UNPLACED.matcher(service.events().get(0).message()).find()) {
+            return true;
+        }
+        // The usual sign on a capacity provider: ECS holds the task PROVISIONING until its group launches a host.
+        final EcsClient ecs = ecs(region);
+        final List<String> tasks = ecs.listTasks(request -> request.cluster(cluster(region))
+                        .serviceName(serviceName(shard.shardId()))
+                        .desiredStatus(DesiredStatus.RUNNING))
+                .taskArns();
+        if (tasks.isEmpty()) {
+            return false;
+        }
+        return ecs.describeTasks(request -> request.cluster(cluster(region)).tasks(tasks)).tasks().stream()
+                .anyMatch(task -> "PROVISIONING".equals(task.lastStatus()));
     }
 
     private String registerTaskDefinition(final EcsClient ecs, final ShardRecord shard) {

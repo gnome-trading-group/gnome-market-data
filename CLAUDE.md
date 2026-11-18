@@ -50,7 +50,9 @@ holes historical data, and sessions read their live market data from shards (liv
     `collection-shard-<region>` (512 MiB `/dev/shm` for Aeron; `EcsServices` copies the container and the volumes, so only shards
     started after a change get it), roles (the task role may `PutItem` `shard#*` items in us-east-1
     `service-endpoints`, gnome-shared-cdk `SERVICE_ENDPOINTS`), log group `/collection/shards-<region>`.
-    `collectionNames()` must match `EcsServices`.
+    `collectionNames()` must match `EcsServices`. Each platform zone also has its own on-demand group and provider,
+    `collection-ondemand-<region>-<zone ID>` (types r7a.medium, then m7a.large, m7i.large, prioritized, all 8 GB so a second shard's 6 GiB never fits; precision-time
+    group; synth fails if a zone has no public subnet), for production shards held to a venue's home zone.
   - `reconciler-stack`: FIFO wake-up queue `collection-reconciler.fifo`, 1-minute schedule, the Reconciler Lambda
     (reserved concurrency 1, 1024 MB, 2-minute timeout; the queue's visibility must stay at least the timeout)
   - `backend-stack`: API Gateway + Python Lambdas behind gnome-shared-cdk's `GnomeApiAuthorizer`: people by Cognito
@@ -152,7 +154,24 @@ holes historical data, and sessions read their live market data from shards (liv
   once that has held `after_minutes` it drains like a rolled shard and its streams hand off make-before-break, at the
   same `max_fill` ceiling. One merge at a time, none during a roll, a hand-off or with a stream unplaced; the
   emptiest goes first. `dry_run` only logs "Would merge shard ...".
-- `min_shards` and `max_shards` (Service Config, lists of `{region, source_kind, priority, tier, count}`; tier
+- Home zones: a PRODUCTION partition carries its stream's exchange home zone (`Partition.zoneId`, the registry's
+  `sm.exchange.home_zone_id` through `/streams` `home_zone_id`; none for vendor streams, venues without one, or a
+  stream collected outside its exchange's region), so production streams of venues with different home zones never
+  share a shard, and `EcsServices` starts such a shard only on `collection-ondemand-<region>-<zone ID>`. RESEARCH
+  partitions are zone-free on purpose: Spot capacity in one zone runs out often, so research shards mix a region's
+  venues on the regional Spot pool. A venue whose home zone changes has its production streams moved make-before-break
+  (the partition changes, so `mustMove`). No automatic fallback to another zone: a production shard held to a zone that
+  hasn't reported for `alerts.home_zone_unplaced_minutes` (5) and whose task waits PROVISIONING for a host (or that ECS
+  says it can't place; `Services.unplaced`) raises `HOME_ZONE_NO_CAPACITY` (keyed by shard; kept open on a tick ECS
+  can't be read); a person moves the venue's home zone. Shard and target items carry `zone_id` when their partition
+  has one; `COLLECTION_BUDGET:max_shards:` keys end in the zone for a zoned partition. The shard task reserves host port
+  8080 (its health check), so ECS never places two shards on one host whatever the host's size; the regional stack
+  reports a zone with no platform subnet as a synth error (an annotation, so an uncached lookup still runs), and the
+  reconciler stack deploys after every regional stack, whose providers it names. A partition change (a venue's first or
+  new home zone) moves its production streams all at once, outside relief's per-tick limits (accepted for the rollout).
+- `min_shards` and `max_shards` (Service Config, lists of `{region, source_kind, priority, tier, count}`, plus
+  `zone_id` for a production partition held to a zone: an entry applies to exactly the partition it names, so one
+  without `zone_id` covers only zone-free partitions; a research entry's zone is ignored with a log line; tier
   defaults to `standard`, both empty by default; a malformed entry or one for a region outside `COLLECTION_REGIONS` is
   logged and skipped):
   - `min_shards`: each listed partition keeps that many ACTIVE shards that take streams, starting empty ones to make

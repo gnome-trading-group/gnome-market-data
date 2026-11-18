@@ -62,6 +62,7 @@ public final class ServiceConfigSettings implements Supplier<Settings> {
                 minutes(config.alerts().shardDownMinutes()),
                 minutes(config.alerts().leaseOnEndedStreamMinutes()),
                 minutes(config.alerts().overCapacityMinutes()),
+                minutes(config.alerts().homeZoneUnplacedMinutes()),
                 config.consolidation().enabled(),
                 config.consolidation().dryRun(),
                 minutes(config.consolidation().afterMinutes()),
@@ -140,11 +141,7 @@ public final class ServiceConfigSettings implements Supplier<Settings> {
                     LOGGER.warn("Ignoring {} entry {}: shards don't run in region {}", key, entry, entry.region());
                     continue;
                 }
-                final Partition partition = new Partition(
-                        entry.region(),
-                        entry.sourceKind().toUpperCase(Locale.ROOT),
-                        Priority.valueOf(entry.priority().toUpperCase(Locale.ROOT)),
-                        entry.tier() == null ? DEFAULT_TIER : entry.tier());
+                final Partition partition = partitionOf(key, entry);
                 if (entry.count() < 0 || (!isMax && entry.count() == 0)) {
                     continue;
                 }
@@ -154,6 +151,21 @@ public final class ServiceConfigSettings implements Supplier<Settings> {
             }
         }
         return Map.copyOf(counts);
+    }
+
+    /** The partition an entry names; its zone only for production, which alone is held to a zone. */
+    private static Partition partitionOf(final String key, final MarketDataConfig.PartitionShards entry) {
+        final Priority priority = Priority.valueOf(entry.priority().toUpperCase(Locale.ROOT));
+        final String zone = entry.zoneId() == null || entry.zoneId().isBlank() ? null : entry.zoneId();
+        if (zone != null && priority != Priority.PRODUCTION) {
+            LOGGER.warn("Ignoring the zone of {} entry {}: only production shards are held to a zone", key, entry);
+        }
+        return new Partition(
+                entry.region(),
+                entry.sourceKind().toUpperCase(Locale.ROOT),
+                priority,
+                entry.tier() == null ? DEFAULT_TIER : entry.tier(),
+                priority == Priority.PRODUCTION ? zone : null);
     }
 
     private static long minutes(final int minutes) {

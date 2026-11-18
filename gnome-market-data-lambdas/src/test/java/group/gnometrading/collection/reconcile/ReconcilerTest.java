@@ -67,6 +67,9 @@ class ReconcilerTest {
     private final Map<String, List<Account>> accounts = new HashMap<>();
     private final Map<String, List<TaskStatus>> statuses = new HashMap<>();
     private final Set<String> services = new java.util.HashSet<>();
+    // Shards ECS says it can't place, and whether asking ECS fails.
+    private final Set<String> unplacedShards = new java.util.HashSet<>();
+    private boolean unplacedUnreadable;
     private final List<String> alertEvents = new ArrayList<>();
     private final Map<String, String> alertTitles = new HashMap<>();
     private final String version = "1.23.0";
@@ -295,6 +298,14 @@ class ReconcilerTest {
                     services.removeIf(service -> service.startsWith(shard.shardId() + "@"));
                 }
 
+                @Override
+                public boolean unplaced(final ShardRecord shard) {
+                    if (unplacedUnreadable) {
+                        throw new IllegalStateException("ECS is down");
+                    }
+                    return unplacedShards.contains(shard.shardId());
+                }
+
                 private void failIfAsked(final ShardRecord shard) {
                     if (shard.shardId().equals(failingShard)) {
                         throw new IllegalStateException("ECS is down");
@@ -335,6 +346,7 @@ class ReconcilerTest {
                     5 * MINUTE,
                     60 * MINUTE,
                     10 * MINUTE,
+                    5 * MINUTE,
                     consolidate,
                     dryRun,
                     15 * MINUTE,
@@ -1822,5 +1834,80 @@ class ReconcilerTest {
 
         assertEquals(0, shards.get("use1-1").mergeableSinceNanos(), "the remembered 50/s still doesn't fit");
         assertEquals(0, shards.get("use1-2").mergeableSinceNanos());
+    }
+
+    // ----- home zones -----
+
+    @Test
+    void aLiveLeasesStreamRunsOnAProductionShardInItsExchangesHomeZoneWhileResearchStaysZoneFree() {
+        streams.put(1, new StreamInfo(1, "KALSHI", "VENUE", "us-east-1", true, "use1-az2"));
+        streams.put(2, new StreamInfo(2, "KALSHI", "VENUE", "us-east-1", true, "use1-az2"));
+        wantStreams(2);
+        lease("s1", "live", T0, 1);
+
+        reconciler.tick(T0);
+
+        assertEquals("use1-az2", targets.get(1).partition().zoneId());
+        assertEquals(
+                "use1-az2", shards.get(targets.get(1).shardId()).partition().zoneId());
+        assertNull(targets.get(2).partition().zoneId(), "a research shard has no zone");
+        assertNull(shards.get(targets.get(2).shardId()).partition().zoneId());
+    }
+
+    @Test
+    void aNewHomeZoneMovesAProductionStreamMakeBeforeBreak() {
+        streams.put(1, new StreamInfo(1, "KALSHI", "VENUE", "us-east-1", true, "use1-az2"));
+        lease("s1", "live", T0, 1);
+        sessionStatuses.put("s1", "RUNNING");
+        reconciler.tick(T0);
+        String before = targets.get(1).shardId();
+        report(before, "t1", T0 + MINUTE, "LIVE");
+
+        streams.put(1, new StreamInfo(1, "KALSHI", "VENUE", "us-east-1", true, "use1-az4"));
+        report(before, "t1", T0 + 5 * MINUTE, "LIVE");
+        reconciler.tick(T0 + 5 * MINUTE);
+
+        Target target = targets.get(1);
+        assertEquals("use1-az4", target.partition().zoneId());
+        assertEquals("use1-az4", shards.get(target.shardId()).partition().zoneId());
+        assertEquals(before, target.drainingFromShardId(), "the old zone's shard keeps it until the hand-off");
+    }
+
+    @Test
+    void aProductionShardNoHostInItsHomeZoneTakesIsShortThereAndClearsOnceItReports() {
+        streams.put(1, new StreamInfo(1, "KALSHI", "VENUE", "us-east-1", true, "use1-az2"));
+        lease("s1", "live", T0, 1);
+        sessionStatuses.put("s1", "RUNNING");
+        reconciler.tick(T0);
+        String shard = targets.get(1).shardId();
+        unplacedShards.add(shard);
+
+        reconciler.tick(T0 + 4 * MINUTE);
+        assertFalse(alertEvents.contains("FIRING HOME_ZONE_NO_CAPACITY:" + shard), "within its five minutes");
+
+        reconciler.tick(T0 + 6 * MINUTE);
+        assertTrue(alertEvents.contains("FIRING HOME_ZONE_NO_CAPACITY:" + shard));
+
+        unplacedUnreadable = true;
+        reconciler.tick(T0 + 6 * MINUTE + 30 * SECOND);
+        assertFalse(alertEvents.contains("RESOLVED HOME_ZONE_NO_CAPACITY:" + shard), "ECS unreadable keeps it raised");
+
+        unplacedUnreadable = false;
+        unplacedShards.remove(shard);
+        report(shard, "t1", T0 + 7 * MINUTE, "LIVE");
+        reconciler.tick(T0 + 7 * MINUTE);
+        assertTrue(alertEvents.contains("RESOLVED HOME_ZONE_NO_CAPACITY:" + shard));
+    }
+
+    @Test
+    void aResearchShardIsNeverShortOfAHomeZone() {
+        streams.put(1, new StreamInfo(1, "KALSHI", "VENUE", "us-east-1", true, "use1-az2"));
+        wantStreams(1);
+        reconciler.tick(T0);
+        unplacedShards.add(targets.get(1).shardId());
+
+        reconciler.tick(T0 + 6 * MINUTE);
+
+        assertTrue(alertEvents.stream().noneMatch(event -> event.contains("HOME_ZONE_NO_CAPACITY")));
     }
 }

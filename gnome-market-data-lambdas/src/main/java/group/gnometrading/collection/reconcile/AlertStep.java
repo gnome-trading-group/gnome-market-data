@@ -1,16 +1,20 @@
 package group.gnometrading.collection.reconcile;
 
 import group.gnometrading.collection.model.Lease;
+import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.ShardRecord;
 import group.gnometrading.collection.model.StreamInfo;
 import group.gnometrading.collection.model.Target;
 import group.gnometrading.collection.ports.Alerts;
+import group.gnometrading.collection.ports.Services;
 import group.gnometrading.collection.ports.Store;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Raises the collection alerts that hold this tick and resolves the ones the last tick left firing that don't: a shard
@@ -32,12 +36,16 @@ final class AlertStep {
     static final int SHARD_ERRORS_PER_HOUR = 3;
     private static final int TITLE_LATEST_CHARS = 300;
 
+    private static final Logger LOGGER = LogManager.getLogger(AlertStep.class);
+
     private final Store store;
     private final Alerts alerts;
+    private final Services services;
 
-    AlertStep(final Store store, final Alerts alerts) {
+    AlertStep(final Store store, final Alerts alerts, final Services services) {
         this.store = store;
         this.alerts = alerts;
+        this.services = services;
     }
 
     /** One alert: its type, title, labels and the session it is about (null if none). */
@@ -50,6 +58,7 @@ final class AlertStep {
     void run(final Tick tick) {
         final Map<String, Firing> firing = new HashMap<>();
         shardsDown(tick, firing);
+        shardsWithoutHomeZoneHosts(tick, firing);
         shardErrors(tick, firing);
         shardsOverCapacity(tick, firing);
         streamsUncovered(tick, firing);
@@ -64,7 +73,8 @@ final class AlertStep {
                         Map.of("source", source, "unplaced", Integer.toString(count)))));
         tick.capacityShort.forEach((partition, count) -> firing.put(
                 "COLLECTION_BUDGET:max_shards:" + partition.region() + ":" + partition.sourceKind() + ":"
-                        + partition.priority() + ":" + partition.tier(),
+                        + partition.priority() + ":" + partition.tier()
+                        + (partition.zoneId() == null ? "" : ":" + partition.zoneId()),
                 new Firing(
                         "COLLECTION_BUDGET",
                         count + " " + partition.priority() + " " + partition.sourceKind() + " streams in "
@@ -75,6 +85,7 @@ final class AlertStep {
                                 "source_kind", partition.sourceKind(),
                                 "priority", partition.priority().name(),
                                 "tier", partition.tier(),
+                                "zone_id", partition.zoneId() == null ? "" : partition.zoneId(),
                                 "max_shards", Integer.toString(tick.config.maxShards(partition)),
                                 "unplaced", Integer.toString(count)))));
         firing.forEach(
@@ -108,6 +119,54 @@ final class AlertStep {
                                         shard.shardId(),
                                         "region",
                                         shard.partition().region())));
+            }
+        }
+    }
+
+    /**
+     * Production shards held to their venue's home zone that no host there has taken for
+     * {@code alerts.home_zone_unplaced_minutes}: ECS says it can't place the task and none runs. There is no move to
+     * another zone; a person moves the venue's home zone if the zone stays short. ECS is asked only about shards that
+     * haven't reported in that time, and an error asking is logged and asked again next tick.
+     */
+    private void shardsWithoutHomeZoneHosts(final Tick tick, final Map<String, Firing> firing) {
+        for (ShardRecord shard : tick.shards.values()) {
+            final String zone = shard.partition().zoneId();
+            if (zone == null
+                    || shard.partition().priority() != Priority.PRODUCTION
+                    || shard.state() == ShardRecord.State.DELETED
+                    || tick.now - shard.createdAtNanos() < tick.config.homeZoneUnplacedNanos()) {
+                continue;
+            }
+            final Long last = tick.lastStatusNanos.get(shard.shardId());
+            if (last != null && tick.now - last <= tick.config.homeZoneUnplacedNanos()) {
+                continue;
+            }
+            final String key = "HOME_ZONE_NO_CAPACITY:" + shard.shardId();
+            boolean unplaced;
+            try {
+                unplaced = services.unplaced(shard);
+            } catch (RuntimeException error) {
+                // Unknown this tick: one already raised stays raised rather than resolving and firing again.
+                LOGGER.warn("Couldn't ask ECS whether shard {} is placed: {}", shard.shardId(), error.toString());
+                unplaced = store.firingAlerts().containsKey(key);
+            }
+            if (unplaced) {
+                firing.put(
+                        key,
+                        new Firing(
+                                "HOME_ZONE_NO_CAPACITY",
+                                "Production shard " + shard.shardId() + " has no host in its home zone " + zone,
+                                Map.of(
+                                        "shard",
+                                        shard.shardId(),
+                                        "region",
+                                        shard.partition().region(),
+                                        "zoneId",
+                                        zone,
+                                        "capacityProvider",
+                                        "collection-ondemand-"
+                                                + shard.partition().region() + "-" + zone)));
             }
         }
     }

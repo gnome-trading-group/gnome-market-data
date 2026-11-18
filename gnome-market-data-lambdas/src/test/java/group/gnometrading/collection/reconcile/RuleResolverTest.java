@@ -51,6 +51,7 @@ class RuleResolverTest {
             5 * MINUTE,
             60 * MINUTE,
             10 * MINUTE,
+            5 * MINUTE,
             false,
             false,
             15 * MINUTE,

@@ -2,6 +2,7 @@ package group.gnometrading.collection.reconcile;
 
 import group.gnometrading.collection.model.Lease;
 import group.gnometrading.collection.model.Partition;
+import group.gnometrading.collection.model.Priority;
 import group.gnometrading.collection.model.Rule;
 import group.gnometrading.collection.model.StreamInfo;
 import group.gnometrading.collection.model.Target;
@@ -91,7 +92,10 @@ public final class Evaluation {
                 grace = grace == null ? rule.retireGraceMinutes() : Math.max(grace, rule.retireGraceMinutes());
             }
         }
-        final Partition partition = new Partition(stream.region(), stream.sourceKind(), first.priority(), first.tier());
+        // Only production shards are held to a zone: what live sessions read runs beside their venue's gateway.
+        final String zone = first.priority() == Priority.PRODUCTION ? stream.homeZoneId() : null;
+        final Partition partition =
+                new Partition(stream.region(), stream.sourceKind(), first.priority(), first.tier(), zone);
         if (current == null) {
             return Target.desired(streamId, stream.source(), partition, wantedBy, grace, now);
         }
